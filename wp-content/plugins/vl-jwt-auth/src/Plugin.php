@@ -4,12 +4,19 @@ declare(strict_types=1);
 
 namespace VLJwtAuth;
 
+use VLJwtAuth\Api\RestController;
+use VLJwtAuth\Auth\ClaimsBuilder;
+use VLJwtAuth\Auth\TokenService;
+use VLJwtAuth\Repository\RefreshTokenRepository;
+use VLJwtAuth\Support\CookieManager;
+use VLJwtAuth\Support\Settings;
+
 /**
  * Main plugin bootstrap.
  *
- * Responsible for wiring services together and registering WordPress hooks.
- * Services are constructed lazily so that activation (which loads this file
- * to resolve the Activator class) does not incur runtime wiring cost.
+ * Wires services together on demand. Nothing is instantiated until a
+ * WordPress hook actually fires, so activation (which loads this file
+ * to resolve Activator) pays no runtime wiring cost.
  */
 final class Plugin {
 
@@ -29,7 +36,8 @@ final class Plugin {
 	 */
 	public function init(): void {
 		add_action( 'init', [ $this, 'load_textdomain' ] );
-		// REST routes, password-change revocation and other wiring land in later chunks.
+		add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
+		// Password-change revocation + public facade wiring land in chunk 4.
 	}
 
 	public function load_textdomain(): void {
@@ -38,5 +46,15 @@ final class Plugin {
 			false,
 			dirname( VL_JWT_AUTH_BASENAME ) . '/languages'
 		);
+	}
+
+	public function register_rest_routes(): void {
+		$settings       = new Settings();
+		$claims_builder = new ClaimsBuilder( $settings );
+		$token_service  = new TokenService( (string) VL_JWT_AUTH_SECRET_KEY, $claims_builder );
+		$refresh_repo   = new RefreshTokenRepository();
+		$cookies        = new CookieManager( $settings );
+
+		( new RestController( $token_service, $refresh_repo, $cookies ) )->register_routes();
 	}
 }
