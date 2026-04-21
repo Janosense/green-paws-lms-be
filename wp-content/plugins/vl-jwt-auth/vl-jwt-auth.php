@@ -44,6 +44,13 @@ if ( ! file_exists( $vl_jwt_auth_autoload ) ) {
 
 require_once $vl_jwt_auth_autoload;
 
+// Expose the public facade as \VLJwtAuth\Auth for downstream plugins.
+// Co-exists with the VLJwtAuth\Auth\* namespace — class names and
+// namespace prefixes occupy separate symbol spaces in PHP.
+if ( ! class_exists( 'VLJwtAuth\\Auth', false ) ) {
+	class_alias( \VLJwtAuth\Auth\AuthFacade::class, 'VLJwtAuth\\Auth' );
+}
+
 register_activation_hook( __FILE__, [ \VLJwtAuth\Activator::class, 'activate' ] );
 register_deactivation_hook( __FILE__, [ \VLJwtAuth\Deactivator::class, 'deactivate' ] );
 

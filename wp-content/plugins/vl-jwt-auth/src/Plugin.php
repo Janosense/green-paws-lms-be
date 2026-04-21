@@ -9,7 +9,10 @@ use VLJwtAuth\Auth\ClaimsBuilder;
 use VLJwtAuth\Auth\TokenService;
 use VLJwtAuth\Repository\RefreshTokenRepository;
 use VLJwtAuth\Support\CookieManager;
+use VLJwtAuth\Support\OriginGuard;
+use VLJwtAuth\Support\RateLimiter;
 use VLJwtAuth\Support\Settings;
+use WP_User;
 
 /**
  * Main plugin bootstrap.
@@ -21,6 +24,8 @@ use VLJwtAuth\Support\Settings;
 final class Plugin {
 
 	private static ?self $instance = null;
+
+	private ?RefreshTokenRepository $refresh_repo = null;
 
 	public static function instance(): self {
 		return self::$instance ??= new self();
@@ -37,7 +42,11 @@ final class Plugin {
 	public function init(): void {
 		add_action( 'init', [ $this, 'load_textdomain' ] );
 		add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
-		// Password-change revocation + public facade wiring land in chunk 4.
+
+		// Invalidate every refresh token a user holds when their password
+		// changes — both via profile edit and the lost-password flow.
+		add_action( 'profile_update', [ $this, 'on_profile_update' ], 10, 2 );
+		add_action( 'password_reset', [ $this, 'on_password_reset' ], 10, 2 );
 	}
 
 	public function load_textdomain(): void {
@@ -52,9 +61,46 @@ final class Plugin {
 		$settings       = new Settings();
 		$claims_builder = new ClaimsBuilder( $settings );
 		$token_service  = new TokenService( (string) VL_JWT_AUTH_SECRET_KEY, $claims_builder );
-		$refresh_repo   = new RefreshTokenRepository();
 		$cookies        = new CookieManager( $settings );
+		$rate_limiter   = new RateLimiter();
+		$origin_guard   = new OriginGuard( $settings );
 
-		( new RestController( $token_service, $refresh_repo, $cookies ) )->register_routes();
+		( new RestController(
+			$token_service,
+			$this->refresh_repo(),
+			$cookies,
+			$rate_limiter,
+			$origin_guard,
+			$settings
+		) )->register_routes();
+	}
+
+	/**
+	 * Revoke a user's refresh tokens when their password has just changed.
+	 *
+	 * @param int     $user_id         The user being updated.
+	 * @param WP_User $old_user_data   User data from *before* the update.
+	 */
+	public function on_profile_update( int $user_id, WP_User $old_user_data ): void {
+		$updated = get_userdata( $user_id );
+		if ( ! $updated instanceof WP_User ) {
+			return;
+		}
+		if ( $updated->user_pass !== $old_user_data->user_pass ) {
+			$this->refresh_repo()->revoke_user( $user_id );
+		}
+	}
+
+	/**
+	 * Revoke every refresh token belonging to the user that just completed
+	 * a lost-password reset.
+	 */
+	public function on_password_reset( WP_User $user, string $new_password ): void {
+		unset( $new_password );
+		$this->refresh_repo()->revoke_user( (int) $user->ID );
+	}
+
+	private function refresh_repo(): RefreshTokenRepository {
+		return $this->refresh_repo ??= new RefreshTokenRepository();
 	}
 }

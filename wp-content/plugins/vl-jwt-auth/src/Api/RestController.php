@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace VLJwtAuth\Api;
 
+use VLJwtAuth\Auth\AuthFacade;
 use VLJwtAuth\Auth\TokenService;
 use VLJwtAuth\Exception\TokenException;
 use VLJwtAuth\Repository\RefreshTokenRepository;
 use VLJwtAuth\Support\CookieManager;
 use VLJwtAuth\Support\Hasher;
+use VLJwtAuth\Support\OriginGuard;
+use VLJwtAuth\Support\RateLimiter;
+use VLJwtAuth\Support\Settings;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_User;
@@ -29,7 +33,10 @@ final class RestController {
 	public function __construct(
 		private TokenService $token_service,
 		private RefreshTokenRepository $refresh_repo,
-		private CookieManager $cookies
+		private CookieManager $cookies,
+		private RateLimiter $rate_limiter,
+		private OriginGuard $origin_guard,
+		private Settings $settings
 	) {
 	}
 
@@ -130,6 +137,15 @@ final class RestController {
 			return $this->error( 'invalid_credentials', __( 'Username/email and password are required.', 'vl-jwt-auth' ), 401 );
 		}
 
+		$ip = $this->client_ip() ?? 'anonymous';
+		if ( ! $this->rate_limiter->check(
+			'login:' . $ip,
+			$this->settings->rate_limit_login(),
+			$this->settings->rate_limit_window()
+		) ) {
+			return $this->error( 'rate_limit_exceeded', __( 'Too many login attempts. Try again later.', 'vl-jwt-auth' ), 429 );
+		}
+
 		// wp_authenticate runs the default username and email authenticators,
 		// so either a login or an email address works transparently.
 		$user = wp_authenticate( $login, $password );
@@ -172,6 +188,17 @@ final class RestController {
 	}
 
 	public function refresh( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! $this->origin_guard->is_allowed( $request ) ) {
+			return $this->error( 'invalid_origin', __( 'Request origin is not allowed.', 'vl-jwt-auth' ), 403 );
+		}
+
+		$ip            = $this->client_ip() ?? 'anonymous';
+		$refresh_limit = (int) apply_filters( 'vl_jwt_auth_rate_limit_refresh', 30 );
+		$refresh_win   = (int) apply_filters( 'vl_jwt_auth_rate_limit_refresh_window', 60 );
+		if ( ! $this->rate_limiter->check( 'refresh:' . $ip, max( 1, $refresh_limit ), max( 1, $refresh_win ) ) ) {
+			return $this->error( 'rate_limit_exceeded', __( 'Too many refresh attempts. Try again later.', 'vl-jwt-auth' ), 429 );
+		}
+
 		$cookie_token = $this->cookies->read();
 		if ( null === $cookie_token ) {
 			return $this->error( 'refresh_token_invalid', __( 'No refresh token provided.', 'vl-jwt-auth' ), 401 );
@@ -260,7 +287,9 @@ final class RestController {
 	}
 
 	public function logout( WP_REST_Request $request ): WP_REST_Response {
-		unset( $request );
+		if ( ! $this->origin_guard->is_allowed( $request ) ) {
+			return $this->error( 'invalid_origin', __( 'Request origin is not allowed.', 'vl-jwt-auth' ), 403 );
+		}
 
 		$cookie_token = $this->cookies->read();
 		if ( null !== $cookie_token ) {
@@ -339,10 +368,12 @@ final class RestController {
 	}
 
 	/**
-	 * Resolve the authenticated user, or return a ready-to-send error response.
+	 * Resolve the authenticated user, or return a ready-to-send error response
+	 * in this plugin's envelope shape.
 	 *
-	 * Handlers call this at the top and early-return when the result isn't a user.
-	 * Chunk 4 will hoist this into a permission-callback Middleware + public facade.
+	 * Kept as a local helper (rather than using Middleware directly) so the
+	 * plugin's own endpoints return {success: false, error: {...}} instead
+	 * of WordPress's default WP_Error rendering.
 	 */
 	private function require_user( WP_REST_Request $request ): WP_User|WP_REST_Response {
 		$token = $this->bearer_from_request( $request );
@@ -351,7 +382,7 @@ final class RestController {
 		}
 
 		try {
-			$claims = $this->token_service->decode_access( $token );
+			$claims = AuthFacade::decode_access_token( $token );
 		} catch ( TokenException $e ) {
 			return $this->error( $e->error_code(), $e->getMessage(), $e->status_code() );
 		}
