@@ -1,8 +1,25 @@
 {
-  "require-dev": {
-    "wp-cli/i18n-command": "^2"
-  },
-  "scripts": {
-    "makepot": "wp i18n make-pot ."
-  }
+    "name": "veterinary-lms/vl-jwt-auth",
+    "description": "JWT authentication for headless WordPress.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.1",
+        "firebase/php-jwt": "^7.0"
+    },
+    "require-dev": {
+        "wp-cli/i18n-command": "^2"
+    },
+    "autoload": {
+        "psr-4": {
+            "VLJwtAuth\\": "src/"
+        }
+    },
+    "scripts": {
+        "makepot": "wp i18n make-pot ."
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
 }
