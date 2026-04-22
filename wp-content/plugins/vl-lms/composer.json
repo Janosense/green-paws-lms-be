@@ -1,8 +1,40 @@
 {
-  "require-dev": {
-    "wp-cli/i18n-command": "^2"
-  },
-  "scripts": {
-    "makepot": "wp i18n make-pot ."
-  }
+    "name": "vitaliy-loyko/vl-lms",
+    "description": "Veterinary LMS plugin — headless backend for Nuxt.js frontend.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "brain/monkey": "^2.6",
+        "phpstan/phpstan": "^1.10",
+        "phpunit/phpunit": "^10.0",
+        "szepeviktor/phpstan-wordpress": "^1.3",
+        "wp-coding-standards/wpcs": "^3.0",
+        "wp-cli/i18n-command": "^2"
+    },
+    "autoload": {
+        "psr-4": {
+            "VL\\LMS\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "VL\\LMS\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "lint": "phpcs",
+        "stan": "phpstan analyse",
+        "makepot": "wp i18n make-pot ."
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true,
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    }
 }
