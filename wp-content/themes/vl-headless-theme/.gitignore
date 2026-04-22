@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artefacts (none expected; defensive)
+node_modules/
+vendor/
+*.log

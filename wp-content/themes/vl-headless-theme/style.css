@@ -1,0 +1,15 @@
+/*
+Theme Name: VL Headless
+Theme URI: https://github.com/tymofii-synianskyi/vl-headless-theme
+Description: Minimal headless WordPress theme. The public frontend is served by a separate Nuxt.js app. This theme only handles redirects, admin UX, and WP cleanup.
+Version: 1.0.0
+Author: Tymofii Synianskyi
+Requires at least: 6.4
+Requires PHP: 8.1
+License: GPL-2.0-or-later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: vl-headless-theme
+Tags: headless, minimal
+*/
+
+/* No frontend CSS — the public site is rendered by a separate Nuxt.js app. */
