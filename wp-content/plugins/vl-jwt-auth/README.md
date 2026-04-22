@@ -73,6 +73,12 @@ wp option patch update vl_jwt_auth_settings allowed_origins --format=json \
 
 Namespace: `vl-auth/v1`. Base path: `/wp-json/vl-auth/v1/`.
 
+All cURL examples below use `$WP_URL` as the WordPress host. Export it once for your environment:
+
+```bash
+export WP_URL=https://your-wp-backend.example   # e.g. https://green-paws-lms-backend.ddev.site
+```
+
 ### Response envelope
 
 Success:
@@ -95,7 +101,7 @@ Accepts username or email in the `username` field.
 
 ```bash
 curl -c cookies.txt \
-  -X POST https://api.vetlms.com/wp-json/vl-auth/v1/token \
+  -X POST $WP_URL/wp-json/vl-auth/v1/token \
   -H 'Content-Type: application/json' \
   -d '{"username":"vet@example.com","password":"••••••"}'
 ```
@@ -126,7 +132,7 @@ Requires the refresh cookie. Issues a new access token and rotates the refresh c
 
 ```bash
 curl -b cookies.txt -c cookies.txt \
-  -X POST https://api.vetlms.com/wp-json/vl-auth/v1/token/refresh \
+  -X POST $WP_URL/wp-json/vl-auth/v1/token/refresh \
   -H 'Origin: https://app.vetlms.com'
 ```
 
@@ -135,7 +141,7 @@ If an already-revoked refresh token is presented (replay signal), the entire tok
 ### `POST /token/validate`
 
 ```bash
-curl -X POST https://api.vetlms.com/wp-json/vl-auth/v1/token/validate \
+curl -X POST $WP_URL/wp-json/vl-auth/v1/token/validate \
   -H 'Authorization: Bearer <access_token>'
 ```
 
@@ -143,7 +149,7 @@ curl -X POST https://api.vetlms.com/wp-json/vl-auth/v1/token/validate \
 
 ```bash
 curl -b cookies.txt -c cookies.txt \
-  -X POST https://api.vetlms.com/wp-json/vl-auth/v1/logout \
+  -X POST $WP_URL/wp-json/vl-auth/v1/logout \
   -H 'Origin: https://app.vetlms.com'
 ```
 
@@ -152,7 +158,7 @@ Idempotent. Revokes the refresh-token row (if present) and clears the cookie.
 ### `GET /me`
 
 ```bash
-curl -X GET https://api.vetlms.com/wp-json/vl-auth/v1/me \
+curl -X GET $WP_URL/wp-json/vl-auth/v1/me \
   -H 'Authorization: Bearer <access_token>'
 ```
 
@@ -164,7 +170,7 @@ Lists the user's active (non-revoked, non-expired) refresh tokens. Each entry is
 
 ```bash
 curl -b cookies.txt \
-  -X GET https://api.vetlms.com/wp-json/vl-auth/v1/sessions \
+  -X GET $WP_URL/wp-json/vl-auth/v1/sessions \
   -H 'Authorization: Bearer <access_token>'
 ```
 
@@ -174,7 +180,7 @@ Revoke a specific session. Revoking the current session also clears the cookie.
 
 ```bash
 curl -b cookies.txt -c cookies.txt \
-  -X DELETE https://api.vetlms.com/wp-json/vl-auth/v1/sessions/17 \
+  -X DELETE $WP_URL/wp-json/vl-auth/v1/sessions/17 \
   -H 'Authorization: Bearer <access_token>'
 ```
 
