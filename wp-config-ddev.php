@@ -28,6 +28,9 @@ if ( getenv( 'IS_DDEV_PROJECT' ) == 'true' ) {
 	/** Enable debug */
 	defined( 'WP_DEBUG' ) || define( 'WP_DEBUG', true );
 
+	/** JWT Auth secret key */
+	defined( 'VL_JWT_AUTH_SECRET_KEY' ) || define( 'VL_JWT_AUTH_SECRET_KEY', 'Pd>2+.^nzKx##/t}gt5yjA=QGPn5|Z*WmSf2vpit&[k{}9x8nAf7Nn~rqZa.5CIb' );
+
 	/**
 	 * Set WordPress Database Table prefix if not already set.
 	 *
