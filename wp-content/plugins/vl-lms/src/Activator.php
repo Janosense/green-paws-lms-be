@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace VL\LMS;
 
+use VL\LMS\Roles\RolesInstaller;
+
 /**
  * Runs on plugin activation.
  *
- * Phase 0 does not own any schema or options. Later phases will install
- * custom tables, register roles, and seed default settings here.
+ * Installs the roles and capabilities map. Later phases will install
+ * custom tables and seed default settings from here.
  */
 final class Activator {
 
 	public static function activate(): void {
-		// Phase 1+: schema install, role registration, default options seed.
+		RolesInstaller::install();
+
+		// Phase 2+: schema install, default options seed.
 	}
 }

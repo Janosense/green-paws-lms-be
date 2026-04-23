@@ -9,8 +9,15 @@
 
 declare(strict_types=1);
 
-if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
-	exit;
+defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
+
+$vl_lms_uninstall_autoload = __DIR__ . '/vendor/autoload.php';
+if ( file_exists( $vl_lms_uninstall_autoload ) ) {
+	require_once $vl_lms_uninstall_autoload;
 }
 
-// Phase 1+: delete custom tables, options, and user meta here.
+if ( class_exists( \VL\LMS\Roles\RolesInstaller::class ) ) {
+	\VL\LMS\Roles\RolesInstaller::uninstall();
+}
+
+// Phase 2+: delete custom tables, options, and user meta here.
