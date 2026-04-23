@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS;
 
 use VL\LMS\Api\RestController;
+use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Support\Logger;
 
 /**
@@ -64,6 +65,9 @@ final class Plugin {
 
 		add_action( 'init', [ $this, 'load_textdomain' ] );
 		add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
+
+		$cpt_registrar = new CptRegistrar();
+		$cpt_registrar->register_hooks();
 
 		/**
 		 * Fires once the plugin has finished booting.

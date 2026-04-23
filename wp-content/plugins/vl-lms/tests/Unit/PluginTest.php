@@ -41,7 +41,8 @@ final class PluginTest extends TestCase {
 	public function test_boot_registers_hooks_and_fires_action_when_dependencies_present(): void {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 
-		Actions\expectAdded( 'init' )->once();
+		// Two hooks fire on `init`: textdomain loading and CPT registration.
+		Actions\expectAdded( 'init' )->twice();
 		Actions\expectAdded( 'rest_api_init' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
 
@@ -51,7 +52,8 @@ final class PluginTest extends TestCase {
 	public function test_boot_is_idempotent(): void {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 
-		Actions\expectAdded( 'init' )->once();
+		// Two hooks fire on `init`: textdomain loading and CPT registration.
+		Actions\expectAdded( 'init' )->twice();
 		Actions\expectAdded( 'rest_api_init' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
 
