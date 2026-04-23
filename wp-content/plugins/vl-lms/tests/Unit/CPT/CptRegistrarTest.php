@@ -15,6 +15,7 @@ use VL\LMS\CPT\CourseType;
 use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\CPT\LessonType;
 use VL\LMS\CPT\ModuleType;
+use VL\LMS\CPT\QuizQuestionType;
 use VL\LMS\CPT\QuizType;
 use VL\LMS\CPT\SessionType;
 use VL\LMS\CPT\TopicType;
@@ -34,12 +35,12 @@ final class CptRegistrarTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_constructor_seeds_course_module_lesson_topic_session_webinar_and_quiz_types_in_order(): void {
+	public function test_constructor_seeds_all_cpt_registrars_in_order(): void {
 		$registrar = new CptRegistrar();
 
 		$registrars = $registrar->registrars();
 
-		self::assertCount( 7, $registrars );
+		self::assertCount( 8, $registrars );
 		self::assertInstanceOf( CourseType::class, $registrars[0] );
 		self::assertInstanceOf( ModuleType::class, $registrars[1] );
 		self::assertInstanceOf( LessonType::class, $registrars[2] );
@@ -47,6 +48,7 @@ final class CptRegistrarTest extends TestCase {
 		self::assertInstanceOf( SessionType::class, $registrars[4] );
 		self::assertInstanceOf( WebinarType::class, $registrars[5] );
 		self::assertInstanceOf( QuizType::class, $registrars[6] );
+		self::assertInstanceOf( QuizQuestionType::class, $registrars[7] );
 	}
 
 	public function test_register_hooks_attaches_register_all_to_init_with_priority_ten(): void {
