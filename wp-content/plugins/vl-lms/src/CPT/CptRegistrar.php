@@ -32,6 +32,8 @@ final class CptRegistrar {
 			new LessonType(),
 			new TopicType(),
 			new SessionType(),
+			new WebinarType(),
+			new QuizType(),
 		];
 	}
 
