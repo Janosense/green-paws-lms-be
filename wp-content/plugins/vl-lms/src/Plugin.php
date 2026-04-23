@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VL\LMS;
 
+use VL\LMS\Access\InstructorAccessFilter;
+use VL\LMS\Access\NullCoInstructorLookup;
 use VL\LMS\Api\RestController;
 use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Support\Logger;
@@ -72,6 +74,9 @@ final class Plugin {
 
 		$taxonomy_registrar = new TaxonomyRegistrar();
 		$taxonomy_registrar->register_hooks();
+
+		$instructor_access_filter = new InstructorAccessFilter( new NullCoInstructorLookup() );
+		$instructor_access_filter->register_hooks();
 
 		/**
 		 * Fires once the plugin has finished booting.
