@@ -30,6 +30,7 @@ final class CptRegistrar {
 			new CourseType(),
 			new ModuleType(),
 			new LessonType(),
+			new TopicType(),
 		];
 	}
 
