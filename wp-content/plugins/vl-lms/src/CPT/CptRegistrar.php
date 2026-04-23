@@ -31,6 +31,7 @@ final class CptRegistrar {
 			new ModuleType(),
 			new LessonType(),
 			new TopicType(),
+			new SessionType(),
 		];
 	}
 
