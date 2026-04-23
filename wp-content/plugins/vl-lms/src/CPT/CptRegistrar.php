@@ -35,6 +35,7 @@ final class CptRegistrar {
 			new WebinarType(),
 			new QuizType(),
 			new QuizQuestionType(),
+			new AssignmentType(),
 		];
 	}
 
