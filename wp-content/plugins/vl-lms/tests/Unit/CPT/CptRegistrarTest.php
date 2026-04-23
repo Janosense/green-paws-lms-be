@@ -13,6 +13,8 @@ use ReflectionProperty;
 use VL\LMS\CPT\AbstractCptRegistrar;
 use VL\LMS\CPT\CourseType;
 use VL\LMS\CPT\CptRegistrar;
+use VL\LMS\CPT\LessonType;
+use VL\LMS\CPT\ModuleType;
 
 final class CptRegistrarTest extends TestCase {
 
@@ -28,13 +30,15 @@ final class CptRegistrarTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_constructor_seeds_at_least_the_course_type_registrar(): void {
+	public function test_constructor_seeds_course_module_and_lesson_types_in_order(): void {
 		$registrar = new CptRegistrar();
 
 		$registrars = $registrar->registrars();
 
-		self::assertGreaterThanOrEqual( 1, count( $registrars ) );
+		self::assertCount( 3, $registrars );
 		self::assertInstanceOf( CourseType::class, $registrars[0] );
+		self::assertInstanceOf( ModuleType::class, $registrars[1] );
+		self::assertInstanceOf( LessonType::class, $registrars[2] );
 	}
 
 	public function test_register_hooks_attaches_register_all_to_init_with_priority_ten(): void {

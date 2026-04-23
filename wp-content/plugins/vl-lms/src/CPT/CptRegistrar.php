@@ -28,6 +28,8 @@ final class CptRegistrar {
 	public function __construct() {
 		$this->registrars = [
 			new CourseType(),
+			new ModuleType(),
+			new LessonType(),
 		];
 	}
 
