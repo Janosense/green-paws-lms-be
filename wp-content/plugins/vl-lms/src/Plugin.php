@@ -7,6 +7,7 @@ namespace VL\LMS;
 use VL\LMS\Api\RestController;
 use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Support\Logger;
+use VL\LMS\Taxonomy\TaxonomyRegistrar;
 
 /**
  * Main plugin bootstrap.
@@ -68,6 +69,9 @@ final class Plugin {
 
 		$cpt_registrar = new CptRegistrar();
 		$cpt_registrar->register_hooks();
+
+		$taxonomy_registrar = new TaxonomyRegistrar();
+		$taxonomy_registrar->register_hooks();
 
 		/**
 		 * Fires once the plugin has finished booting.
