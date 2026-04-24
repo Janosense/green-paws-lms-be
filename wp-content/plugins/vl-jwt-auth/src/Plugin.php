@@ -47,6 +47,11 @@ final class Plugin {
 		// changes — both via profile edit and the lost-password flow.
 		add_action( 'profile_update', [ $this, 'on_profile_update' ], 10, 2 );
 		add_action( 'password_reset', [ $this, 'on_password_reset' ], 10, 2 );
+
+		// Daily cleanup of long-expired refresh-token rows. The event is
+		// scheduled by the Activator; binding the listener here ensures
+		// the handler is reachable on every request, including WP-Cron's.
+		add_action( Activator::CLEANUP_HOOK, [ $this, 'cleanup_expired_tokens' ] );
 	}
 
 	public function load_textdomain(): void {
@@ -98,6 +103,14 @@ final class Plugin {
 	public function on_password_reset( WP_User $user, string $new_password ): void {
 		unset( $new_password );
 		$this->refresh_repo()->revoke_user( (int) $user->ID );
+	}
+
+	/**
+	 * Hook target for the daily cron event registered by the Activator.
+	 * Delegates to the repository so this class stays orchestration-only.
+	 */
+	public function cleanup_expired_tokens(): void {
+		$this->refresh_repo()->cleanup_expired();
 	}
 
 	private function refresh_repo(): RefreshTokenRepository {

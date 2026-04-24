@@ -154,6 +154,27 @@ final class RefreshTokenRepository {
 	}
 
 	/**
+	 * Revoke every active token belonging to a user **except** the one
+	 * matching the given hash — backs the bulk "log out other sessions"
+	 * endpoint. Caller is responsible for verifying the kept hash actually
+	 * belongs to the same user before invoking this method.
+	 *
+	 * @return int Number of rows newly revoked.
+	 */
+	public function revoke_user_except( int $user_id, string $kept_token_hash ): int {
+		global $wpdb;
+
+		return (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->prepare(
+				"UPDATE {$this->table} SET revoked_at = %s WHERE user_id = %d AND token_hash <> %s AND revoked_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				gmdate( 'Y-m-d H:i:s' ),
+				$user_id,
+				$kept_token_hash
+			)
+		);
+	}
+
+	/**
 	 * Update `last_used_at` for observability on the /sessions endpoint.
 	 */
 	public function touch( int $id ): void {

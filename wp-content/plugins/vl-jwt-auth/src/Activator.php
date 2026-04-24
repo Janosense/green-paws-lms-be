@@ -7,11 +7,15 @@ namespace VLJwtAuth;
 /**
  * Runs on plugin activation.
  *
- * Creates the refresh-token table and seeds the default settings option.
- * Safe to run repeatedly — `dbDelta` applies schema changes idempotently
- * and `add_option` is a no-op when the option already exists.
+ * Creates the refresh-token table, seeds the default settings option, and
+ * schedules the daily refresh-token cleanup job.
+ * Safe to run repeatedly — `dbDelta` applies schema changes idempotently,
+ * `add_option` is a no-op when the option already exists, and the cron
+ * scheduler is guarded with `wp_next_scheduled`.
  */
 final class Activator {
+
+	public const CLEANUP_HOOK = 'vl_jwt_auth_cleanup_expired_tokens';
 
 	public static function activate(): void {
 		global $wpdb;
@@ -57,5 +61,12 @@ final class Activator {
 		);
 
 		add_option( 'vl_jwt_auth_db_version', VL_JWT_AUTH_VERSION );
+
+		// Schedule the daily cleanup of expired refresh-token rows. The
+		// `wp_next_scheduled` guard makes this safe to run on every
+		// activation without producing duplicate events.
+		if ( false === wp_next_scheduled( self::CLEANUP_HOOK ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', self::CLEANUP_HOOK );
+		}
 	}
 }

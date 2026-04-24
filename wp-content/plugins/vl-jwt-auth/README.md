@@ -4,7 +4,7 @@ JWT authentication for headless WordPress. Issues access + refresh tokens, rotat
 
 ## Requirements
 
-- PHP 8.1+
+- PHP 8.4+
 - WordPress 6.4+
 - Composer
 - HTTPS (required in production — refresh cookie uses `SameSite=None` which browsers reject without `Secure`)
@@ -93,7 +93,9 @@ Error:
 { "success": false, "error": { "code": "invalid_credentials", "message": "...", "status": 401 } }
 ```
 
-Error codes: `invalid_credentials`, `token_expired`, `token_invalid`, `refresh_token_invalid`, `refresh_token_reused`, `rate_limit_exceeded`, `invalid_origin`, `user_not_found`, `not_found`.
+Error codes: `invalid_credentials`, `token_expired`, `token_invalid`, `refresh_token_invalid`, `refresh_token_required`, `refresh_token_reused`, `rate_limit_exceeded`, `invalid_origin`, `user_not_found`, `not_found`.
+
+In addition, `POST /token` may surface a small set of **whitelisted** authentication-failure codes pass-through from `wp_authenticate()`: the WordPress core codes `invalid_username`, `invalid_email`, `incorrect_password`, `empty_username`, `empty_password`, plus any code prefixed `vl_` (used by first-party plugins hooking `wp_authenticate_user`, e.g. `vl_lms_email_not_verified`). Anything else collapses to `invalid_credentials`. HTTP status is always `401` regardless of the code.
 
 ### `POST /token` — login
 
@@ -183,6 +185,23 @@ curl -b cookies.txt -c cookies.txt \
   -X DELETE $WP_URL/wp-json/vl-auth/v1/sessions/17 \
   -H 'Authorization: Bearer <access_token>'
 ```
+
+### `DELETE /sessions` — revoke other sessions (bulk)
+
+Revoke every active refresh-token row for the current user **except** the one tied to the refresh cookie on this request — the standard "log out everywhere else" action for security-settings UIs. Requires both the bearer header and a valid refresh cookie; `Origin` is checked against `allowed_origins`.
+
+```bash
+curl -b cookies.txt \
+  -X DELETE $WP_URL/wp-json/vl-auth/v1/sessions \
+  -H 'Authorization: Bearer <access_token>' \
+  -H 'Origin: https://app.vetlms.com'
+```
+
+```json
+{ "success": true, "data": { "revoked_count": 3 } }
+```
+
+Returns `refresh_token_required` (401) when the refresh cookie is missing, and `refresh_token_invalid` (401) when the cookie does not match a live row owned by the bearer user.
 
 ## Public PHP API
 

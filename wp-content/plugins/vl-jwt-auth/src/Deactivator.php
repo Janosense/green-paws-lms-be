@@ -13,8 +13,8 @@ namespace VLJwtAuth;
 final class Deactivator {
 
 	public static function deactivate(): void {
-		// Intentionally empty. Kept as an extension point for future
-		// cleanup (scheduled events, transients) without changing the
-		// plugin entry file.
+		// Unschedule the daily refresh-token cleanup. `wp_clear_scheduled_hook`
+		// is a no-op when no event is registered, so this is idempotent.
+		wp_clear_scheduled_hook( Activator::CLEANUP_HOOK );
 	}
 }

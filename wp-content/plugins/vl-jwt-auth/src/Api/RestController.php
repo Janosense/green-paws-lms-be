@@ -106,9 +106,16 @@ final class RestController {
 			self::REST_NAMESPACE,
 			'/sessions',
 			[
-				'methods'             => 'GET',
-				'callback'            => [ $this, 'list_sessions' ],
-				'permission_callback' => '__return_true',
+				[
+					'methods'             => 'GET',
+					'callback'            => [ $this, 'list_sessions' ],
+					'permission_callback' => '__return_true',
+				],
+				[
+					'methods'             => 'DELETE',
+					'callback'            => [ $this, 'revoke_other_sessions' ],
+					'permission_callback' => '__return_true',
+				],
 			]
 		);
 
@@ -150,7 +157,8 @@ final class RestController {
 		// so either a login or an email address works transparently.
 		$user = wp_authenticate( $login, $password );
 		if ( is_wp_error( $user ) || ! $user instanceof WP_User ) {
-			return $this->error( 'invalid_credentials', __( 'Invalid username or password.', 'vl-jwt-auth' ), 401 );
+			[ $code, $message ] = $this->translate_login_error( $user );
+			return $this->error( $code, $message, 401 );
 		}
 
 		$access  = $this->token_service->issue( $user, 'access' );
@@ -368,6 +376,45 @@ final class RestController {
 	}
 
 	/**
+	 * Bulk-revoke every active refresh-token row for the current user
+	 * **except** the one tied to the refresh cookie on this request.
+	 *
+	 * Requires both bearer auth and a valid refresh cookie. The double
+	 * requirement prevents an attacker holding only a stolen access token
+	 * from logging the legitimate user out of every other device. The
+	 * origin guard is applied because this is a state-changing,
+	 * cookie-backed, cross-origin-reachable endpoint.
+	 */
+	public function revoke_other_sessions( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! $this->origin_guard->is_allowed( $request ) ) {
+			return $this->error( 'invalid_origin', __( 'Request origin is not allowed.', 'vl-jwt-auth' ), 403 );
+		}
+
+		$user = $this->require_user( $request );
+		if ( $user instanceof WP_REST_Response ) {
+			return $user;
+		}
+
+		$cookie_token = $this->cookies->read();
+		if ( null === $cookie_token ) {
+			return $this->error( 'refresh_token_required', __( 'A refresh cookie is required to identify the current session.', 'vl-jwt-auth' ), 401 );
+		}
+
+		$current_hash = Hasher::hash( $cookie_token );
+		$row          = $this->refresh_repo->find_by_hash( $current_hash );
+		// The current session must be live AND owned by the bearer user.
+		// Anything else is treated as an invalid current cookie — never
+		// touch other sessions when we cannot prove which one to keep.
+		if ( null === $row || $row['user_id'] !== (int) $user->ID || null !== $row['revoked_at'] ) {
+			return $this->error( 'refresh_token_invalid', __( 'Refresh token is not recognized.', 'vl-jwt-auth' ), 401 );
+		}
+
+		$revoked = $this->refresh_repo->revoke_user_except( (int) $user->ID, $current_hash );
+
+		return $this->success( [ 'revoked_count' => $revoked ] );
+	}
+
+	/**
 	 * Resolve the authenticated user, or return a ready-to-send error response
 	 * in this plugin's envelope shape.
 	 *
@@ -450,6 +497,58 @@ final class RestController {
 	private function guess_device_name( WP_REST_Request $request ): ?string {
 		$ua = $this->user_agent( $request );
 		return null === $ua ? null : substr( $ua, 0, 191 );
+	}
+
+	/**
+	 * Translate a `wp_authenticate()` failure into the response envelope's
+	 * `(code, message)` pair, applying the login error passthrough whitelist.
+	 *
+	 * Whitelist (see CLAUDE.md → "Login error passthrough contract"):
+	 *   - Core WP authenticator codes: invalid_username, invalid_email,
+	 *     incorrect_password, empty_username, empty_password.
+	 *   - Any code matching the prefix `vl_` (e.g. `vl_lms_email_not_verified`),
+	 *     so first-party plugins hooking `wp_authenticate_user` can surface
+	 *     a distinct reason without coupling this plugin to LMS details.
+	 *
+	 * Anything else collapses to `invalid_credentials` with a generic message,
+	 * preventing arbitrary third-party plugins from leaking internal state
+	 * (or unprintable codes) through the public envelope.
+	 *
+	 * @param mixed $error The value returned by `wp_authenticate()`.
+	 * @return array{0: string, 1: string} Tuple of (code, message).
+	 */
+	private function translate_login_error( mixed $error ): array {
+		$generic_message = __( 'Invalid username or password.', 'vl-jwt-auth' );
+
+		if ( ! is_wp_error( $error ) ) {
+			return [ 'invalid_credentials', $generic_message ];
+		}
+
+		$code    = (string) $error->get_error_code();
+		$message = (string) $error->get_error_message();
+
+		$allowed = [
+			'invalid_username',
+			'invalid_email',
+			'incorrect_password',
+			'empty_username',
+			'empty_password',
+		];
+
+		$is_allowed = in_array( $code, $allowed, true ) || str_starts_with( $code, 'vl_' );
+		if ( ! $is_allowed ) {
+			return [ 'invalid_credentials', $generic_message ];
+		}
+
+		// `WP_Error` messages may contain HTML (core's `incorrect_password`
+		// embeds an anchor to the lost-password screen). Strip tags so the
+		// JSON envelope stays plain text for SPA consumers.
+		$message = trim( wp_strip_all_tags( $message ) );
+		if ( '' === $message ) {
+			$message = $generic_message;
+		}
+
+		return [ $code, $message ];
 	}
 
 	/**
