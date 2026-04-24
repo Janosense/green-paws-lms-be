@@ -6,24 +6,33 @@ namespace VL\LMS;
 
 use VL\LMS\Database\SchemaManager;
 use VL\LMS\Roles\RolesInstaller;
-use VL\LMS\Taxonomy\DifficultyTermsInstaller;
 
 /**
  * Runs on plugin activation.
  *
- * Orchestrates the one-time setup sequence. Order of the steps matters:
- * roles come before schema (so future defaults that depend on caps work),
- * schema before term seeding (so any term-owner / table dependency resolves),
- * default terms before the plugin-version marker (the marker records that
- * setup completed), and the rewrite flush is always last because it's a
- * whole-system side effect.
+ * Does the two pieces of work that do NOT need post types or taxonomies
+ * to be registered — roles/capabilities and custom tables — and then
+ * raises a `first-run pending` flag. Everything that needs CPTs or
+ * taxonomies (default term seeding, rewrite flush) is handled on the
+ * next `init` by {@see Plugin::run_first_run_tasks()}.
+ *
+ * Why split: `register_activation_hook` fires inside the admin/CLI
+ * request that activates the plugin, and the plugin file is included
+ * AFTER `plugins_loaded` has already fired in that request. That means
+ * the `init` listeners installed by {@see Plugin::boot()} never get a
+ * chance to run in the activation request, so CPTs and taxonomies are
+ * NOT registered when the activator executes. Deferring the
+ * registration-dependent work keeps a single authoritative taxonomy /
+ * CPT registration path (the `init` hook, via the registrars), and
+ * avoids duplicating that logic inside the activator.
  *
  * Every step is idempotent — re-activation is a common dev workflow and
  * must be a no-op at steady state.
  */
 final class Activator {
 
-	public const string PLUGIN_VERSION_OPTION = 'vl_lms_plugin_version';
+	public const string PLUGIN_VERSION_OPTION    = 'vl_lms_plugin_version';
+	public const string FIRST_RUN_PENDING_OPTION = 'vl_lms_first_run_pending';
 
 	public static function activate(): void {
 		// 1. Roles and capabilities.
@@ -32,20 +41,15 @@ final class Activator {
 		// 2. Custom tables.
 		SchemaManager::install();
 
-		// 3. Seed default taxonomy terms.
-		DifficultyTermsInstaller::install();
-
-		// 4. Record the current plugin version. Distinct from
+		// 3. Record the current plugin version. Distinct from
 		// `vl_lms_db_version` (schema generation) so code-only releases
 		// can bump one without touching the other.
 		update_option( self::PLUGIN_VERSION_OPTION, VL_LMS_VERSION );
 
-		// 5. Flush rewrite rules once. Cron and core-install contexts
-		// skip it because any flush here would be discarded or wasted.
-		// Passing `false` avoids the .htaccess hard-flush — only the
-		// in-DB rules need refreshing.
-		if ( ! wp_doing_cron() && ! wp_installing() ) {
-			flush_rewrite_rules( false );
-		}
+		// 4. Queue the tasks that require CPTs / taxonomies to be
+		// registered. Picked up on the next request's `init` hook, at
+		// priority 20 — after the CPT / taxonomy registrars (priority
+		// 10) have done their work.
+		update_option( self::FIRST_RUN_PENDING_OPTION, '1' );
 	}
 }

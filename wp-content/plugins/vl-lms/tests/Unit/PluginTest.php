@@ -6,6 +6,7 @@ namespace VL\LMS\Tests\Unit;
 
 use Brain\Monkey;
 use Brain\Monkey\Actions;
+use Brain\Monkey\Functions;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -18,6 +19,7 @@ final class PluginTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		Functions\when( 'get_option' )->justReturn( false );
 		$this->reset_plugin_state();
 	}
 
@@ -61,6 +63,16 @@ final class PluginTest extends TestCase {
 		$plugin->boot();
 		$plugin->boot();
 		$plugin->boot();
+	}
+
+	public function test_boot_registers_first_run_listener_when_pending_flag_is_set(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+		Functions\when( 'get_option' )->justReturn( '1' );
+
+		// Four init listeners now: textdomain, CPTs, taxonomies, first-run tasks.
+		Actions\expectAdded( 'init' )->times( 4 );
+
+		Plugin::instance()->boot();
 	}
 
 	public function test_default_dependency_check_uses_class_exists(): void {

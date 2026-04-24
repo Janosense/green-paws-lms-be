@@ -28,6 +28,7 @@ if ( class_exists( \VL\LMS\Database\SchemaManager::class ) ) {
 }
 
 delete_option( 'vl_lms_plugin_version' );
+delete_option( 'vl_lms_first_run_pending' );
 
 // `vl_difficulty` terms are intentionally preserved. Taxonomy data belongs
 // to the taxonomy, not to this plugin's installer — deleting them would

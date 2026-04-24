@@ -11,6 +11,7 @@ use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Repositories\CourseInstructorRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Support\Logger;
+use VL\LMS\Taxonomy\DifficultyTermsInstaller;
 use VL\LMS\Taxonomy\TaxonomyRegistrar;
 
 /**
@@ -85,6 +86,15 @@ final class Plugin {
 		$author_sync_service = new AuthorSyncService( $course_instructor_repo );
 		$author_sync_service->register_hooks();
 
+		// First-run tasks queued by Activator::activate() — runs AFTER
+		// the CPT and taxonomy registrars (both hooked at priority 10)
+		// have registered their types on `init`. Registering the
+		// listener only when the flag is set means the hook cost is
+		// paid exactly on the request that clears it.
+		if ( '1' === get_option( Activator::FIRST_RUN_PENDING_OPTION ) ) {
+			add_action( 'init', [ $this, 'run_first_run_tasks' ], 20 );
+		}
+
 		/**
 		 * Fires once the plugin has finished booting.
 		 *
@@ -126,6 +136,23 @@ final class Plugin {
 		if ( $controller instanceof RestController ) {
 			$controller->register_routes();
 		}
+	}
+
+	/**
+	 * First-run tasks that depend on CPTs / taxonomies being registered.
+	 *
+	 * Runs once, on the first `init` after activation, and deletes the
+	 * pending flag so subsequent requests skip the hook registration
+	 * entirely. Idempotent — each sub-task checks its own state.
+	 */
+	public function run_first_run_tasks(): void {
+		DifficultyTermsInstaller::install();
+
+		if ( ! wp_doing_cron() && ! wp_installing() ) {
+			flush_rewrite_rules( false );
+		}
+
+		delete_option( Activator::FIRST_RUN_PENDING_OPTION );
 	}
 
 	public function render_missing_dependency_notice(): void {
