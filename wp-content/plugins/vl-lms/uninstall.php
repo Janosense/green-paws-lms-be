@@ -20,4 +20,8 @@ if ( class_exists( \VL\LMS\Roles\RolesInstaller::class ) ) {
 	\VL\LMS\Roles\RolesInstaller::uninstall();
 }
 
-// Phase 2+: delete custom tables, options, and user meta here.
+if ( class_exists( \VL\LMS\Database\SchemaManager::class ) ) {
+	\VL\LMS\Database\SchemaManager::uninstall();
+}
+
+// Phase 2+: delete remaining options and user meta here.
