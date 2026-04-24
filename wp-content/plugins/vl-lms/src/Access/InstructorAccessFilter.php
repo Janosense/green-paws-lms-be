@@ -35,7 +35,7 @@ final class InstructorAccessFilter {
 	 *
 	 * @var list<string>
 	 */
-	private const HANDLED_META_CAPS = [ 'edit_post', 'delete_post', 'read_post' ];
+	private const array HANDLED_META_CAPS = [ 'edit_post', 'delete_post', 'read_post' ];
 
 	public function __construct( private readonly CoInstructorLookupInterface $lookup ) {
 	}

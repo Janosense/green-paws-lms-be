@@ -15,14 +15,14 @@ final class QuizQuestionTypeTest extends TestCase {
 
 	use MockeryPHPUnitIntegration;
 
-	private const STUB_UUID = 'uuid-11111111-2222-4333-8444-555555555555';
+	private const string STUB_UUID = 'uuid-11111111-2222-4333-8444-555555555555';
 
 	/**
 	 * Keys (and only these keys) that the QuizQuestionType registers as meta.
 	 *
 	 * @var list<string>
 	 */
-	private const EXPECTED_META_KEYS = [
+	private const array EXPECTED_META_KEYS = [
 		'_vl_question_type',
 		'_vl_question_points',
 		'_vl_question_answers',

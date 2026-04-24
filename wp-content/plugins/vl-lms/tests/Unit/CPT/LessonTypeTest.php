@@ -20,7 +20,7 @@ final class LessonTypeTest extends TestCase {
 	 *
 	 * @var list<string>
 	 */
-	private const EXPECTED_META_KEYS = [
+	private const array EXPECTED_META_KEYS = [
 		'_vl_lesson_video_url',
 		'_vl_lesson_video_provider',
 		'_vl_lesson_duration_seconds',

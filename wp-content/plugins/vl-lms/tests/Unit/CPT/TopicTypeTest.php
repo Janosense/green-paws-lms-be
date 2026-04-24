@@ -20,7 +20,7 @@ final class TopicTypeTest extends TestCase {
 	 *
 	 * @var list<string>
 	 */
-	private const EXPECTED_META_KEYS = [
+	private const array EXPECTED_META_KEYS = [
 		'_vl_topic_video_url',
 		'_vl_topic_video_provider',
 		'_vl_topic_duration_seconds',

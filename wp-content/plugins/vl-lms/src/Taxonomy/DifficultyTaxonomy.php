@@ -29,7 +29,7 @@ final class DifficultyTaxonomy extends AbstractTaxonomyRegistrar {
 	 *
 	 * @var array<string, string>
 	 */
-	public const DEFAULT_TERMS = [
+	public const array DEFAULT_TERMS = [
 		'basic'    => 'Basic',
 		'advanced' => 'Advanced',
 		'expert'   => 'Expert',

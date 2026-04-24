@@ -20,7 +20,7 @@ final class AssignmentTypeTest extends TestCase {
 	 *
 	 * @var list<string>
 	 */
-	private const EXPECTED_META_KEYS = [
+	private const array EXPECTED_META_KEYS = [
 		'_vl_assignment_max_score',
 		'_vl_assignment_passing_score',
 		'_vl_assignment_submission_type',

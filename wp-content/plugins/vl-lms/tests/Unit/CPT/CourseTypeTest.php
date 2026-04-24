@@ -21,7 +21,7 @@ final class CourseTypeTest extends TestCase {
 	 *
 	 * @var list<string>
 	 */
-	private const EXPECTED_META_KEYS = [
+	private const array EXPECTED_META_KEYS = [
 		'_vl_course_type',
 		'_vl_course_price',
 		'_vl_course_currency',

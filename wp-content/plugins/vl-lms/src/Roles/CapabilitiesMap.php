@@ -23,7 +23,7 @@ final class CapabilitiesMap {
 	 * `read_{singular}`, `delete_{singular}`); the plural slug becomes the
 	 * primitive-cap stem (`edit_{plural}`, `create_{plural}`, etc.).
 	 */
-	public const CPT_PLURAL_MAP = [
+	public const array CPT_PLURAL_MAP = [
 		'vl_course'        => 'vl_courses',
 		'vl_module'        => 'vl_modules',
 		'vl_lesson'        => 'vl_lessons',
@@ -43,7 +43,7 @@ final class CapabilitiesMap {
 	 * behavior on `post_author`. A later task will layer co-instructor
 	 * access on top via `InstructorAccessFilter`.
 	 */
-	public const INSTRUCTOR_CPT_CAP_SUFFIXES = [
+	public const array INSTRUCTOR_CPT_CAP_SUFFIXES = [
 		'edit_%s',
 		'edit_published_%s',
 		'edit_private_%s',
@@ -58,7 +58,7 @@ final class CapabilitiesMap {
 	/**
 	 * Full set of primitive CPT cap templates — granted to administrator.
 	 */
-	public const ALL_PRIMITIVE_CPT_CAP_SUFFIXES = [
+	public const array ALL_PRIMITIVE_CPT_CAP_SUFFIXES = [
 		'edit_%s',
 		'edit_others_%s',
 		'edit_private_%s',
@@ -75,7 +75,7 @@ final class CapabilitiesMap {
 	/**
 	 * Meta-cap templates — mapped per-post by WP at runtime.
 	 */
-	public const META_CPT_CAP_SUFFIXES = [
+	public const array META_CPT_CAP_SUFFIXES = [
 		'edit_%s',
 		'read_%s',
 		'delete_%s',
@@ -87,7 +87,7 @@ final class CapabilitiesMap {
 	 * `vl_manage_groups` is intentionally listed for both moderator and
 	 * administrator — moderators own group management.
 	 */
-	public const DOMAIN_CAPS_BY_ROLE = [
+	public const array DOMAIN_CAPS_BY_ROLE = [
 		'student'       => [
 			'vl_enroll_in_course',
 			'vl_view_enrolled_content',
@@ -154,13 +154,13 @@ final class CapabilitiesMap {
 		],
 	];
 
-	private const CUSTOM_ROLES = [
+	private const array CUSTOM_ROLES = [
 		'instructor' => 'Instructor',
 		'moderator'  => 'Moderator',
 		'student'    => 'Student',
 	];
 
-	private const KNOWN_ROLES = [ 'student', 'instructor', 'moderator', 'administrator' ];
+	private const array KNOWN_ROLES = [ 'student', 'instructor', 'moderator', 'administrator' ];
 
 	/**
 	 * Singular slugs of the nine VL LMS CPTs, in declaration order.

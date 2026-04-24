@@ -20,7 +20,7 @@ final class SessionTypeTest extends TestCase {
 	 *
 	 * @var list<string>
 	 */
-	private const EXPECTED_META_KEYS = [
+	private const array EXPECTED_META_KEYS = [
 		'_vl_session_number',
 		'_vl_session_scheduled_start',
 		'_vl_session_scheduled_end',

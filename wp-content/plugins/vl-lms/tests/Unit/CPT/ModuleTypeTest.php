@@ -20,7 +20,7 @@ final class ModuleTypeTest extends TestCase {
 	 *
 	 * @var list<string>
 	 */
-	private const EXPECTED_META_KEYS = [
+	private const array EXPECTED_META_KEYS = [
 		'_vl_module_intro_video_url',
 		'_vl_module_duration_minutes',
 		'_vl_module_passing_threshold',

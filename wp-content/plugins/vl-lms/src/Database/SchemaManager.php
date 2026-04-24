@@ -21,8 +21,8 @@ namespace VL\LMS\Database;
  */
 final class SchemaManager {
 
-	public const DB_VERSION_OPTION  = 'vl_lms_db_version';
-	public const CURRENT_DB_VERSION = '1';
+	public const string DB_VERSION_OPTION  = 'vl_lms_db_version';
+	public const string CURRENT_DB_VERSION = '1';
 
 	/**
 	 * Returns the full prefixed table name for a base suffix.

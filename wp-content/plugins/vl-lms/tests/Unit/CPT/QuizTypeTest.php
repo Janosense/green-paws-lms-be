@@ -20,7 +20,7 @@ final class QuizTypeTest extends TestCase {
 	 *
 	 * @var list<string>
 	 */
-	private const EXPECTED_META_KEYS = [
+	private const array EXPECTED_META_KEYS = [
 		'_vl_quiz_time_limit_seconds',
 		'_vl_quiz_max_attempts',
 		'_vl_quiz_passing_threshold',
