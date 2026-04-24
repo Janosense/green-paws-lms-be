@@ -6,13 +6,21 @@ namespace VL\LMS;
 
 use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
+use VL\LMS\Api\AuthController;
 use VL\LMS\Api\RestController;
+use VL\LMS\Auth\JwtBridgeTokenIssuer;
+use VL\LMS\Auth\LoginGate\UnverifiedLoginBlocker;
+use VL\LMS\Auth\Mail\VerificationMailer;
+use VL\LMS\Auth\Registration\RegistrationService;
+use VL\LMS\Auth\TokenIssuer;
+use VL\LMS\Auth\Verification\EmailVerificationService;
 use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Repositories\CourseInstructorRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\DifficultyTermsInstaller;
 use VL\LMS\Taxonomy\TaxonomyRegistrar;
+use VLJwtAuth\Support\RateLimiter;
 
 /**
  * Main plugin bootstrap.
@@ -86,6 +94,11 @@ final class Plugin {
 		$author_sync_service = new AuthorSyncService( $course_instructor_repo );
 		$author_sync_service->register_hooks();
 
+		$unverified_login_blocker = $this->container->get( UnverifiedLoginBlocker::class );
+		if ( $unverified_login_blocker instanceof UnverifiedLoginBlocker ) {
+			$unverified_login_blocker->register_hooks();
+		}
+
 		// First-run tasks queued by Activator::activate() — runs AFTER
 		// the CPT and taxonomy registrars (both hooked at priority 10)
 		// have registered their types on `init`. Registering the
@@ -136,6 +149,10 @@ final class Plugin {
 		if ( $controller instanceof RestController ) {
 			$controller->register_routes();
 		}
+		$auth_controller = $this->container->get( AuthController::class );
+		if ( $auth_controller instanceof AuthController ) {
+			$auth_controller->register_routes();
+		}
 	}
 
 	/**
@@ -178,6 +195,68 @@ final class Plugin {
 				VL_LMS_API_NAMESPACE,
 				VL_LMS_VERSION
 			)
+		);
+
+		$container->set(
+			VerificationMailer::class,
+			static function ( Container $c ): VerificationMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new VerificationMailer( $logger );
+			}
+		);
+
+		$container->set(
+			RateLimiter::class,
+			static fn (): RateLimiter => new RateLimiter()
+		);
+
+		$container->set(
+			RegistrationService::class,
+			static function ( Container $c ): RegistrationService {
+				$mailer = $c->get( VerificationMailer::class );
+				assert( $mailer instanceof VerificationMailer );
+				return new RegistrationService( $mailer );
+			}
+		);
+
+		$container->set(
+			EmailVerificationService::class,
+			static function ( Container $c ): EmailVerificationService {
+				$mailer = $c->get( VerificationMailer::class );
+				assert( $mailer instanceof VerificationMailer );
+				$rate_limiter = $c->get( RateLimiter::class );
+				assert( $rate_limiter instanceof RateLimiter );
+				return new EmailVerificationService( $mailer, $rate_limiter );
+			}
+		);
+
+		$container->set(
+			UnverifiedLoginBlocker::class,
+			static fn (): UnverifiedLoginBlocker => new UnverifiedLoginBlocker()
+		);
+
+		$container->set(
+			TokenIssuer::class,
+			static fn (): TokenIssuer => new JwtBridgeTokenIssuer()
+		);
+
+		$container->set(
+			AuthController::class,
+			static function ( Container $c ): AuthController {
+				$registration = $c->get( RegistrationService::class );
+				assert( $registration instanceof RegistrationService );
+				$verification = $c->get( EmailVerificationService::class );
+				assert( $verification instanceof EmailVerificationService );
+				$token_issuer = $c->get( TokenIssuer::class );
+				assert( $token_issuer instanceof TokenIssuer );
+				return new AuthController(
+					VL_LMS_API_NAMESPACE,
+					$registration,
+					$verification,
+					$token_issuer
+				);
+			}
 		);
 
 		return $container;

@@ -37,3 +37,49 @@ if ( ! defined( 'VL_LMS_BASENAME' ) ) {
 if ( ! defined( 'VL_LMS_API_NAMESPACE' ) ) {
 	define( 'VL_LMS_API_NAMESPACE', 'vl/v1' );
 }
+
+// vl-jwt-auth's secret key constant is defined in `wp-config.php` at runtime.
+// Tests and static analysis never need a real value; this placeholder is
+// enough to make `defined(...)` / `(string) VL_JWT_AUTH_SECRET_KEY` type-check.
+if ( ! defined( 'VL_JWT_AUTH_SECRET_KEY' ) ) {
+	// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Constant name is owned by the sibling vl-jwt-auth plugin.
+	define( 'VL_JWT_AUTH_SECRET_KEY', 'phpstan-analysis-placeholder' );
+}
+
+// Minimal stub for WP_Error so code paths that construct a real
+// `new WP_Error(...)` (e.g. the login gate) work in unit tests without
+// booting WordPress. Mirrors the getter surface the tests actually use.
+if ( ! class_exists( 'WP_Error' ) ) {
+	class WP_Error { // phpcs:ignore
+
+		private string $code;
+		private string $message;
+		/** @var array<string, mixed> */
+		private array $data;
+
+		/**
+		 * @param string|int           $code
+		 * @param array<string, mixed> $data
+		 */
+		public function __construct( $code = '', string $message = '', $data = [] ) {
+			$this->code    = (string) $code;
+			$this->message = $message;
+			$this->data    = is_array( $data ) ? $data : [];
+		}
+
+		public function get_error_code(): string {
+			return $this->code;
+		}
+
+		public function get_error_message(): string {
+			return $this->message;
+		}
+
+		/**
+		 * @return array<string, mixed>
+		 */
+		public function get_error_data(): array {
+			return $this->data;
+		}
+	}
+}

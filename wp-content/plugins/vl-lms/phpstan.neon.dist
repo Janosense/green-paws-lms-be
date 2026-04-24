@@ -9,5 +9,11 @@ parameters:
         - uninstall.php
     bootstrapFiles:
         - tests/bootstrap.php
+    # Make sibling vl-jwt-auth's symbols discoverable without analysing them —
+    # vl-lms depends on the \VLJwtAuth facade at runtime (see
+    # PHASE-2-AUDIT.md) and directly consumes a handful of its services until
+    # the facade gains a token-issuance method.
+    scanDirectories:
+        - ../vl-jwt-auth/src
     excludePaths:
         - vendor
