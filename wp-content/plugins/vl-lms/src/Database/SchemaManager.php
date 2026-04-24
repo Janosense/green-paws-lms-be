@@ -22,7 +22,7 @@ namespace VL\LMS\Database;
 final class SchemaManager {
 
 	public const string DB_VERSION_OPTION  = 'vl_lms_db_version';
-	public const string CURRENT_DB_VERSION = '2';
+	public const string CURRENT_DB_VERSION = '3';
 
 	/**
 	 * Returns the full prefixed table name for a base suffix.
@@ -53,6 +53,10 @@ final class SchemaManager {
 		return self::table_name( 'group_access' );
 	}
 
+	public static function course_instructors_table(): string {
+		return self::table_name( 'course_instructors' );
+	}
+
 	/**
 	 * Installs (or migrates) the schema when the stored DB version is
 	 * behind {@see self::CURRENT_DB_VERSION}. Safe to call on every
@@ -71,6 +75,7 @@ final class SchemaManager {
 		self::create_groups_table();
 		self::create_group_members_table();
 		self::create_group_access_table();
+		self::create_course_instructors_table();
 
 		update_option( self::DB_VERSION_OPTION, self::CURRENT_DB_VERSION );
 	}
@@ -85,6 +90,7 @@ final class SchemaManager {
 		global $wpdb;
 
 		$tables = [
+			self::course_instructors_table(),
 			self::group_access_table(),
 			self::group_members_table(),
 			self::groups_table(),
@@ -212,6 +218,39 @@ final class SchemaManager {
 			UNIQUE KEY uk_group_user_active (group_id, user_id, left_at),
 			KEY idx_user (user_id),
 			KEY idx_group (group_id)
+		) {$charset};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Builds and runs `dbDelta` for `{prefix}vl_course_instructors`.
+	 *
+	 * The many-to-many join between users and course/webinar posts. The
+	 * unique constraint `uk_entity_user (entity_type, entity_id, user_id)`
+	 * enforces at most one assignment per `(entity, user)` tuple —
+	 * promotions (e.g. co-instructor → lead) UPDATE the existing row.
+	 */
+	private static function create_course_instructors_table(): void {
+		global $wpdb;
+
+		self::require_db_delta();
+
+		$table   = self::course_instructors_table();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			entity_type VARCHAR(20) NOT NULL,
+			entity_id BIGINT UNSIGNED NOT NULL,
+			user_id BIGINT UNSIGNED NOT NULL,
+			role_in_course VARCHAR(30) NOT NULL DEFAULT 'co_instructor',
+			display_order INT UNSIGNED NOT NULL DEFAULT 0,
+			assigned_at DATETIME NOT NULL,
+			assigned_by BIGINT UNSIGNED NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uk_entity_user (entity_type, entity_id, user_id),
+			KEY idx_user (user_id)
 		) {$charset};";
 
 		dbDelta( $sql );

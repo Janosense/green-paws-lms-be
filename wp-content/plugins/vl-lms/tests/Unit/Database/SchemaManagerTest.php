@@ -55,8 +55,12 @@ final class SchemaManagerTest extends TestCase {
 		self::assertSame( 'wp_vl_group_access', SchemaManager::group_access_table() );
 	}
 
-	public function test_current_db_version_is_two(): void {
-		self::assertSame( '2', SchemaManager::CURRENT_DB_VERSION );
+	public function test_course_instructors_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_course_instructors', SchemaManager::course_instructors_table() );
+	}
+
+	public function test_current_db_version_is_three(): void {
+		self::assertSame( '3', SchemaManager::CURRENT_DB_VERSION );
 	}
 
 	public function test_install_short_circuits_when_version_matches(): void {
@@ -72,7 +76,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 4 )
+			->times( 5 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -88,15 +92,18 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_groups', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_group_members', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_group_access', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_course_instructors', $combined );
 
 		self::assertStringContainsString( 'UNIQUE KEY uk_user_course (user_id, course_id)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY uk_slug (slug)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY uk_group_user_active (group_id, user_id, left_at)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY uk_group_entity (group_id, entity_type, entity_id)', $combined );
+		self::assertStringContainsString( 'UNIQUE KEY uk_entity_user (entity_type, entity_id, user_id)', $combined );
 
 		self::assertStringContainsString( 'KEY idx_owner (owner_id)', $combined );
 		self::assertStringContainsString( 'KEY idx_status (status)', $combined );
 		self::assertStringContainsString( 'KEY idx_entity (entity_type, entity_id)', $combined );
+		self::assertStringContainsString( 'KEY idx_user (user_id)', $combined );
 	}
 
 	public function test_install_updates_version_option_after_creating_tables(): void {
@@ -120,9 +127,9 @@ final class SchemaManagerTest extends TestCase {
 	}
 
 	public function test_install_runs_migration_path_when_stored_version_is_behind(): void {
-		Functions\when( 'get_option' )->justReturn( '1' );
+		Functions\when( 'get_option' )->justReturn( '2' );
 		Functions\when( 'update_option' )->justReturn( true );
-		Functions\expect( 'dbDelta' )->times( 4 )->andReturn( [] );
+		Functions\expect( 'dbDelta' )->times( 5 )->andReturn( [] );
 
 		SchemaManager::install();
 	}
@@ -149,5 +156,6 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_groups', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_group_members', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_group_access', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_course_instructors', $combined );
 	}
 }

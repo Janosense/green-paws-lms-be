@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace VL\LMS;
 
 use VL\LMS\Access\InstructorAccessFilter;
-use VL\LMS\Access\NullCoInstructorLookup;
+use VL\LMS\Access\TableBackedCoInstructorLookup;
 use VL\LMS\Api\RestController;
 use VL\LMS\CPT\CptRegistrar;
+use VL\LMS\Repositories\CourseInstructorRepository;
+use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\TaxonomyRegistrar;
 
@@ -75,8 +77,13 @@ final class Plugin {
 		$taxonomy_registrar = new TaxonomyRegistrar();
 		$taxonomy_registrar->register_hooks();
 
-		$instructor_access_filter = new InstructorAccessFilter( new NullCoInstructorLookup() );
+		$course_instructor_repo   = new CourseInstructorRepository();
+		$co_instructor_lookup     = new TableBackedCoInstructorLookup( $course_instructor_repo );
+		$instructor_access_filter = new InstructorAccessFilter( $co_instructor_lookup );
 		$instructor_access_filter->register_hooks();
+
+		$author_sync_service = new AuthorSyncService( $course_instructor_repo );
+		$author_sync_service->register_hooks();
 
 		/**
 		 * Fires once the plugin has finished booting.
