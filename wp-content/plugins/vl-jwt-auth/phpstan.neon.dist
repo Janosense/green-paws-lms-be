@@ -7,5 +7,15 @@ parameters:
         - src
         - vl-jwt-auth.php
         - uninstall.php
+    bootstrapFiles:
+        - phpstan-bootstrap.php
     excludePaths:
         - vendor
+    # apply_filters can legitimately return a non-array despite the @param docblock;
+    # runtime is_array() guards must not be flagged as dead code.
+    treatPhpDocTypesAsCertain: false
+    # VL_JWT_AUTH_SECRET_KEY is provided by wp-config.php at runtime. The bootstrap
+    # placeholder must not be treated as authoritative — production code contains
+    # defensive checks against an empty or missing constant.
+    dynamicConstantNames:
+        - VL_JWT_AUTH_SECRET_KEY

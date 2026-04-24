@@ -57,10 +57,13 @@ final class TokenService {
 		try {
 			$decoded = JWT::decode( $jwt, new Key( $this->secret, self::ALGORITHM ) );
 		} catch ( ExpiredException $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- TokenException is developer-facing; the REST layer maps it to a stable error envelope.
 			throw new TokenException( 'token_expired', $e->getMessage(), 401, $e );
 		} catch ( SignatureInvalidException | BeforeValidException $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- TokenException is developer-facing; the REST layer maps it to a stable error envelope.
 			throw new TokenException( 'token_invalid', $e->getMessage(), 401, $e );
 		} catch ( \UnexpectedValueException | \DomainException | \InvalidArgumentException $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- TokenException is developer-facing; the REST layer maps it to a stable error envelope.
 			throw new TokenException( 'token_invalid', $e->getMessage(), 401, $e );
 		}
 

@@ -62,7 +62,7 @@ final class RefreshTokenRepository {
 
 		$result = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->prepare(
-				$sql, // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				$sql, // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				$user_id,
 				$hash,
 				$token_family,
@@ -96,7 +96,7 @@ final class RefreshTokenRepository {
 
 		/** @var array<string, mixed>|null $row */
 		$row = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$wpdb->prepare( $sql, $hash ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$wpdb->prepare( $sql, $hash ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			ARRAY_A
 		);
 
@@ -111,7 +111,7 @@ final class RefreshTokenRepository {
 
 		$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET revoked_at = %s WHERE id = %d AND revoked_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				"UPDATE {$this->table} SET revoked_at = %s WHERE id = %d AND revoked_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				gmdate( 'Y-m-d H:i:s' ),
 				$id
 			)
@@ -129,7 +129,7 @@ final class RefreshTokenRepository {
 
 		return (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET revoked_at = %s WHERE token_family = %s AND revoked_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				"UPDATE {$this->table} SET revoked_at = %s WHERE token_family = %s AND revoked_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				gmdate( 'Y-m-d H:i:s' ),
 				$token_family
 			)
@@ -146,7 +146,7 @@ final class RefreshTokenRepository {
 
 		return (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET revoked_at = %s WHERE user_id = %d AND revoked_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				"UPDATE {$this->table} SET revoked_at = %s WHERE user_id = %d AND revoked_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				gmdate( 'Y-m-d H:i:s' ),
 				$user_id
 			)
@@ -188,7 +188,7 @@ final class RefreshTokenRepository {
 
 		/** @var array<int, array<string, mixed>> $rows */
 		$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$wpdb->prepare( $sql, $user_id, gmdate( 'Y-m-d H:i:s' ) ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$wpdb->prepare( $sql, $user_id, gmdate( 'Y-m-d H:i:s' ) ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			ARRAY_A
 		);
 
@@ -212,7 +212,7 @@ final class RefreshTokenRepository {
 
 		/** @var array<string, mixed>|null $row */
 		$row = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$wpdb->prepare( $sql, $id ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$wpdb->prepare( $sql, $id ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			ARRAY_A
 		);
 
@@ -232,7 +232,7 @@ final class RefreshTokenRepository {
 
 		return (int) $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->prepare(
-				"DELETE FROM {$this->table} WHERE expires_at < %s", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				"DELETE FROM {$this->table} WHERE expires_at < %s", // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				$cutoff
 			)
 		);
