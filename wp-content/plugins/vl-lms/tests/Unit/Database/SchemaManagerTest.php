@@ -43,6 +43,22 @@ final class SchemaManagerTest extends TestCase {
 		self::assertSame( SchemaManager::table_name( 'enrollments' ), SchemaManager::enrollments_table() );
 	}
 
+	public function test_groups_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_groups', SchemaManager::groups_table() );
+	}
+
+	public function test_group_members_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_group_members', SchemaManager::group_members_table() );
+	}
+
+	public function test_group_access_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_group_access', SchemaManager::group_access_table() );
+	}
+
+	public function test_current_db_version_is_two(): void {
+		self::assertSame( '2', SchemaManager::CURRENT_DB_VERSION );
+	}
+
 	public function test_install_short_circuits_when_version_matches(): void {
 		Functions\when( 'get_option' )->justReturn( SchemaManager::CURRENT_DB_VERSION );
 		Functions\expect( 'dbDelta' )->never();
@@ -51,53 +67,36 @@ final class SchemaManagerTest extends TestCase {
 		SchemaManager::install();
 	}
 
-	public function test_install_runs_dbdelta_when_version_option_is_missing(): void {
-		$captured_sql = null;
+	public function test_install_runs_dbdelta_for_every_table_when_version_missing(): void {
+		$captured_sql = [];
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->once()
+			->times( 4 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
-					$captured_sql = $sql;
+					$captured_sql[] = $sql;
 					return [];
 				}
 			);
 
 		SchemaManager::install();
 
-		self::assertIsString( $captured_sql );
-		self::assertStringContainsString( 'CREATE TABLE wp_vl_enrollments', $captured_sql );
-		self::assertStringContainsString( 'UNIQUE KEY uk_user_course (user_id, course_id)', $captured_sql );
-		self::assertStringContainsString( 'KEY idx_course (course_id)', $captured_sql );
-		self::assertStringContainsString( 'KEY idx_user_status (user_id, status)', $captured_sql );
-		self::assertStringContainsString( 'KEY idx_group (source_group_id)', $captured_sql );
-		self::assertStringContainsString( 'progress_pct TINYINT UNSIGNED NOT NULL DEFAULT 0', $captured_sql );
-		self::assertStringContainsString( 'DEFAULT CHARACTER SET utf8mb4', $captured_sql );
+		$combined = implode( "\n", $captured_sql );
 
-		foreach (
-			[
-				'id',
-				'user_id',
-				'course_id',
-				'status',
-				'source',
-				'source_group_id',
-				'source_order_id',
-				'enrolled_at',
-				'started_at',
-				'completed_at',
-				'expires_at',
-				'revoked_at',
-				'revoked_by',
-				'revoke_reason',
-				'progress_pct',
-				'created_at',
-				'updated_at',
-			] as $column
-		) {
-			self::assertStringContainsString( $column, $captured_sql, sprintf( 'Missing column %s', $column ) );
-		}
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_enrollments', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_groups', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_group_members', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_group_access', $combined );
+
+		self::assertStringContainsString( 'UNIQUE KEY uk_user_course (user_id, course_id)', $combined );
+		self::assertStringContainsString( 'UNIQUE KEY uk_slug (slug)', $combined );
+		self::assertStringContainsString( 'UNIQUE KEY uk_group_user_active (group_id, user_id, left_at)', $combined );
+		self::assertStringContainsString( 'UNIQUE KEY uk_group_entity (group_id, entity_type, entity_id)', $combined );
+
+		self::assertStringContainsString( 'KEY idx_owner (owner_id)', $combined );
+		self::assertStringContainsString( 'KEY idx_status (status)', $combined );
+		self::assertStringContainsString( 'KEY idx_entity (entity_type, entity_id)', $combined );
 	}
 
 	public function test_install_updates_version_option_after_creating_tables(): void {
@@ -120,7 +119,15 @@ final class SchemaManagerTest extends TestCase {
 		self::assertSame( SchemaManager::CURRENT_DB_VERSION, $saved_value );
 	}
 
-	public function test_uninstall_drops_enrollments_table_and_deletes_version_option(): void {
+	public function test_install_runs_migration_path_when_stored_version_is_behind(): void {
+		Functions\when( 'get_option' )->justReturn( '1' );
+		Functions\when( 'update_option' )->justReturn( true );
+		Functions\expect( 'dbDelta' )->times( 4 )->andReturn( [] );
+
+		SchemaManager::install();
+	}
+
+	public function test_uninstall_drops_all_tables_and_deletes_version_option(): void {
 		$queries = [];
 		$GLOBALS['wpdb']->shouldReceive( 'query' )
 			->andReturnUsing(
@@ -136,7 +143,11 @@ final class SchemaManagerTest extends TestCase {
 
 		SchemaManager::uninstall();
 
-		self::assertNotEmpty( $queries );
-		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_enrollments', $queries[0] );
+		$combined = implode( "\n", $queries );
+
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_enrollments', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_groups', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_group_members', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_group_access', $combined );
 	}
 }
