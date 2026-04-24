@@ -5,7 +5,7 @@
  * Description:       JWT-based authentication for headless WordPress. Exposes REST endpoints and a public PHP API for other plugins.
  * Version:           0.1.0
  * Requires at least: 6.4
- * Requires PHP:      8.1
+ * Requires PHP:      8.4
  * Author:            Veterinary LMS
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html

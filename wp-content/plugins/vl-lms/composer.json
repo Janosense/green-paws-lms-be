@@ -1,10 +1,10 @@
 {
-    "name": "vitaliy-loyko/vl-lms",
+    "name": "green-paws-lms/vl-lms",
     "description": "Veterinary LMS plugin — headless backend for Nuxt.js frontend.",
     "type": "wordpress-plugin",
     "license": "GPL-2.0-or-later",
     "require": {
-        "php": ">=8.1"
+        "php": ">=8.4"
     },
     "require-dev": {
         "brain/monkey": "^2.6",

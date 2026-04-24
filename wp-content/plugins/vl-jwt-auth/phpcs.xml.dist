@@ -1,11 +1,10 @@
 <?xml version="1.0"?>
-<ruleset name="VL LMS">
-    <description>WordPress Coding Standards for the VL LMS plugin.</description>
+<ruleset name="VL JWT Auth">
+    <description>WordPress Coding Standards for the VL JWT Auth plugin.</description>
 
-    <file>vl-lms.php</file>
+    <file>vl-jwt-auth.php</file>
     <file>uninstall.php</file>
     <file>src</file>
-    <file>tests</file>
 
     <arg name="extensions" value="php"/>
     <arg name="colors"/>
@@ -18,20 +17,19 @@
     <config name="minimum_supported_wp_version" value="6.4"/>
     <config name="testVersion" value="8.4-"/>
 
-    <!-- Fail the build on errors only; warnings (e.g. hook-name slash separators) are acceptable. -->
     <config name="ignore_warnings_on_exit" value="1"/>
 
     <rule ref="WordPress-Extra">
         <!-- PSR-4 dictates one class per file; file-name rules conflict with that. -->
         <exclude name="WordPress.Files.FileName"/>
-        <!-- Short array syntax is standard across the project (see vl-jwt-auth). -->
+        <!-- Short array syntax is standard across the project. -->
         <exclude name="Universal.Arrays.DisallowShortArraySyntax"/>
     </rule>
 
     <rule ref="WordPress.WP.I18n">
         <properties>
             <property name="text_domain" type="array">
-                <element value="vl-lms"/>
+                <element value="vl-jwt-auth"/>
             </property>
         </properties>
     </rule>
@@ -39,15 +37,10 @@
     <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
         <properties>
             <property name="prefixes" type="array">
-                <element value="vl_lms"/>
-                <element value="VL_LMS"/>
-                <element value="VL\LMS"/>
+                <element value="vl_jwt_auth"/>
+                <element value="VL_JWT_AUTH"/>
+                <element value="VLJwtAuth"/>
             </property>
         </properties>
-    </rule>
-
-    <!-- Logger::log() intentionally writes through error_log(); that is the class's whole job. -->
-    <rule ref="WordPress.PHP.DevelopmentFunctions.error_log_error_log">
-        <exclude-pattern>src/Support/Logger.php</exclude-pattern>
     </rule>
 </ruleset>
