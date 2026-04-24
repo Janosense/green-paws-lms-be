@@ -21,7 +21,15 @@ if ( class_exists( \VL\LMS\Roles\RolesInstaller::class ) ) {
 }
 
 if ( class_exists( \VL\LMS\Database\SchemaManager::class ) ) {
+	// Note: `vl_lms_db_version` is deleted inside SchemaManager::uninstall()
+	// alongside the table drops. The parallel `vl_lms_plugin_version` is
+	// deleted below so both version options are cleared together.
 	\VL\LMS\Database\SchemaManager::uninstall();
 }
 
-// Phase 2+: delete remaining options and user meta here.
+delete_option( 'vl_lms_plugin_version' );
+
+// `vl_difficulty` terms are intentionally preserved. Taxonomy data belongs
+// to the taxonomy, not to this plugin's installer — deleting them would
+// break any other plugin or theme that references the same terms, and
+// term cleanup is outside Phase 1 scope.
