@@ -341,8 +341,141 @@ curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/resend-verification" \
 
 Tracked here so they don't vanish:
 - Password reset (lost-password) flow — subtask 2.C.
-- Bulk "revoke other sessions" endpoint — subtask 2.B or later.
-- Add `vl_jwt_auth_login_error_code` filter (or pass-through) to `vl-jwt-auth` so `UnverifiedLoginBlocker`'s distinct error code can reach the frontend.
-- Schedule `RefreshTokenRepository::cleanup_expired()` as daily cron.
+- Bulk "revoke other sessions" endpoint — subtask 2.B or later. **(landed in Phase 2.B — `DELETE /vl-auth/v1/sessions`.)**
+- Add `vl_jwt_auth_login_error_code` filter (or pass-through) to `vl-jwt-auth` so `UnverifiedLoginBlocker`'s distinct error code can reach the frontend. **(landed in Phase 2.B — whitelist passthrough; see "Login error passthrough contract" in `vl-jwt-auth/CLAUDE.md`.)**
+- Schedule `RefreshTokenRepository::cleanup_expired()` as daily cron. **(landed in Phase 2.B — `vl_jwt_auth_cleanup_expired_tokens` daily.)**
 - Add breach-list check to password policy (HIBP k-anonymity API).
 - Ukrainian (i18n) email templates.
+
+---
+
+## 12. Phase 2.B manual verification
+
+The following script exercises the five `vl-jwt-auth` improvements landed in Phase 2.B against a DDEV stack (`https://green-paws-lms-backend.ddev.site`). It assumes the Phase 2.A flow is already in place — registration creates an unverified account, and `UnverifiedLoginBlocker` returns `WP_Error('vl_lms_email_not_verified', …, 401)` from `wp_authenticate_user`.
+
+```bash
+export WP_URL="https://green-paws-lms-backend.ddev.site"
+```
+
+### 12.1 Login passthrough — unverified email surfaces `vl_lms_email_not_verified`
+
+Register a fresh account via the Phase 2.A endpoint, then attempt login **before** verifying.
+
+```bash
+EMAIL="phase2b.unverified+$(date +%s)@example.test"
+curl -s -X POST "$WP_URL/wp-json/vl/v1/auth/register" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"CorrectHorseBatteryStaple\",\"first_name\":\"Phase\",\"last_name\":\"B\"}" \
+  | jq .
+
+curl -i -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$EMAIL\",\"password\":\"CorrectHorseBatteryStaple\"}"
+# Expected: HTTP/2 401
+#   {"success":false,"error":{"code":"vl_lms_email_not_verified","message":"<message from UnverifiedLoginBlocker>","status":401}}
+# (Pre-2.B this returned `code: "invalid_credentials"`.)
+```
+
+### 12.2 Login passthrough — wrong password surfaces `incorrect_password`
+
+```bash
+# Use any verified account — substitute a real user/email here.
+curl -i -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"verified.user@example.test","password":"definitely-wrong"}'
+# Expected: HTTP/2 401
+#   {"success":false,"error":{"code":"incorrect_password","message":"The password you entered for the email address ... is incorrect.","status":401}}
+```
+
+### 12.3 Login passthrough — non-whitelisted code collapses to `invalid_credentials`
+
+Drop a one-shot `mu-plugin` (or `wp eval-file`) that hooks `wp_authenticate_user` with a code outside both the core list and the `vl_` prefix:
+
+```php
+// Save as backend/wp-content/mu-plugins/_phase2b-bogus-login-error.php
+add_filter( 'wp_authenticate_user', function ( $user ) {
+    return new WP_Error( 'evil_third_party_code', 'Should never reach the client.' );
+}, 999 );
+```
+
+```bash
+curl -i -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"verified.user@example.test","password":"CorrectHorseBatteryStaple"}'
+# Expected: HTTP/2 401
+#   {"success":false,"error":{"code":"invalid_credentials","message":"Invalid username or password.","status":401}}
+# Confirms whitelist collapse — `evil_third_party_code` is hidden from the client.
+```
+
+Remove the mu-plugin afterwards.
+
+### 12.4 Bulk `DELETE /sessions` revokes other sessions, keeps current
+
+Log in from two distinct cookie jars (browser-profile equivalents):
+
+```bash
+# Session A — keep this one.
+curl -s -c /tmp/vl-A.txt -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"verified.user@example.test","password":"CorrectHorseBatteryStaple"}' \
+  | jq -r '.data.access_token' > /tmp/vl-A.bearer
+
+# Session B — should be revoked by the bulk call.
+curl -s -c /tmp/vl-B.txt -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"verified.user@example.test","password":"CorrectHorseBatteryStaple"}' \
+  | jq -r '.data.access_token' > /tmp/vl-B.bearer
+
+# Confirm two active sessions visible from A.
+curl -s -b /tmp/vl-A.txt -X GET "$WP_URL/wp-json/vl-auth/v1/sessions" \
+  -H "Authorization: Bearer $(cat /tmp/vl-A.bearer)" | jq '.data.sessions | length'
+# Expected: 2
+
+# Bulk revoke from A.
+curl -i -b /tmp/vl-A.txt -X DELETE "$WP_URL/wp-json/vl-auth/v1/sessions" \
+  -H "Authorization: Bearer $(cat /tmp/vl-A.bearer)" \
+  -H "Origin: https://app.vetlms.com"
+# Expected: HTTP/2 200
+#   {"success":true,"data":{"revoked_count":1}}
+
+# A's listing still shows itself.
+curl -s -b /tmp/vl-A.txt -X GET "$WP_URL/wp-json/vl-auth/v1/sessions" \
+  -H "Authorization: Bearer $(cat /tmp/vl-A.bearer)" | jq '.data.sessions | length'
+# Expected: 1
+
+# B's refresh now fails — the row was revoked.
+curl -i -b /tmp/vl-B.txt -c /tmp/vl-B.txt -X POST "$WP_URL/wp-json/vl-auth/v1/token/refresh" \
+  -H "Origin: https://app.vetlms.com"
+# Expected: HTTP/2 401
+#   {"success":false,"error":{"code":"refresh_token_invalid",...}}
+# (Not "refresh_token_reused" — we used revoke, not the family-revoke replay path.)
+
+# Sanity: bulk call without a refresh cookie returns refresh_token_required.
+curl -i -X DELETE "$WP_URL/wp-json/vl-auth/v1/sessions" \
+  -H "Authorization: Bearer $(cat /tmp/vl-A.bearer)" \
+  -H "Origin: https://app.vetlms.com"
+# Expected: HTTP/2 401
+#   {"success":false,"error":{"code":"refresh_token_required",...}}
+```
+
+### 12.5 Daily cleanup cron is registered
+
+```bash
+ddev wp cron event list | grep vl_jwt_auth_cleanup_expired_tokens
+# Expected: a row with recurrence=daily, next_run roughly 1h after activation.
+```
+
+If it's missing, deactivate + reactivate the plugin (`ddev wp plugin deactivate vl-jwt-auth && ddev wp plugin activate vl-jwt-auth`) — the Activator is idempotent and will re-schedule.
+
+### 12.6 `GET /sessions` does not leak `token_hash`
+
+```bash
+curl -s -b /tmp/vl-A.txt -X GET "$WP_URL/wp-json/vl-auth/v1/sessions" \
+  -H "Authorization: Bearer $(cat /tmp/vl-A.bearer)" \
+  | jq '.data.sessions[] | keys'
+# Expected: each session has keys
+#   ["created_at","current","device_name","expires_at","id","ip_address","last_used_at","user_agent"]
+# `token_hash` MUST NOT appear.
+```
+
+The repository returns the hash (`list_active_for_user`) but the controller's response builder explicitly drops it; this curl confirms the contract end-to-end.
