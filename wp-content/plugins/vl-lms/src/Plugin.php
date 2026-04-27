@@ -23,6 +23,7 @@ use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\DifficultyTermsInstaller;
 use VL\LMS\Taxonomy\TaxonomyRegistrar;
+use VL\LMS\User\InstructorAvatarMetaRegistrar;
 use VLJwtAuth\Support\RateLimiter;
 
 /**
@@ -88,6 +89,9 @@ final class Plugin {
 
 		$taxonomy_registrar = new TaxonomyRegistrar();
 		$taxonomy_registrar->register_hooks();
+
+		$instructor_avatar_meta = new InstructorAvatarMetaRegistrar();
+		add_action( 'init', [ $instructor_avatar_meta, 'register' ] );
 
 		$course_instructor_repo   = new CourseInstructorRepository();
 		$co_instructor_lookup     = new TableBackedCoInstructorLookup( $course_instructor_repo );
