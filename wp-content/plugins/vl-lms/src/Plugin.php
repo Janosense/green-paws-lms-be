@@ -10,7 +10,10 @@ use VL\LMS\Api\AuthController;
 use VL\LMS\Api\RestController;
 use VL\LMS\Auth\JwtBridgeTokenIssuer;
 use VL\LMS\Auth\LoginGate\UnverifiedLoginBlocker;
+use VL\LMS\Auth\Mail\PasswordResetMailer;
 use VL\LMS\Auth\Mail\VerificationMailer;
+use VL\LMS\Auth\PasswordPolicy;
+use VL\LMS\Auth\PasswordReset\PasswordResetService;
 use VL\LMS\Auth\Registration\RegistrationService;
 use VL\LMS\Auth\TokenIssuer;
 use VL\LMS\Auth\Verification\EmailVerificationService;
@@ -207,8 +210,22 @@ final class Plugin {
 		);
 
 		$container->set(
+			PasswordResetMailer::class,
+			static function ( Container $c ): PasswordResetMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new PasswordResetMailer( $logger );
+			}
+		);
+
+		$container->set(
 			RateLimiter::class,
 			static fn (): RateLimiter => new RateLimiter()
+		);
+
+		$container->set(
+			PasswordPolicy::class,
+			static fn (): PasswordPolicy => new PasswordPolicy()
 		);
 
 		$container->set(
@@ -216,7 +233,9 @@ final class Plugin {
 			static function ( Container $c ): RegistrationService {
 				$mailer = $c->get( VerificationMailer::class );
 				assert( $mailer instanceof VerificationMailer );
-				return new RegistrationService( $mailer );
+				$policy = $c->get( PasswordPolicy::class );
+				assert( $policy instanceof PasswordPolicy );
+				return new RegistrationService( $mailer, $policy );
 			}
 		);
 
@@ -228,6 +247,19 @@ final class Plugin {
 				$rate_limiter = $c->get( RateLimiter::class );
 				assert( $rate_limiter instanceof RateLimiter );
 				return new EmailVerificationService( $mailer, $rate_limiter );
+			}
+		);
+
+		$container->set(
+			PasswordResetService::class,
+			static function ( Container $c ): PasswordResetService {
+				$mailer = $c->get( PasswordResetMailer::class );
+				assert( $mailer instanceof PasswordResetMailer );
+				$rate_limiter = $c->get( RateLimiter::class );
+				assert( $rate_limiter instanceof RateLimiter );
+				$policy = $c->get( PasswordPolicy::class );
+				assert( $policy instanceof PasswordPolicy );
+				return new PasswordResetService( $mailer, $rate_limiter, $policy );
 			}
 		);
 
@@ -250,11 +282,14 @@ final class Plugin {
 				assert( $verification instanceof EmailVerificationService );
 				$token_issuer = $c->get( TokenIssuer::class );
 				assert( $token_issuer instanceof TokenIssuer );
+				$password_reset = $c->get( PasswordResetService::class );
+				assert( $password_reset instanceof PasswordResetService );
 				return new AuthController(
 					VL_LMS_API_NAMESPACE,
 					$registration,
 					$verification,
-					$token_issuer
+					$token_issuer,
+					$password_reset
 				);
 			}
 		);

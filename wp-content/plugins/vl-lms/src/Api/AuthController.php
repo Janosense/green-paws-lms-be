@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace VL\LMS\Api;
 
 use VL\LMS\Auth\AccountKind;
+use VL\LMS\Auth\PasswordReset\PasswordResetConfirmRequest;
+use VL\LMS\Auth\PasswordReset\PasswordResetException;
+use VL\LMS\Auth\PasswordReset\PasswordResetRequest;
+use VL\LMS\Auth\PasswordReset\PasswordResetService;
 use VL\LMS\Auth\Registration\RegistrationException;
 use VL\LMS\Auth\Registration\RegistrationRequest;
 use VL\LMS\Auth\Registration\RegistrationService;
@@ -19,10 +23,12 @@ use WP_User;
 /**
  * REST controller for `/vl/v1/auth/*`.
  *
- * Three public endpoints:
- * - `POST /vl/v1/auth/register`             — create an account (idempotent, generic response).
- * - `POST /vl/v1/auth/verify-email`         — consume a token, issue JWTs.
- * - `POST /vl/v1/auth/resend-verification`  — re-send the verification email (rate-limited, generic response).
+ * Five public endpoints:
+ * - `POST /vl/v1/auth/register`                — create an account (idempotent, generic response).
+ * - `POST /vl/v1/auth/verify-email`            — consume a verification token, issue JWTs.
+ * - `POST /vl/v1/auth/resend-verification`     — re-send the verification email (rate-limited, generic response).
+ * - `POST /vl/v1/auth/request-password-reset`  — start a password reset (rate-limited, generic response).
+ * - `POST /vl/v1/auth/reset-password`          — consume a reset token and update the password.
  *
  * Success envelope: `{ success: true, data: {...} }`.
  * Error shape: `WP_Error`, rendered by WordPress as
@@ -39,11 +45,16 @@ final class AuthController {
 
 	public const string RESEND_ROUTE = '/auth/resend-verification';
 
+	public const string REQUEST_PASSWORD_RESET_ROUTE = '/auth/request-password-reset';
+
+	public const string RESET_PASSWORD_ROUTE = '/auth/reset-password';
+
 	public function __construct(
 		private readonly string $rest_namespace,
 		private readonly RegistrationService $registration,
 		private readonly EmailVerificationService $verification,
-		private readonly TokenIssuer $token_issuer
+		private readonly TokenIssuer $token_issuer,
+		private readonly PasswordResetService $password_reset
 	) {
 	}
 
@@ -115,6 +126,44 @@ final class AuthController {
 						'type'              => 'string',
 						'required'          => true,
 						'sanitize_callback' => 'sanitize_email',
+					],
+				],
+			]
+		);
+
+		register_rest_route(
+			$this->rest_namespace,
+			self::REQUEST_PASSWORD_RESET_ROUTE,
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'request_password_reset' ],
+				'permission_callback' => '__return_true',
+				'args'                => [
+					'email' => [
+						'type'              => 'string',
+						'required'          => true,
+						'sanitize_callback' => 'sanitize_email',
+					],
+				],
+			]
+		);
+
+		register_rest_route(
+			$this->rest_namespace,
+			self::RESET_PASSWORD_ROUTE,
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'reset_password' ],
+				'permission_callback' => '__return_true',
+				'args'                => [
+					'token'    => [
+						'type'              => 'string',
+						'required'          => true,
+						'sanitize_callback' => 'sanitize_text_field',
+					],
+					'password' => [
+						'type'     => 'string',
+						'required' => true,
 					],
 				],
 			]
@@ -228,6 +277,89 @@ final class AuthController {
 				],
 			]
 		);
+	}
+
+	/**
+	 * `POST /vl/v1/auth/request-password-reset`.
+	 *
+	 * Always returns the same generic body. Rate-limit hits are absorbed
+	 * by the service too — a repeated-targeting attacker cannot tell
+	 * from the response whether the mail was actually sent.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function request_password_reset( WP_REST_Request $request ): WP_REST_Response {
+		$this->password_reset->request(
+			new PasswordResetRequest(
+				email: (string) $request->get_param( 'email' ),
+				ip: $this->client_ip(),
+			)
+		);
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'data'    => [
+					'message' => __(
+						'If an account exists for this email, a reset link has been sent.',
+						'vl-lms'
+					),
+				],
+			]
+		);
+	}
+
+	/**
+	 * `POST /vl/v1/auth/reset-password`.
+	 *
+	 * Consumes the reset token and applies the new password. WP core's
+	 * `reset_password()` cascades refresh-token revocation through
+	 * `vl-jwt-auth`.
+	 *
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function reset_password( WP_REST_Request $request ) {
+		try {
+			$this->password_reset->confirm(
+				new PasswordResetConfirmRequest(
+					token: (string) $request->get_param( 'token' ),
+					password: (string) $request->get_param( 'password' )
+				)
+			);
+		} catch ( PasswordResetException $e ) {
+			return new WP_Error(
+				$e->error_code(),
+				$e->getMessage(),
+				[ 'status' => $e->status_code() ]
+			);
+		}
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'data'    => [
+					'message' => __(
+						'Password updated. You can now sign in.',
+						'vl-lms'
+					),
+				],
+			]
+		);
+	}
+
+	/**
+	 * Best-effort client IP extraction for rate limiting.
+	 *
+	 * Plain `$_SERVER['REMOTE_ADDR']` is fine in the common case; reverse
+	 * proxies that prepend `X-Forwarded-For` are out of scope for this
+	 * endpoint — the rate limit is a spam-throttle, not a security
+	 * boundary, and `vl-jwt-auth` already has a filter seam
+	 * (`vl_jwt_auth_client_ip`) for more sophisticated IP handling on its
+	 * login routes.
+	 */
+	private function client_ip(): string {
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+		return sanitize_text_field( $ip );
 	}
 
 	/**

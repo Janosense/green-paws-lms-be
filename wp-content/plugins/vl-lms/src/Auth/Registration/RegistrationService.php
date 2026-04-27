@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Auth\Registration;
 
 use VL\LMS\Auth\Mail\VerificationMailer;
+use VL\LMS\Auth\PasswordPolicy;
 use VL\LMS\Auth\Verification\VerificationToken;
 use WP_Error;
 use WP_User;
@@ -31,12 +32,17 @@ use WP_User;
  */
 class RegistrationService {
 
-	public const int DEFAULT_MIN_PASSWORD_LENGTH = 8;
+	/**
+	 * @deprecated Kept for backward compatibility with tests asserting the constant.
+	 * Use {@see PasswordPolicy::DEFAULT_MIN_LENGTH} instead.
+	 */
+	public const int DEFAULT_MIN_PASSWORD_LENGTH = PasswordPolicy::DEFAULT_MIN_LENGTH;
 
 	public const int DEFAULT_TOKEN_TTL_SECONDS = 86400;
 
 	public function __construct(
-		private readonly VerificationMailer $mailer
+		private readonly VerificationMailer $mailer,
+		private readonly PasswordPolicy $password_policy
 	) {
 	}
 
@@ -100,16 +106,8 @@ class RegistrationService {
 	}
 
 	private function validate_password( string $password ): void {
-		/**
-		 * Filter the minimum password length enforced at registration.
-		 *
-		 * @param int $length Default minimum length.
-		 */
-		$raw = apply_filters( 'vl_lms_min_password_length', self::DEFAULT_MIN_PASSWORD_LENGTH );
-		$min = max( 1, (int) $raw );
-
-		if ( strlen( $password ) < $min ) {
-			throw RegistrationException::weak_password( $min ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+		if ( ! $this->password_policy->is_acceptable( $password ) ) {
+			throw RegistrationException::weak_password( $this->password_policy->min_length() ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
 		}
 	}
 

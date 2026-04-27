@@ -11,7 +11,7 @@ namespace VL\LMS\Support;
  * runtime is configured to send it (WP_DEBUG_LOG, syslog, stderr, etc.).
  * Replaceable with Monolog or similar without touching callers.
  */
-final class Logger {
+class Logger {
 
 	public function __construct(
 		private readonly string $channel = 'vl-lms',

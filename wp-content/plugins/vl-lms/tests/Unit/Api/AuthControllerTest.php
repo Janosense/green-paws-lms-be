@@ -10,6 +10,10 @@ use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Api\AuthController;
+use VL\LMS\Auth\PasswordReset\PasswordResetConfirmRequest;
+use VL\LMS\Auth\PasswordReset\PasswordResetException;
+use VL\LMS\Auth\PasswordReset\PasswordResetRequest;
+use VL\LMS\Auth\PasswordReset\PasswordResetService;
 use VL\LMS\Auth\Registration\RegistrationException;
 use VL\LMS\Auth\Registration\RegistrationOutcome;
 use VL\LMS\Auth\Registration\RegistrationResult;
@@ -33,6 +37,9 @@ final class AuthControllerTest extends TestCase {
 	/** @var Mockery\MockInterface&TokenIssuer */
 	private $token_issuer;
 
+	/** @var Mockery\MockInterface&PasswordResetService */
+	private $password_reset;
+
 	private AuthController $controller;
 
 	protected function setUp(): void {
@@ -40,6 +47,7 @@ final class AuthControllerTest extends TestCase {
 		Monkey\setUp();
 
 		Functions\when( '__' )->returnArg();
+		Functions\when( 'sanitize_text_field' )->returnArg();
 		Functions\when( 'rest_ensure_response' )->alias(
 			static function ( $data ): WP_REST_Response {
 				$response = Mockery::mock( WP_REST_Response::class );
@@ -49,15 +57,17 @@ final class AuthControllerTest extends TestCase {
 			}
 		);
 
-		$this->registration = Mockery::mock( RegistrationService::class );
-		$this->verification = Mockery::mock( EmailVerificationService::class );
-		$this->token_issuer = Mockery::mock( TokenIssuer::class );
+		$this->registration   = Mockery::mock( RegistrationService::class );
+		$this->verification   = Mockery::mock( EmailVerificationService::class );
+		$this->token_issuer   = Mockery::mock( TokenIssuer::class );
+		$this->password_reset = Mockery::mock( PasswordResetService::class );
 
 		$this->controller = new AuthController(
 			'vl/v1',
 			$this->registration,
 			$this->verification,
-			$this->token_issuer
+			$this->token_issuer,
+			$this->password_reset
 		);
 	}
 
@@ -66,7 +76,7 @@ final class AuthControllerTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_register_routes_registers_three_endpoints(): void {
+	public function test_register_routes_registers_all_five_endpoints(): void {
 		$calls = [];
 		Functions\when( 'register_rest_route' )->alias(
 			static function ( string $namespace, string $route, array $args ) use ( &$calls ): void {
@@ -80,12 +90,18 @@ final class AuthControllerTest extends TestCase {
 
 		$this->controller->register_routes();
 
-		self::assertCount( 3, $calls );
+		self::assertCount( 5, $calls );
 		self::assertSame( 'vl/v1', $calls[0]['namespace'] );
 		self::assertSame( '/auth/register', $calls[0]['route'] );
 		self::assertSame( '__return_true', $calls[0]['args']['permission_callback'] );
 		self::assertSame( '/auth/verify-email', $calls[1]['route'] );
 		self::assertSame( '/auth/resend-verification', $calls[2]['route'] );
+		self::assertSame( '/auth/request-password-reset', $calls[3]['route'] );
+		self::assertSame( '__return_true', $calls[3]['args']['permission_callback'] );
+		self::assertSame( '/auth/reset-password', $calls[4]['route'] );
+		self::assertSame( '__return_true', $calls[4]['args']['permission_callback'] );
+		self::assertTrue( $calls[4]['args']['args']['token']['required'] );
+		self::assertTrue( $calls[4]['args']['args']['password']['required'] );
 	}
 
 	public function test_register_endpoint_args_require_email_and_password(): void {
@@ -267,6 +283,138 @@ final class AuthControllerTest extends TestCase {
 		self::assertInstanceOf( WP_REST_Response::class, $response );
 		self::assertTrue( $response->get_data()['success'] );
 		self::assertArrayHasKey( 'message', $response->get_data()['data'] );
+	}
+
+	public function test_request_password_reset_returns_generic_body_for_known_email(): void {
+		$this->password_reset->shouldReceive( 'request' )
+			->once()
+			->with( Mockery::type( PasswordResetRequest::class ) );
+
+		$response = $this->controller->request_password_reset(
+			$this->make_request( [ 'email' => 'known@example.test' ] )
+		);
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		$data = $response->get_data();
+		self::assertTrue( $data['success'] );
+		self::assertArrayHasKey( 'message', $data['data'] );
+	}
+
+	public function test_request_password_reset_returns_same_body_for_unknown_email(): void {
+		$this->password_reset->shouldReceive( 'request' )
+			->once()
+			->with( Mockery::type( PasswordResetRequest::class ) );
+
+		$response_known = $this->controller->request_password_reset(
+			$this->make_request( [ 'email' => 'known@example.test' ] )
+		);
+
+		$this->password_reset->shouldReceive( 'request' )
+			->once()
+			->with( Mockery::type( PasswordResetRequest::class ) );
+		$response_unknown = $this->controller->request_password_reset(
+			$this->make_request( [ 'email' => 'unknown@example.test' ] )
+		);
+
+		self::assertSame(
+			$response_known->get_data(),
+			$response_unknown->get_data(),
+			'Response bodies must be identical regardless of whether the email matches an account.'
+		);
+	}
+
+	public function test_request_password_reset_passes_email_through_value_object(): void {
+		$captured = null;
+		$this->password_reset->shouldReceive( 'request' )
+			->once()
+			->andReturnUsing(
+				static function ( PasswordResetRequest $req ) use ( &$captured ): void {
+					$captured = $req;
+				}
+			);
+
+		$this->controller->request_password_reset(
+			$this->make_request( [ 'email' => 'forward@example.test' ] )
+		);
+
+		self::assertNotNull( $captured );
+		self::assertSame( 'forward@example.test', $captured->email );
+	}
+
+	public function test_reset_password_returns_generic_success_on_confirm(): void {
+		$this->password_reset->shouldReceive( 'confirm' )
+			->once()
+			->with( Mockery::type( PasswordResetConfirmRequest::class ) )
+			->andReturn( 42 );
+
+		$response = $this->controller->reset_password(
+			$this->make_request(
+				[
+					'token'    => 'VALID',
+					'password' => 'brand-new-pass',
+				]
+			)
+		);
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		$data = $response->get_data();
+		self::assertTrue( $data['success'] );
+		self::assertArrayHasKey( 'message', $data['data'] );
+	}
+
+	public function test_reset_password_maps_invalid_exception_to_wp_error(): void {
+		$this->password_reset->shouldReceive( 'confirm' )
+			->once()
+			->andThrow( PasswordResetException::invalid() );
+
+		$result = $this->controller->reset_password(
+			$this->make_request(
+				[
+					'token'    => 'BAD',
+					'password' => 'brand-new-pass',
+				]
+			)
+		);
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'vl_lms_password_reset_invalid_token', $result->get_error_code() );
+		self::assertSame( 400, $result->get_error_data()['status'] );
+	}
+
+	public function test_reset_password_maps_expired_exception_to_wp_error(): void {
+		$this->password_reset->shouldReceive( 'confirm' )
+			->once()
+			->andThrow( PasswordResetException::expired() );
+
+		$result = $this->controller->reset_password(
+			$this->make_request(
+				[
+					'token'    => 'STALE',
+					'password' => 'brand-new-pass',
+				]
+			)
+		);
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'vl_lms_password_reset_token_expired', $result->get_error_code() );
+	}
+
+	public function test_reset_password_maps_weak_password_exception_to_wp_error(): void {
+		$this->password_reset->shouldReceive( 'confirm' )
+			->once()
+			->andThrow( PasswordResetException::weak_password( 8 ) );
+
+		$result = $this->controller->reset_password(
+			$this->make_request(
+				[
+					'token'    => 'VALID',
+					'password' => 'weak',
+				]
+			)
+		);
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'vl_lms_password_reset_weak_password', $result->get_error_code() );
 	}
 
 	/**

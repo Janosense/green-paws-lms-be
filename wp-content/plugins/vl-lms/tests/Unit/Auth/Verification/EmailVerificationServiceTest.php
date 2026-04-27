@@ -171,8 +171,8 @@ final class EmailVerificationServiceTest extends TestCase {
 	}
 
 	public function test_resend_is_silent_and_sends_email_for_unverified_user(): void {
-		$user     = Mockery::mock( 'WP_User' );
-		$user->ID = 77;
+		$user                = Mockery::mock( 'WP_User' );
+		$user->ID            = 77;
 		$this->user_meta[77] = [ '_vl_email_verified' => '0' ];
 
 		Functions\when( 'get_user_by' )->justReturn( $user );
@@ -191,8 +191,8 @@ final class EmailVerificationServiceTest extends TestCase {
 	}
 
 	public function test_resend_is_silent_for_already_verified_user(): void {
-		$user     = Mockery::mock( 'WP_User' );
-		$user->ID = 77;
+		$user                = Mockery::mock( 'WP_User' );
+		$user->ID            = 77;
 		$this->user_meta[77] = [ '_vl_email_verified' => '1' ];
 
 		Functions\when( 'get_user_by' )->justReturn( $user );
@@ -226,8 +226,8 @@ final class EmailVerificationServiceTest extends TestCase {
 	}
 
 	public function test_resend_invalidates_previous_token(): void {
-		$user     = Mockery::mock( 'WP_User' );
-		$user->ID = 77;
+		$user                = Mockery::mock( 'WP_User' );
+		$user->ID            = 77;
 		$this->user_meta[77] = [
 			'_vl_email_verified'             => '0',
 			'_vl_verification_token_hash'    => hash( 'sha256', 'PREVIOUS_TOKEN' ),

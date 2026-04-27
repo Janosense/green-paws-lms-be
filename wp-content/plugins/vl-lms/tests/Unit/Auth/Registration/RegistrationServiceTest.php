@@ -11,6 +11,7 @@ use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Auth\Mail\VerificationMailer;
+use VL\LMS\Auth\PasswordPolicy;
 use VL\LMS\Auth\Registration\RegistrationException;
 use VL\LMS\Auth\Registration\RegistrationOutcome;
 use VL\LMS\Auth\Registration\RegistrationRequest;
@@ -52,7 +53,7 @@ final class RegistrationServiceTest extends TestCase {
 		);
 
 		$this->mailer  = Mockery::mock( VerificationMailer::class );
-		$this->service = new RegistrationService( $this->mailer );
+		$this->service = new RegistrationService( $this->mailer, new PasswordPolicy() );
 	}
 
 	protected function tearDown(): void {
@@ -66,8 +67,8 @@ final class RegistrationServiceTest extends TestCase {
 				if ( 'email' === $field ) {
 					return false;
 				}
-				$user      = Mockery::mock( 'WP_User' );
-				$user->ID  = 42;
+				$user             = Mockery::mock( 'WP_User' );
+				$user->ID         = 42;
 				$user->first_name = 'Alice';
 				$user->user_login = 'alice';
 				return $user;
@@ -107,8 +108,8 @@ final class RegistrationServiceTest extends TestCase {
 				if ( 'email' === $field ) {
 					return false;
 				}
-				$user      = Mockery::mock( 'WP_User' );
-				$user->ID  = 42;
+				$user     = Mockery::mock( 'WP_User' );
+				$user->ID = 42;
 				return $user;
 			}
 		);
@@ -141,8 +142,8 @@ final class RegistrationServiceTest extends TestCase {
 	}
 
 	public function test_register_silently_succeeds_for_already_verified_email(): void {
-		$existing     = Mockery::mock( 'WP_User' );
-		$existing->ID = 99;
+		$existing            = Mockery::mock( 'WP_User' );
+		$existing->ID        = 99;
 		$this->user_meta[99] = [ '_vl_email_verified' => '1' ];
 
 		Functions\when( 'get_user_by' )->justReturn( $existing );
@@ -164,8 +165,8 @@ final class RegistrationServiceTest extends TestCase {
 	}
 
 	public function test_register_resends_verification_for_existing_unverified_user(): void {
-		$existing     = Mockery::mock( 'WP_User' );
-		$existing->ID = 77;
+		$existing            = Mockery::mock( 'WP_User' );
+		$existing->ID        = 77;
 		$this->user_meta[77] = [ '_vl_email_verified' => '0' ];
 
 		Functions\when( 'get_user_by' )->justReturn( $existing );

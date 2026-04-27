@@ -479,3 +479,171 @@ curl -s -b /tmp/vl-A.txt -X GET "$WP_URL/wp-json/vl-auth/v1/sessions" \
 ```
 
 The repository returns the hash (`list_active_for_user`) but the controller's response builder explicitly drops it; this curl confirms the contract end-to-end.
+
+---
+
+## 13. Phase 2.C — password-reset flow
+
+### 13.1 Decisions
+
+| Decision | Value | Rationale |
+|---|---|---|
+| Token format | 64-char URL-safe string from `wp_generate_password(64, false, false)` | Mirrors `VerificationToken`. Same entropy budget, same audit story. |
+| Token hashing | `hash('sha256', $plain)` stored in `_vl_password_reset_token_hash` | Same invariant as verification + `vl-jwt-auth`'s `Support\Hasher`: raw tokens never touch the database. |
+| Token TTL | 1 hour, overridable via `vl_lms_password_reset_token_ttl` | Tighter than verification's 24h because the stakes are higher: a leaked reset token permits account takeover. Industry norm for password reset. Most users act on the email within minutes. |
+| Single-active / single-use | `request()` overwrites any previous `(hash, expiry)` pair; `confirm()` deletes them on success. Weak-password rejection does **not** consume the token (retry-friendly). | Minimises state. Matches the verification flow's "single-active + single-use" contract. |
+| Rate limits | 5 per email / hour, 20 per IP / hour. Overridable via `vl_lms_password_reset_email_limit` / `vl_lms_password_reset_ip_limit`. Window: 3600s. | Legitimate users almost never need more than 1–2 reset emails per hour; the IP limit catches distributed enumeration attempts without tripping for a shared NAT. |
+| Rate-limit response | Generic success body, identical to the successful-send path. | A repeated-targeting attacker must not be able to tell whether the email was actually sent. |
+| Password policy | Reuse `\VL\LMS\Auth\PasswordPolicy` (shared with registration). Minimum length 8, overridable via `vl_lms_min_password_length`. | Second use-site: the DRY threshold has been met. Extracted into a dedicated helper so the filter applies identically to registration and reset. |
+| Password-apply call | WP core `reset_password($user, $new_password)` | Fires the `password_reset` action, which `vl-jwt-auth`'s `RefreshTokenRepository::revoke_user()` listens to (audit §3). `wp_set_password()` would silently skip the revocation chain — do NOT use it. |
+| Flow works for unverified users | Yes | A user who never verified their email still needs a recovery path. On successful reset the account is marked verified — proof-of-email-access is proof-of-email-access regardless of which flow produced it. **Frontend-contract note for 2.D:** an unverified user who resets their password is immediately able to log in; the login page does not need a special "unverified but reset" branch. |
+| Admin-notification email | Suppressed for non-admin password resets via a scoped `wp_password_change_notification_email` filter around the `reset_password()` call. Admin resets still notify. | A headless LMS otherwise spams the admin inbox at scale. The filter is attached/removed in a `finally` block so it can never leak to other plugins. |
+| Enumeration safety | `POST /vl/v1/auth/request-password-reset` returns the same 200 body whether the email matches an account, is unknown, is malformed, or trips the rate limit. | Cannot be used to probe the user database. |
+| Reset URL format | `{VL_LMS_APP_URL}/reset-password?token={plain_token}` (URL-encoded) | Same constant + same `home_url()` fallback pattern as `VerificationMailer`. |
+
+### 13.2 User meta keys added
+
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `_vl_password_reset_token_hash` | 64-char sha256 hex | `''` | Lookup key for `PasswordResetService::confirm()`. |
+| `_vl_password_reset_token_expires` | Unix timestamp as string | `''` | TTL gate checked by `confirm()`. |
+
+Both are cleared on successful `confirm()` (single-use) and overwritten on subsequent `request()` calls (single-active). No schema changes.
+
+### 13.3 New REST endpoints
+
+Under `vl/v1`:
+
+| Method | Path | Auth | Body | Success payload | Notable errors |
+|---|---|---|---|---|---|
+| POST | `/auth/request-password-reset` | none (rate-limited) | `{ email }` | generic `{ success: true, data: { message } }` | none surfaced — generic response even on rate-limit |
+| POST | `/auth/reset-password` | none | `{ token, password }` | generic `{ success: true, data: { message } }` | `vl_lms_password_reset_invalid_token` (400), `vl_lms_password_reset_token_expired` (400), `vl_lms_password_reset_weak_password` (400) |
+
+Error shape is the WP-REST default `{ code, message, data: { status } }` — same as the other `vl/v1/auth/*` endpoints, distinct from `vl-jwt-auth`'s `{ success: false, error }` envelope.
+
+### 13.4 Manual verification (curl commands)
+
+```bash
+export WP_URL="https://green-paws-lms-backend.ddev.site"
+
+# 1. Known email — HTTP 200 generic, Mailpit receives the reset email.
+EMAIL="phase2c.resettest+$(date +%s)@example.test"
+# (Assume this address belongs to a previously-registered, verified user.)
+curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/request-password-reset" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$EMAIL\"}"
+# Expected: HTTP/2 200
+#   {"success":true,"data":{"message":"If an account exists for this email, a reset link has been sent."}}
+open "https://green-paws-lms-backend.ddev.site:8026"   # Mailpit — copy the `token` query-string value into $TOKEN.
+export TOKEN=$(... paste ...)
+
+# 2. Unknown email — HTTP 200 identical body, Mailpit receives nothing.
+curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/request-password-reset" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"nobody-here@example.test"}'
+# Expected: identical 200 body to step 1.
+
+# 3. Rate-limit — repeat step 1 six times inside an hour.
+for i in 1 2 3 4 5 6; do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST "$WP_URL/wp-json/vl/v1/auth/request-password-reset" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$EMAIL\"}"
+done
+# Expected: 200 x6. Mailpit shows 5 emails total. Request #6 is absorbed silently by the rate limiter.
+
+# 4. Prove the user has an active session before resetting.
+curl -s -c /tmp/vl-pre.txt -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$EMAIL\",\"password\":\"OLD_PASSWORD\"}" \
+  | jq -r '.data.access_token' > /tmp/vl-pre.bearer
+curl -i -X GET "$WP_URL/wp-json/vl-auth/v1/me" \
+  -H "Authorization: Bearer $(cat /tmp/vl-pre.bearer)"
+# Expected: HTTP/2 200 — confirms an active session, which should survive JWT TTL but whose refresh is about to die.
+
+# 5. Reset with a valid token + a strong password.
+curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/reset-password" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$TOKEN\",\"password\":\"BrandNewHorseBattery\"}"
+# Expected: HTTP/2 200
+#   {"success":true,"data":{"message":"Password updated. You can now sign in."}}
+#
+# (a) Old password no longer works:
+curl -i -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$EMAIL\",\"password\":\"OLD_PASSWORD\"}"
+# Expected: HTTP/2 401 invalid_credentials.
+#
+# (b) New password works:
+curl -i -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$EMAIL\",\"password\":\"BrandNewHorseBattery\"}"
+# Expected: HTTP/2 200 with access_token + refresh cookie.
+#
+# (c) Previously-acquired access token decodes until natural expiry (stateless JWT), but refresh fails:
+curl -i -b /tmp/vl-pre.txt -X POST "$WP_URL/wp-json/vl-auth/v1/token/refresh" \
+  -H "Origin: https://app.vetlms.com"
+# Expected: HTTP/2 401
+#   {"success":false,"error":{"code":"refresh_token_invalid",...}}
+# Confirms the `password_reset` → `RefreshTokenRepository::revoke_user()` chain fired.
+
+# 6. Expired token — force expiry by tampering with the stored timestamp (or wait >1h).
+# Assume $EXPIRED_TOKEN refers to a token whose `_vl_password_reset_token_expires` is in the past.
+curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/reset-password" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$EXPIRED_TOKEN\",\"password\":\"BrandNewHorseBattery\"}"
+# Expected: HTTP/2 400
+#   {"code":"vl_lms_password_reset_token_expired","message":"...","data":{"status":400}}
+
+# 7. Unknown / malformed token.
+curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/reset-password" \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"total-garbage","password":"BrandNewHorseBattery"}'
+# Expected: HTTP/2 400
+#   {"code":"vl_lms_password_reset_invalid_token",...}
+
+# 8. Weak password — token MUST remain usable for retry.
+curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/reset-password" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$TOKEN\",\"password\":\"short\"}"
+# Expected: HTTP/2 400
+#   {"code":"vl_lms_password_reset_weak_password",...}
+# Retry with a stronger password immediately — should succeed (until consumed by step 5 above).
+
+# 9. Unverified user reset — register a fresh account but do NOT verify, then reset.
+EMAIL_UNVERIFIED="phase2c.unverified+$(date +%s)@example.test"
+curl -s -X POST "$WP_URL/wp-json/vl/v1/auth/register" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$EMAIL_UNVERIFIED\",\"password\":\"TempHorseBattery\",\"first_name\":\"Phase\",\"last_name\":\"C\"}"
+curl -s -X POST "$WP_URL/wp-json/vl/v1/auth/request-password-reset" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$EMAIL_UNVERIFIED\"}"
+# Copy the reset token from Mailpit into $UT.
+curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/reset-password" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$UT\",\"password\":\"AfterResetHorse\"}"
+# Expected: 200 generic success.
+# Login afterwards with the new password — should now succeed (user is auto-verified by the reset flow).
+curl -i -X POST "$WP_URL/wp-json/vl-auth/v1/token" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$EMAIL_UNVERIFIED\",\"password\":\"AfterResetHorse\"}"
+# Expected: HTTP/2 200. Absent the auto-verify decision, this would return 401 vl_lms_email_not_verified.
+
+# 10. Admin vs. non-admin notification scoping.
+# 10a. Reset a non-admin user (as in step 5) — Mailpit should NOT receive a "[Site] Password Changed" admin email.
+# 10b. Reset an administrator (wp-admin/?page=users, or via `ddev wp user create admin2 admin2@example.test --role=administrator --user_pass=AdminOrig`):
+EMAIL_ADMIN="admin2@example.test"
+curl -s -X POST "$WP_URL/wp-json/vl/v1/auth/request-password-reset" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$EMAIL_ADMIN\"}"
+# Copy the token into $AT, then:
+curl -i -X POST "$WP_URL/wp-json/vl/v1/auth/reset-password" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$AT\",\"password\":\"NewAdminHorse\"}"
+# Expected: 200 generic success AND Mailpit contains the "[Site] Password Changed" notification — suppression is scoped to non-admin resets only.
+```
+
+### 13.5 Carry-over notes for earlier sections
+
+- **§10 is unchanged** and remains accurate for the Phase 2.A verification flow. The Phase 2.C flow uses its own email template, its own user-meta keys, and its own REST namespace paths, so no edits to §10 are needed.
+- **§12 is unchanged.** Phase 2.C does not touch any `vl-jwt-auth` behaviour directly — it piggybacks on the existing `password_reset` → `RefreshTokenRepository::revoke_user()` hook chain documented in §3.
+

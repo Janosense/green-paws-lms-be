@@ -47,8 +47,8 @@ final class UnverifiedLoginBlockerTest extends TestCase {
 	}
 
 	public function test_verified_user_passes_through_untouched(): void {
-		$user     = Mockery::mock( 'WP_User' );
-		$user->ID = 42;
+		$user                    = Mockery::mock( 'WP_User' );
+		$user->ID                = 42;
 		$this->verified_meta[42] = '1';
 
 		$result = $this->blocker->block_unverified( $user, 'ignored' );
@@ -57,8 +57,8 @@ final class UnverifiedLoginBlockerTest extends TestCase {
 	}
 
 	public function test_unverified_user_returns_wp_error(): void {
-		$user     = Mockery::mock( 'WP_User' );
-		$user->ID = 42;
+		$user                    = Mockery::mock( 'WP_User' );
+		$user->ID                = 42;
 		$this->verified_meta[42] = '0';
 
 		$result = $this->blocker->block_unverified( $user, 'ignored' );
