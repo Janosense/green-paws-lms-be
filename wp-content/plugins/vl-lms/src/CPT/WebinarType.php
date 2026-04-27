@@ -96,13 +96,22 @@ final class WebinarType extends AbstractCptRegistrar {
 				'description'       => 'Lifecycle state — "scheduled", "live", "completed", or "cancelled".',
 			],
 			'_vl_webinar_price'                  => [
+				'type'              => 'number',
+				'single'            => true,
+				'default'           => 0,
+				'show_in_rest'      => false,
+				'sanitize_callback' => static fn ( mixed $v ): float => self::sanitize_price_uah( $v ),
+				'auth_callback'     => $auth,
+				'description'       => 'Price in UAH (decimal, 2 places). 0 = free.',
+			],
+			'_vl_webinar_cover_image_id'         => [
 				'type'              => 'integer',
 				'single'            => true,
 				'default'           => 0,
 				'show_in_rest'      => false,
 				'sanitize_callback' => 'absint',
 				'auth_callback'     => $auth,
-				'description'       => 'Price in minor units (kopiyky). 0 = free.',
+				'description'       => 'WP attachment ID for the webinar cover image. 0 = no cover.',
 			],
 			'_vl_webinar_currency'               => [
 				'type'              => 'string',
@@ -204,6 +213,18 @@ final class WebinarType extends AbstractCptRegistrar {
 				'description'       => 'Promotional preview video URL for the catalog.',
 			],
 		];
+	}
+
+	/**
+	 * Sanitize a price stored in UAH.
+	 * Coerces to float, clamps to >= 0, rounds to 2 decimal places.
+	 */
+	protected static function sanitize_price_uah( mixed $value ): float {
+		$price = (float) $value;
+		if ( $price < 0.0 ) {
+			$price = 0.0;
+		}
+		return round( $price, 2 );
 	}
 
 	/**

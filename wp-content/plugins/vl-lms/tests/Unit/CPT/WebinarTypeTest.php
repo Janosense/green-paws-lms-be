@@ -25,6 +25,7 @@ final class WebinarTypeTest extends TestCase {
 		'_vl_webinar_scheduled_end',
 		'_vl_webinar_status',
 		'_vl_webinar_price',
+		'_vl_webinar_cover_image_id',
 		'_vl_webinar_currency',
 		'_vl_webinar_max_attendees',
 		'_vl_webinar_registration_opens_at',
@@ -85,11 +86,11 @@ final class WebinarTypeTest extends TestCase {
 		self::assertTrue( $this->invoke_protected( 'show_in_menu' ) );
 	}
 
-	public function test_meta_fields_contain_exactly_fifteen_documented_keys(): void {
+	public function test_meta_fields_contain_exactly_sixteen_documented_keys(): void {
 		$fields = $this->invoke_protected( 'meta_fields' );
 
 		self::assertSame( self::EXPECTED_META_KEYS, array_keys( $fields ) );
-		self::assertCount( 15, $fields );
+		self::assertCount( 16, $fields );
 	}
 
 	public function test_every_meta_field_is_single_with_show_in_rest_false_and_callable_sanitizer(): void {
@@ -111,6 +112,7 @@ final class WebinarTypeTest extends TestCase {
 		self::assertSame( '', $fields['_vl_webinar_scheduled_end']['default'] );
 		self::assertSame( 'scheduled', $fields['_vl_webinar_status']['default'] );
 		self::assertSame( 0, $fields['_vl_webinar_price']['default'] );
+		self::assertSame( 0, $fields['_vl_webinar_cover_image_id']['default'] );
 		self::assertSame( 'UAH', $fields['_vl_webinar_currency']['default'] );
 		self::assertSame( 0, $fields['_vl_webinar_max_attendees']['default'] );
 		self::assertSame( '', $fields['_vl_webinar_registration_opens_at']['default'] );
@@ -139,6 +141,28 @@ final class WebinarTypeTest extends TestCase {
 		self::assertSame( 'UAH', $this->invoke_sanitizer( 'sanitize_currency_code', 'TOOLONG' ) );
 		self::assertSame( 'UAH', $this->invoke_sanitizer( 'sanitize_currency_code', '12' ) );
 		self::assertSame( 'UAH', $this->invoke_sanitizer( 'sanitize_currency_code', '' ) );
+	}
+
+	public function test_sanitize_price_uah(): void {
+		self::assertSame( 199.50, $this->invoke_sanitizer( 'sanitize_price_uah', '199.50' ) );
+		self::assertSame( 199.0, $this->invoke_sanitizer( 'sanitize_price_uah', 199 ) );
+		self::assertSame( 0.0, $this->invoke_sanitizer( 'sanitize_price_uah', -5 ) );
+		self::assertSame( 0.0, $this->invoke_sanitizer( 'sanitize_price_uah', 'not-a-number' ) );
+		self::assertSame( 200.0, $this->invoke_sanitizer( 'sanitize_price_uah', 199.999 ) );
+	}
+
+	public function test_price_meta_uses_uah_decimal_shape(): void {
+		$fields = $this->invoke_protected( 'meta_fields' );
+
+		self::assertSame( 'number', $fields['_vl_webinar_price']['type'] );
+		self::assertIsCallable( $fields['_vl_webinar_price']['sanitize_callback'] );
+	}
+
+	public function test_cover_image_id_meta_uses_absint_sanitizer(): void {
+		$fields = $this->invoke_protected( 'meta_fields' );
+
+		self::assertSame( 'integer', $fields['_vl_webinar_cover_image_id']['type'] );
+		self::assertSame( 'absint', $fields['_vl_webinar_cover_image_id']['sanitize_callback'] );
 	}
 
 	public function test_sanitize_status(): void {
