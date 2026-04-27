@@ -11,6 +11,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Catalog\CatalogController;
 use VL\LMS\Catalog\CatalogQuery;
+use VL\LMS\Catalog\Detail\RegistrationWindow;
 use VL\LMS\Catalog\TaxonomyTermTransformer;
 use VL\LMS\Catalog\Transformers\CourseCardTransformer;
 use VL\LMS\Catalog\Transformers\CoverImageTransformer;
@@ -56,7 +57,7 @@ final class CatalogControllerTest extends TestCase {
 			'vl/v1',
 			new CatalogQuery(),
 			new CourseCardTransformer( $cover, $lead, $term ),
-			new WebinarCardTransformer( $cover, $lead, $term ),
+			new WebinarCardTransformer( $cover, $lead, $term, new RegistrationWindow() ),
 			$this->instructors,
 		);
 	}

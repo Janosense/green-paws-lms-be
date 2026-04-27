@@ -18,7 +18,18 @@ use VL\LMS\Auth\Registration\RegistrationService;
 use VL\LMS\Auth\TokenIssuer;
 use VL\LMS\Auth\Verification\EmailVerificationService;
 use VL\LMS\Catalog\CatalogController;
+use VL\LMS\Catalog\CatalogDetailController;
 use VL\LMS\Catalog\CatalogQuery;
+use VL\LMS\Catalog\Detail\CourseDetailTransformer;
+use VL\LMS\Catalog\Detail\CurriculumTransformer;
+use VL\LMS\Catalog\Detail\InstructorListTransformer;
+use VL\LMS\Catalog\Detail\LessonSummaryTransformer;
+use VL\LMS\Catalog\Detail\MaterialsTransformer;
+use VL\LMS\Catalog\Detail\ModuleTransformer;
+use VL\LMS\Catalog\Detail\PostFinder;
+use VL\LMS\Catalog\Detail\RegistrationWindow;
+use VL\LMS\Catalog\Detail\SeoBlockTransformer;
+use VL\LMS\Catalog\Detail\WebinarDetailTransformer;
 use VL\LMS\Catalog\TaxonomyController;
 use VL\LMS\Catalog\TaxonomyTermTransformer;
 use VL\LMS\Catalog\Transformers\CourseCardTransformer;
@@ -28,10 +39,11 @@ use VL\LMS\Catalog\Transformers\WebinarCardTransformer;
 use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Repositories\CourseInstructorRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
+use VL\LMS\Support\HeroImageSize;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\DifficultyTermsInstaller;
 use VL\LMS\Taxonomy\TaxonomyRegistrar;
-use VL\LMS\User\InstructorAvatarMetaRegistrar;
+use VL\LMS\User\InstructorProfileMetaRegistrar;
 use VLJwtAuth\Support\RateLimiter;
 
 /**
@@ -92,14 +104,21 @@ final class Plugin {
 		add_action( 'init', [ $this, 'load_textdomain' ] );
 		add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
 
+		$hero_image_size = $this->container->get( HeroImageSize::class );
+		if ( $hero_image_size instanceof HeroImageSize ) {
+			add_action( 'after_setup_theme', [ $hero_image_size, 'register' ] );
+		}
+
 		$cpt_registrar = new CptRegistrar();
 		$cpt_registrar->register_hooks();
 
 		$taxonomy_registrar = new TaxonomyRegistrar();
 		$taxonomy_registrar->register_hooks();
 
-		$instructor_avatar_meta = new InstructorAvatarMetaRegistrar();
-		add_action( 'init', [ $instructor_avatar_meta, 'register' ] );
+		$instructor_profile_meta = $this->container->get( InstructorProfileMetaRegistrar::class );
+		if ( $instructor_profile_meta instanceof InstructorProfileMetaRegistrar ) {
+			add_action( 'init', [ $instructor_profile_meta, 'register' ] );
+		}
 
 		$course_instructor_repo   = new CourseInstructorRepository();
 		$co_instructor_lookup     = new TableBackedCoInstructorLookup( $course_instructor_repo );
@@ -171,6 +190,10 @@ final class Plugin {
 		$catalog_controller = $this->container->get( CatalogController::class );
 		if ( $catalog_controller instanceof CatalogController ) {
 			$catalog_controller->register_routes();
+		}
+		$catalog_detail_controller = $this->container->get( CatalogDetailController::class );
+		if ( $catalog_detail_controller instanceof CatalogDetailController ) {
+			$catalog_detail_controller->register_routes();
 		}
 		$taxonomy_controller = $this->container->get( TaxonomyController::class );
 		if ( $taxonomy_controller instanceof TaxonomyController ) {
@@ -315,6 +338,16 @@ final class Plugin {
 		);
 
 		$container->set(
+			InstructorProfileMetaRegistrar::class,
+			static fn (): InstructorProfileMetaRegistrar => new InstructorProfileMetaRegistrar()
+		);
+
+		$container->set(
+			HeroImageSize::class,
+			static fn (): HeroImageSize => new HeroImageSize()
+		);
+
+		$container->set(
 			CourseInstructorRepository::class,
 			static fn (): CourseInstructorRepository => new CourseInstructorRepository()
 		);
@@ -348,6 +381,11 @@ final class Plugin {
 		);
 
 		$container->set(
+			RegistrationWindow::class,
+			static fn (): RegistrationWindow => new RegistrationWindow()
+		);
+
+		$container->set(
 			WebinarCardTransformer::class,
 			static function ( Container $c ): WebinarCardTransformer {
 				$cover = $c->get( CoverImageTransformer::class );
@@ -356,7 +394,9 @@ final class Plugin {
 				assert( $lead instanceof LeadInstructorTransformer );
 				$term = $c->get( TaxonomyTermTransformer::class );
 				assert( $term instanceof TaxonomyTermTransformer );
-				return new WebinarCardTransformer( $cover, $lead, $term );
+				$reg_window = $c->get( RegistrationWindow::class );
+				assert( $reg_window instanceof RegistrationWindow );
+				return new WebinarCardTransformer( $cover, $lead, $term, $reg_window );
 			}
 		);
 
@@ -392,6 +432,104 @@ final class Plugin {
 				$term = $c->get( TaxonomyTermTransformer::class );
 				assert( $term instanceof TaxonomyTermTransformer );
 				return new TaxonomyController( VL_LMS_API_NAMESPACE, $term );
+			}
+		);
+
+		$container->set(
+			LessonSummaryTransformer::class,
+			static fn (): LessonSummaryTransformer => new LessonSummaryTransformer()
+		);
+
+		$container->set(
+			ModuleTransformer::class,
+			static function ( Container $c ): ModuleTransformer {
+				$lesson = $c->get( LessonSummaryTransformer::class );
+				assert( $lesson instanceof LessonSummaryTransformer );
+				return new ModuleTransformer( $lesson );
+			}
+		);
+
+		$container->set(
+			PostFinder::class,
+			static fn (): PostFinder => new PostFinder()
+		);
+
+		$container->set(
+			CurriculumTransformer::class,
+			static function ( Container $c ): CurriculumTransformer {
+				$module = $c->get( ModuleTransformer::class );
+				assert( $module instanceof ModuleTransformer );
+				$lesson = $c->get( LessonSummaryTransformer::class );
+				assert( $lesson instanceof LessonSummaryTransformer );
+				$finder = $c->get( PostFinder::class );
+				assert( $finder instanceof PostFinder );
+				return new CurriculumTransformer( $module, $lesson, $finder );
+			}
+		);
+
+		$container->set(
+			MaterialsTransformer::class,
+			static fn (): MaterialsTransformer => new MaterialsTransformer()
+		);
+
+		$container->set(
+			InstructorListTransformer::class,
+			static fn (): InstructorListTransformer => new InstructorListTransformer()
+		);
+
+		$container->set(
+			SeoBlockTransformer::class,
+			static fn (): SeoBlockTransformer => new SeoBlockTransformer()
+		);
+
+		$container->set(
+			CourseDetailTransformer::class,
+			static function ( Container $c ): CourseDetailTransformer {
+				$cover = $c->get( CoverImageTransformer::class );
+				assert( $cover instanceof CoverImageTransformer );
+				$term = $c->get( TaxonomyTermTransformer::class );
+				assert( $term instanceof TaxonomyTermTransformer );
+				$instructor_list = $c->get( InstructorListTransformer::class );
+				assert( $instructor_list instanceof InstructorListTransformer );
+				$curriculum = $c->get( CurriculumTransformer::class );
+				assert( $curriculum instanceof CurriculumTransformer );
+				$seo = $c->get( SeoBlockTransformer::class );
+				assert( $seo instanceof SeoBlockTransformer );
+				$instructors = $c->get( CourseInstructorRepository::class );
+				assert( $instructors instanceof CourseInstructorRepository );
+				return new CourseDetailTransformer( $cover, $term, $instructor_list, $curriculum, $seo, $instructors );
+			}
+		);
+
+		$container->set(
+			WebinarDetailTransformer::class,
+			static function ( Container $c ): WebinarDetailTransformer {
+				$cover = $c->get( CoverImageTransformer::class );
+				assert( $cover instanceof CoverImageTransformer );
+				$term = $c->get( TaxonomyTermTransformer::class );
+				assert( $term instanceof TaxonomyTermTransformer );
+				$instructor_list = $c->get( InstructorListTransformer::class );
+				assert( $instructor_list instanceof InstructorListTransformer );
+				$materials = $c->get( MaterialsTransformer::class );
+				assert( $materials instanceof MaterialsTransformer );
+				$reg_window = $c->get( RegistrationWindow::class );
+				assert( $reg_window instanceof RegistrationWindow );
+				$seo = $c->get( SeoBlockTransformer::class );
+				assert( $seo instanceof SeoBlockTransformer );
+				$instructors = $c->get( CourseInstructorRepository::class );
+				assert( $instructors instanceof CourseInstructorRepository );
+				return new WebinarDetailTransformer( $cover, $term, $instructor_list, $materials, $reg_window, $seo, $instructors );
+			}
+		);
+
+		$container->set(
+			CatalogDetailController::class,
+			static function ( Container $c ): CatalogDetailController {
+				$course = $c->get( CourseDetailTransformer::class );
+				assert( $course instanceof CourseDetailTransformer );
+				$webinar = $c->get( WebinarDetailTransformer::class );
+				assert( $webinar instanceof WebinarDetailTransformer );
+				return new CatalogDetailController( VL_LMS_API_NAMESPACE, $course, $webinar );
 			}
 		);
 

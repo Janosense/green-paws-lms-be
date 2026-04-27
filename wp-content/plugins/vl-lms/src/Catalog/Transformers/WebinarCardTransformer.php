@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Catalog\Transformers;
 
+use VL\LMS\Catalog\Detail\RegistrationWindow;
 use VL\LMS\Catalog\PostType;
 use VL\LMS\Catalog\TaxonomyTermTransformer;
 use VL\LMS\Domain\CourseInstructor\CourseInstructor;
@@ -15,8 +16,8 @@ use WP_Term;
  *
  * Webinar cards drop `type`/`duration_hours` and replace them with
  * `scheduled_start`, `scheduled_end`, `status`, `registration_open`.
- * The capacity portion of `registration_open` is intentionally a stub
- * for Phase 3.1 — see {@see self::registration_open()}.
+ * The capacity portion of `registration_open` is intentionally a stub —
+ * see {@see RegistrationWindow}.
  *
  * @author Tymofii Synianskyi
  */
@@ -26,6 +27,7 @@ final class WebinarCardTransformer {
 		private readonly CoverImageTransformer $cover,
 		private readonly LeadInstructorTransformer $lead_instructor,
 		private readonly TaxonomyTermTransformer $term_transformer,
+		private readonly RegistrationWindow $registration_window,
 	) {
 	}
 
@@ -53,7 +55,7 @@ final class WebinarCardTransformer {
 			'status'            => $this->status( $post_id ),
 			'price'             => (float) get_post_meta( $post_id, '_vl_webinar_price', true ),
 			'currency'          => $this->currency( $post_id ),
-			'registration_open' => $this->registration_open( $post_id ),
+			'registration_open' => $this->registration_window->is_open( $post_id ),
 			'difficulty'        => $this->difficulty( $terms_by_taxonomy['vl_difficulty'] ?? [] ),
 			'categories'        => array_map(
 				fn ( WP_Term $t ): array => $this->term_transformer->transform( $t, $category_parents ),
@@ -95,38 +97,6 @@ final class WebinarCardTransformer {
 	private function currency( int $post_id ): string {
 		$currency = (string) get_post_meta( $post_id, '_vl_webinar_currency', true );
 		return '' === $currency ? 'UAH' : $currency;
-	}
-
-	/**
-	 * Time-window registration check.
-	 *
-	 * Returns `true` when `now` is inside `[opens_at, closes_at]` (either
-	 * bound may be empty/missing → that side is unbounded). The capacity
-	 * gate (max_attendees) is deliberately not enforced yet — the
-	 * `vl_webinar_registrations` table arrives in Phase 7.
-	 *
-	 * // TODO Phase 7: enforce capacity using the registrations table.
-	 */
-	private function registration_open( int $post_id ): bool {
-		$opens_at  = (string) get_post_meta( $post_id, '_vl_webinar_registration_opens_at', true );
-		$closes_at = (string) get_post_meta( $post_id, '_vl_webinar_registration_closes_at', true );
-		$now       = time();
-
-		if ( '' !== $opens_at ) {
-			$opens_ts = strtotime( $opens_at );
-			if ( false === $opens_ts || $now < $opens_ts ) {
-				return false;
-			}
-		}
-
-		if ( '' !== $closes_at ) {
-			$closes_ts = strtotime( $closes_at );
-			if ( false === $closes_ts || $now > $closes_ts ) {
-				return false;
-			}
-		}
-
-		return true;
 	}
 
 	/**

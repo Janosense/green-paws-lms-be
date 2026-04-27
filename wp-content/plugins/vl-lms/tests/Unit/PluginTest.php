@@ -35,6 +35,7 @@ final class PluginTest extends TestCase {
 		Actions\expectAdded( 'admin_notices' )->once();
 		Actions\expectAdded( 'init' )->never();
 		Actions\expectAdded( 'rest_api_init' )->never();
+		Actions\expectAdded( 'after_setup_theme' )->never();
 		Actions\expectDone( 'vl_lms/booted' )->never();
 
 		Plugin::instance()->boot();
@@ -44,9 +45,10 @@ final class PluginTest extends TestCase {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 
 		// Four hooks fire on `init`: textdomain loading, CPT registration,
-		// taxonomy registration, instructor avatar user-meta registration.
+		// taxonomy registration, instructor profile user-meta registration.
 		Actions\expectAdded( 'init' )->times( 4 );
 		Actions\expectAdded( 'rest_api_init' )->once();
+		Actions\expectAdded( 'after_setup_theme' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
 
 		Plugin::instance()->boot();
@@ -56,9 +58,10 @@ final class PluginTest extends TestCase {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 
 		// Four hooks fire on `init`: textdomain loading, CPT registration,
-		// taxonomy registration, instructor avatar user-meta registration.
+		// taxonomy registration, instructor profile user-meta registration.
 		Actions\expectAdded( 'init' )->times( 4 );
 		Actions\expectAdded( 'rest_api_init' )->once();
+		Actions\expectAdded( 'after_setup_theme' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
 
 		$plugin = Plugin::instance();
@@ -71,7 +74,7 @@ final class PluginTest extends TestCase {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 		Functions\when( 'get_option' )->justReturn( '1' );
 
-		// Five init listeners now: textdomain, CPTs, taxonomies, instructor avatar meta, first-run tasks.
+		// Five init listeners now: textdomain, CPTs, taxonomies, instructor profile meta, first-run tasks.
 		Actions\expectAdded( 'init' )->times( 5 );
 
 		Plugin::instance()->boot();
@@ -90,6 +93,15 @@ final class PluginTest extends TestCase {
 
 		$taxonomy = $container->get( \VL\LMS\Catalog\TaxonomyController::class );
 		self::assertInstanceOf( \VL\LMS\Catalog\TaxonomyController::class, $taxonomy );
+
+		$profile = $container->get( \VL\LMS\User\InstructorProfileMetaRegistrar::class );
+		self::assertInstanceOf( \VL\LMS\User\InstructorProfileMetaRegistrar::class, $profile );
+
+		$hero = $container->get( \VL\LMS\Support\HeroImageSize::class );
+		self::assertInstanceOf( \VL\LMS\Support\HeroImageSize::class, $hero );
+
+		$detail = $container->get( \VL\LMS\Catalog\CatalogDetailController::class );
+		self::assertInstanceOf( \VL\LMS\Catalog\CatalogDetailController::class, $detail );
 	}
 
 	public function test_default_dependency_check_uses_class_exists(): void {

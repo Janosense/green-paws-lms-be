@@ -9,6 +9,7 @@ use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
+use VL\LMS\Catalog\Detail\RegistrationWindow;
 use VL\LMS\Catalog\TaxonomyTermTransformer;
 use VL\LMS\Catalog\Transformers\CoverImageTransformer;
 use VL\LMS\Catalog\Transformers\LeadInstructorTransformer;
@@ -45,6 +46,7 @@ final class WebinarCardTransformerTest extends TestCase {
 			new CoverImageTransformer(),
 			new LeadInstructorTransformer(),
 			new TaxonomyTermTransformer(),
+			new RegistrationWindow(),
 		);
 	}
 

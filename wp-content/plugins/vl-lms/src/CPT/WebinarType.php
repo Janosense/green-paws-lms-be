@@ -212,7 +212,60 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Promotional preview video URL for the catalog.',
 			],
+			'_vl_webinar_materials'              => [
+				'type'              => 'array',
+				'single'            => true,
+				'default'           => [],
+				'show_in_rest'      => false,
+				'sanitize_callback' => static fn ( mixed $v ): array => self::sanitize_materials_list( $v ),
+				'auth_callback'     => $auth,
+				'description'       => 'Public webinar materials. List of { url, name, size } entries.',
+			],
 		];
+	}
+
+	/**
+	 * Normalize a webinar materials list.
+	 *
+	 * Each element is coerced to `{ url, name, size }`. Elements whose URL
+	 * is empty after sanitization are dropped; extra keys are stripped.
+	 * Non-array input collapses to an empty list. Mirrors the per-class
+	 * sanitizer pattern used by `_vl_session_materials` and
+	 * `_vl_lesson_attachments`.
+	 *
+	 * @return list<array{url: string, name: string, size: int}>
+	 */
+	private static function sanitize_materials_list( mixed $value ): array {
+		if ( ! is_array( $value ) ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $value as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+
+			$url = isset( $item['url'] ) && is_string( $item['url'] )
+				? esc_url_raw( $item['url'] )
+				: '';
+			if ( '' === $url ) {
+				continue;
+			}
+
+			$name = isset( $item['name'] ) && is_string( $item['name'] )
+				? trim( sanitize_text_field( $item['name'] ) )
+				: '';
+			$size = isset( $item['size'] ) ? absint( $item['size'] ) : 0;
+
+			$out[] = [
+				'url'  => $url,
+				'name' => $name,
+				'size' => $size,
+			];
+		}
+
+		return array_values( $out );
 	}
 
 	/**

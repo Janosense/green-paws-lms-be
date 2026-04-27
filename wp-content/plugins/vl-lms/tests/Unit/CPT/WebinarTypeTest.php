@@ -37,6 +37,7 @@ final class WebinarTypeTest extends TestCase {
 		'_vl_webinar_recording_url',
 		'_vl_webinar_recording_access_days',
 		'_vl_webinar_preview_video_url',
+		'_vl_webinar_materials',
 	];
 
 	protected function setUp(): void {
@@ -86,11 +87,11 @@ final class WebinarTypeTest extends TestCase {
 		self::assertTrue( $this->invoke_protected( 'show_in_menu' ) );
 	}
 
-	public function test_meta_fields_contain_exactly_sixteen_documented_keys(): void {
+	public function test_meta_fields_contain_exactly_seventeen_documented_keys(): void {
 		$fields = $this->invoke_protected( 'meta_fields' );
 
 		self::assertSame( self::EXPECTED_META_KEYS, array_keys( $fields ) );
-		self::assertCount( 16, $fields );
+		self::assertCount( 17, $fields );
 	}
 
 	public function test_every_meta_field_is_single_with_show_in_rest_false_and_callable_sanitizer(): void {
@@ -124,6 +125,75 @@ final class WebinarTypeTest extends TestCase {
 		self::assertSame( '', $fields['_vl_webinar_recording_url']['default'] );
 		self::assertSame( 0, $fields['_vl_webinar_recording_access_days']['default'] );
 		self::assertSame( '', $fields['_vl_webinar_preview_video_url']['default'] );
+		self::assertSame( [], $fields['_vl_webinar_materials']['default'] );
+	}
+
+	public function test_materials_meta_uses_array_type_with_callable_sanitizer(): void {
+		$fields = $this->invoke_protected( 'meta_fields' );
+
+		self::assertSame( 'array', $fields['_vl_webinar_materials']['type'] );
+		self::assertIsCallable( $fields['_vl_webinar_materials']['sanitize_callback'] );
+	}
+
+	public function test_sanitize_materials_list_passes_well_formed_entries(): void {
+		// Override the global sanitize_text_field stub locally so trim()
+		// inside the sanitizer can act on the cleaned value, and let
+		// absint() actually coerce — the global setUp stub is returnArg.
+		Functions\when( 'sanitize_text_field' )->alias(
+			static fn ( mixed $v ): string => is_string( $v ) ? trim( $v ) : ''
+		);
+		Functions\when( 'absint' )->alias(
+			static fn ( mixed $v ): int => abs( (int) $v )
+		);
+
+		$result = $this->invoke_sanitizer(
+			'sanitize_materials_list',
+			[
+				[
+					'url'  => 'https://example.test/slides.pdf',
+					'name' => '  Slides  ',
+					'size' => '1234',
+				],
+			]
+		);
+
+		self::assertSame(
+			[
+				[
+					'url'  => 'https://example.test/slides.pdf',
+					'name' => 'Slides',
+					'size' => 1234,
+				],
+			],
+			$result
+		);
+	}
+
+	public function test_sanitize_materials_list_drops_entries_with_empty_url(): void {
+		$result = $this->invoke_sanitizer(
+			'sanitize_materials_list',
+			[
+				[
+					'url'  => '',
+					'name' => 'No URL',
+					'size' => 100,
+				],
+				[
+					'url'  => 'https://example.test/ok.pdf',
+					'name' => 'OK',
+					'size' => 1,
+				],
+			]
+		);
+
+		self::assertCount( 1, $result );
+		self::assertSame( 'https://example.test/ok.pdf', $result[0]['url'] );
+	}
+
+	public function test_sanitize_materials_list_collapses_non_array_input(): void {
+		self::assertSame( [], $this->invoke_sanitizer( 'sanitize_materials_list', null ) );
+		self::assertSame( [], $this->invoke_sanitizer( 'sanitize_materials_list', 'string' ) );
+		self::assertSame( [], $this->invoke_sanitizer( 'sanitize_materials_list', 42 ) );
 	}
 
 	public function test_sanitize_iso8601(): void {
