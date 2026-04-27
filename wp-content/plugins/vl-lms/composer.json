@@ -27,7 +27,7 @@
     "scripts": {
         "test": "phpunit",
         "lint": "phpcs",
-        "stan": "phpstan analyse",
+        "stan": "phpstan analyse --memory-limit=1G",
         "makepot": "wp i18n make-pot ."
     },
     "config": {

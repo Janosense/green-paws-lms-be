@@ -92,6 +92,56 @@ class CourseInstructorRepository {
 	}
 
 	/**
+	 * Batch lookup of one lead row per `entity_id` for the given type.
+	 *
+	 * Returned map is keyed by `entity_id`; entities without a lead row
+	 * are simply absent from the map. The catalog list endpoints use this
+	 * to keep lead resolution at one round-trip per page (no N+1) — see
+	 * {@see \VL\LMS\Catalog\CatalogController}'s class docblock.
+	 *
+	 * @param list<int> $entity_ids
+	 *
+	 * @return array<int, CourseInstructor>
+	 */
+	public function find_leads_for_entities( InstructorEntityType $entity_type, array $entity_ids ): array {
+		$entity_ids = array_values( array_unique( array_filter( $entity_ids, static fn ( int $id ): bool => $id > 0 ) ) );
+		if ( [] === $entity_ids ) {
+			return [];
+		}
+
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$placeholders = implode( ', ', array_fill( 0, count( $entity_ids ), '%d' ) );
+		$params       = array_merge( [ $entity_type->value ], $entity_ids );
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- placeholder list is built from a counted array of integers.
+			"SELECT * FROM {$table} WHERE entity_type = %s AND role_in_course = 'lead' AND entity_id IN ({$placeholders}) ORDER BY entity_id ASC, id ASC",
+			$params
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$instructor = CourseInstructor::from_row( $row );
+			// First row per entity_id wins because of `ORDER BY entity_id ASC, id ASC`.
+			if ( ! isset( $out[ $instructor->entity_id ] ) ) {
+				$out[ $instructor->entity_id ] = $instructor;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Returns the first lead row (by `id ASC`) for the entity. During an
 	 * in-flight save_post transition more than one row may briefly carry
 	 * `role_in_course = 'lead'`; the sync service is expected to

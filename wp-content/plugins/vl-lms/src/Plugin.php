@@ -17,6 +17,14 @@ use VL\LMS\Auth\PasswordReset\PasswordResetService;
 use VL\LMS\Auth\Registration\RegistrationService;
 use VL\LMS\Auth\TokenIssuer;
 use VL\LMS\Auth\Verification\EmailVerificationService;
+use VL\LMS\Catalog\CatalogController;
+use VL\LMS\Catalog\CatalogQuery;
+use VL\LMS\Catalog\TaxonomyController;
+use VL\LMS\Catalog\TaxonomyTermTransformer;
+use VL\LMS\Catalog\Transformers\CourseCardTransformer;
+use VL\LMS\Catalog\Transformers\CoverImageTransformer;
+use VL\LMS\Catalog\Transformers\LeadInstructorTransformer;
+use VL\LMS\Catalog\Transformers\WebinarCardTransformer;
 use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Repositories\CourseInstructorRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
@@ -160,6 +168,14 @@ final class Plugin {
 		if ( $auth_controller instanceof AuthController ) {
 			$auth_controller->register_routes();
 		}
+		$catalog_controller = $this->container->get( CatalogController::class );
+		if ( $catalog_controller instanceof CatalogController ) {
+			$catalog_controller->register_routes();
+		}
+		$taxonomy_controller = $this->container->get( TaxonomyController::class );
+		if ( $taxonomy_controller instanceof TaxonomyController ) {
+			$taxonomy_controller->register_routes();
+		}
 	}
 
 	/**
@@ -295,6 +311,87 @@ final class Plugin {
 					$token_issuer,
 					$password_reset
 				);
+			}
+		);
+
+		$container->set(
+			CourseInstructorRepository::class,
+			static fn (): CourseInstructorRepository => new CourseInstructorRepository()
+		);
+
+		$container->set(
+			CoverImageTransformer::class,
+			static fn (): CoverImageTransformer => new CoverImageTransformer()
+		);
+
+		$container->set(
+			LeadInstructorTransformer::class,
+			static fn (): LeadInstructorTransformer => new LeadInstructorTransformer()
+		);
+
+		$container->set(
+			TaxonomyTermTransformer::class,
+			static fn (): TaxonomyTermTransformer => new TaxonomyTermTransformer()
+		);
+
+		$container->set(
+			CourseCardTransformer::class,
+			static function ( Container $c ): CourseCardTransformer {
+				$cover = $c->get( CoverImageTransformer::class );
+				assert( $cover instanceof CoverImageTransformer );
+				$lead = $c->get( LeadInstructorTransformer::class );
+				assert( $lead instanceof LeadInstructorTransformer );
+				$term = $c->get( TaxonomyTermTransformer::class );
+				assert( $term instanceof TaxonomyTermTransformer );
+				return new CourseCardTransformer( $cover, $lead, $term );
+			}
+		);
+
+		$container->set(
+			WebinarCardTransformer::class,
+			static function ( Container $c ): WebinarCardTransformer {
+				$cover = $c->get( CoverImageTransformer::class );
+				assert( $cover instanceof CoverImageTransformer );
+				$lead = $c->get( LeadInstructorTransformer::class );
+				assert( $lead instanceof LeadInstructorTransformer );
+				$term = $c->get( TaxonomyTermTransformer::class );
+				assert( $term instanceof TaxonomyTermTransformer );
+				return new WebinarCardTransformer( $cover, $lead, $term );
+			}
+		);
+
+		$container->set(
+			CatalogQuery::class,
+			static fn (): CatalogQuery => new CatalogQuery()
+		);
+
+		$container->set(
+			CatalogController::class,
+			static function ( Container $c ): CatalogController {
+				$query = $c->get( CatalogQuery::class );
+				assert( $query instanceof CatalogQuery );
+				$course_card = $c->get( CourseCardTransformer::class );
+				assert( $course_card instanceof CourseCardTransformer );
+				$webinar_card = $c->get( WebinarCardTransformer::class );
+				assert( $webinar_card instanceof WebinarCardTransformer );
+				$instructors = $c->get( CourseInstructorRepository::class );
+				assert( $instructors instanceof CourseInstructorRepository );
+				return new CatalogController(
+					VL_LMS_API_NAMESPACE,
+					$query,
+					$course_card,
+					$webinar_card,
+					$instructors
+				);
+			}
+		);
+
+		$container->set(
+			TaxonomyController::class,
+			static function ( Container $c ): TaxonomyController {
+				$term = $c->get( TaxonomyTermTransformer::class );
+				assert( $term instanceof TaxonomyTermTransformer );
+				return new TaxonomyController( VL_LMS_API_NAMESPACE, $term );
 			}
 		);
 

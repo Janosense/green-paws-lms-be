@@ -130,6 +130,49 @@ final class CourseInstructorRepositoryTest extends TestCase {
 		self::assertStringContainsString( 'LIMIT 1', $captured_sql );
 	}
 
+	public function test_find_leads_for_entities_returns_empty_map_for_empty_input(): void {
+		$result = $this->repo->find_leads_for_entities( InstructorEntityType::COURSE, [] );
+
+		self::assertSame( [], $result );
+	}
+
+	public function test_find_leads_for_entities_keys_result_by_entity_id_with_first_id_winning(): void {
+		$captured_sql  = null;
+		$captured_args = [];
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, ...$args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args[0] ?? [];
+					return $sql;
+				}
+			);
+		$row1              = self::row( 11 );
+		$row1['entity_id'] = '100';
+		$row2              = self::row( 12 );
+		$row2['entity_id'] = '100'; // same entity, higher id — defensive case
+		$row3              = self::row( 13 );
+		$row3['entity_id'] = '101';
+
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [ $row1, $row2, $row3 ] );
+
+		$result = $this->repo->find_leads_for_entities(
+			InstructorEntityType::COURSE,
+			[ 100, 101, 100, 0 ]
+		);
+
+		self::assertCount( 2, $result );
+		self::assertArrayHasKey( 100, $result );
+		self::assertArrayHasKey( 101, $result );
+		self::assertSame( 11, $result[100]->id );
+		self::assertSame( 13, $result[101]->id );
+		self::assertStringContainsString( "role_in_course = 'lead'", $captured_sql );
+		// Two unique non-zero IDs after dedupe + filter, plus the entity_type leading param.
+		self::assertSame( [ 'course', 100, 101 ], $captured_args );
+	}
+
 	public function test_is_assigned_uses_select_one_and_limit(): void {
 		$captured_sql = null;
 

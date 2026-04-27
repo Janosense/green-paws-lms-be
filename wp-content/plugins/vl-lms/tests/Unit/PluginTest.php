@@ -77,6 +77,21 @@ final class PluginTest extends TestCase {
 		Plugin::instance()->boot();
 	}
 
+	public function test_container_resolves_catalog_and_taxonomy_controllers(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		Plugin::instance()->boot();
+
+		$container = Plugin::instance()->container();
+		self::assertNotNull( $container );
+
+		$catalog = $container->get( \VL\LMS\Catalog\CatalogController::class );
+		self::assertInstanceOf( \VL\LMS\Catalog\CatalogController::class, $catalog );
+
+		$taxonomy = $container->get( \VL\LMS\Catalog\TaxonomyController::class );
+		self::assertInstanceOf( \VL\LMS\Catalog\TaxonomyController::class, $taxonomy );
+	}
+
 	public function test_default_dependency_check_uses_class_exists(): void {
 		// Override cleared in setUp; the default path relies on the real
 		// facade class, which is not loaded in the unit suite.
