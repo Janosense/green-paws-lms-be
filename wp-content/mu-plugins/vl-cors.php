@@ -5,12 +5,74 @@
  * Version:     1.0.0
  * License:     GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
+ *
+ * Lives in `mu-plugins/` because CORS is infrastructure, not a feature: it
+ * must always be active, must load before regular plugins, and cannot be
+ * deactivated through the admin UI. Owning it here also keeps a single
+ * authoritative policy across every VL plugin (`vl-jwt-auth`, `vl-lms`,
+ * and any future namespace that opts in via the `vl_cors/allowed_namespaces`
+ * filter), so two plugins can never disagree about what to allow.
+ *
+ * What it does
+ * ------------
+ * 1. **Replaces WordPress's default CORS headers on VL routes.** WP's
+ *    built-in `rest_send_cors_headers()` echoes the request `Origin` back
+ *    unconditionally with `Access-Control-Allow-Origin: *`-style behavior
+ *    and never emits `Access-Control-Allow-Credentials`. That is fine for
+ *    public endpoints but breaks any flow that needs to send cookies — in
+ *    our case the HttpOnly refresh-token cookie issued by `vl-jwt-auth`.
+ *    On routes under `/vl/` and `/vl-auth/` we strip the default filter
+ *    and emit our own headers: an exact-origin echo (only when the origin
+ *    appears in the configured allowlist), `Allow-Credentials: true`, and
+ *    a `Vary: Origin` so caches don't collapse responses across origins.
+ * 2. **Answers preflight `OPTIONS` requests early.** `OPTIONS /wp-json/...`
+ *    is dispatched by WP through the same routing pipeline as any other
+ *    request, which sometimes 404s on routes that exist only for one
+ *    method. We short-circuit on `rest_api_init` for VL namespaces and
+ *    return a bare 204 — but only after emitting the CORS headers, since
+ *    a 204 without `Allow-Origin` is rejected by every browser.
+ * 3. **Leaves non-VL routes alone.** When the request is not under one of
+ *    the configured namespaces, the filter delegates back to
+ *    `rest_send_cors_headers()` so WP-Admin, Gutenberg, and any third-
+ *    party plugin keep their existing behavior unchanged.
+ *
+ * Configuration
+ * -------------
+ * - `VL_CORS_ORIGINS` (constant in `wp-config.php`) — comma-separated
+ *   list of fully-qualified origins permitted to send credentialed
+ *   requests, e.g. `'http://localhost:3000,https://app.vetlms.com'`.
+ *   The browser sends an exact origin string; we never wildcard.
+ * - `vl_cors/allowed_origins` (filter) — runtime override of the parsed
+ *   allowlist. Useful for environment-specific seams or test suites.
+ * - `vl_cors/allowed_namespaces` (filter) — extend the set of REST
+ *   namespaces this handler covers. Defaults to `['vl', 'vl-auth']`.
+ *
+ * Hook timing
+ * -----------
+ * - `rest_api_init@11` swaps the default `rest_send_cors_headers` filter
+ *   for ours. Priority 11 is intentional — `rest_api_default_filters()`
+ *   adds the default at priority 10 during `rest_api_init`, so a
+ *   `remove_filter()` call on mu-plugin load runs too early to take
+ *   effect.
+ * - `rest_api_init@15` runs the preflight short-circuit, after the route
+ *   table has been registered but before WP dispatches the request.
+ *
+ * @package VLCors
  */
 
 namespace VLCors;
 
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * Centralized CORS handler for every VL REST namespace.
+ *
+ * Booted exactly once on file load via {@see self::boot()}; the static
+ * guard makes a second include (e.g. from a misconfigured loader) a
+ * no-op. The class is intentionally final and stateful only at the
+ * boot-flag level — instances hold no per-request data, so the same
+ * instance services every hook for the lifetime of the request.
+ */
 final class Handler {
 
 	private const DEFAULT_NAMESPACES = [ 'vl', 'vl-auth' ];
