@@ -22,7 +22,7 @@ namespace VL\LMS\Database;
 final class SchemaManager {
 
 	public const string DB_VERSION_OPTION  = 'vl_lms_db_version';
-	public const string CURRENT_DB_VERSION = '3';
+	public const string CURRENT_DB_VERSION = '4';
 
 	/**
 	 * Returns the full prefixed table name for a base suffix.
@@ -57,6 +57,14 @@ final class SchemaManager {
 		return self::table_name( 'course_instructors' );
 	}
 
+	public static function progress_table(): string {
+		return self::table_name( 'progress' );
+	}
+
+	public static function lesson_views_table(): string {
+		return self::table_name( 'lesson_views' );
+	}
+
 	/**
 	 * Installs (or migrates) the schema when the stored DB version is
 	 * behind {@see self::CURRENT_DB_VERSION}. Safe to call on every
@@ -76,6 +84,8 @@ final class SchemaManager {
 		self::create_group_members_table();
 		self::create_group_access_table();
 		self::create_course_instructors_table();
+		self::create_progress_table();
+		self::create_lesson_views_table();
 
 		update_option( self::DB_VERSION_OPTION, self::CURRENT_DB_VERSION );
 	}
@@ -90,6 +100,8 @@ final class SchemaManager {
 		global $wpdb;
 
 		$tables = [
+			self::lesson_views_table(),
+			self::progress_table(),
 			self::course_instructors_table(),
 			self::group_access_table(),
 			self::group_members_table(),
@@ -279,6 +291,79 @@ final class SchemaManager {
 			PRIMARY KEY  (id),
 			UNIQUE KEY uk_group_entity (group_id, entity_type, entity_id),
 			KEY idx_entity (entity_type, entity_id)
+		) {$charset};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Builds and runs `dbDelta` for `{prefix}vl_progress`.
+	 *
+	 * Row identity is `(user_id, entity_type, entity_id)` — the unique key
+	 * `uniq_user_entity` enforces it so the upsert path can rely on the DB
+	 * to reject duplicate progress rows for the same user/entity. The
+	 * compound `idx_user_course_status` exists for the dashboard read
+	 * (filter a user's rows by course and status) which is the dominant
+	 * Phase 5 query shape.
+	 */
+	private static function create_progress_table(): void {
+		global $wpdb;
+
+		self::require_db_delta();
+
+		$table   = self::progress_table();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			user_id BIGINT UNSIGNED NOT NULL,
+			entity_type VARCHAR(20) NOT NULL,
+			entity_id BIGINT UNSIGNED NOT NULL,
+			course_id BIGINT UNSIGNED NOT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'not_started',
+			position_seconds INT UNSIGNED NULL DEFAULT NULL,
+			completed_at DATETIME NULL DEFAULT NULL,
+			last_seen_at DATETIME NULL DEFAULT NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uniq_user_entity (user_id, entity_type, entity_id),
+			KEY idx_user_course_status (user_id, course_id, status),
+			KEY idx_course (course_id)
+		) {$charset};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Builds and runs `dbDelta` for `{prefix}vl_lesson_views`.
+	 *
+	 * Append-only event log. `idx_user_lesson_time` powers per-user lesson
+	 * timelines, `idx_session` groups events sharing a `session_uuid`, and
+	 * `idx_lesson_event` supports per-lesson event histograms.
+	 */
+	private static function create_lesson_views_table(): void {
+		global $wpdb;
+
+		self::require_db_delta();
+
+		$table   = self::lesson_views_table();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			user_id BIGINT UNSIGNED NOT NULL,
+			lesson_id BIGINT UNSIGNED NOT NULL,
+			topic_id BIGINT UNSIGNED NULL DEFAULT NULL,
+			session_uuid CHAR(36) NOT NULL,
+			event_type VARCHAR(20) NOT NULL,
+			position_seconds INT UNSIGNED NULL DEFAULT NULL,
+			payload LONGTEXT NULL DEFAULT NULL,
+			created_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			KEY idx_user_lesson_time (user_id, lesson_id, created_at),
+			KEY idx_session (session_uuid),
+			KEY idx_lesson_event (lesson_id, event_type)
 		) {$charset};";
 
 		dbDelta( $sql );

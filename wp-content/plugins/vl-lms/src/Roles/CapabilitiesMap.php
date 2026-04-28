@@ -90,6 +90,7 @@ final class CapabilitiesMap {
 	public const array DOMAIN_CAPS_BY_ROLE = [
 		'student'       => [
 			'vl_enroll_in_course',
+			'vl_view_lesson',
 			'vl_view_enrolled_content',
 			'vl_submit_quiz',
 			'vl_submit_assignment',
@@ -100,6 +101,7 @@ final class CapabilitiesMap {
 		],
 		'instructor'    => [
 			'vl_enroll_in_course',
+			'vl_view_lesson',
 			'vl_view_enrolled_content',
 			'vl_submit_quiz',
 			'vl_submit_assignment',
@@ -112,6 +114,7 @@ final class CapabilitiesMap {
 		],
 		'moderator'     => [
 			'vl_enroll_in_course',
+			'vl_view_lesson',
 			'vl_view_enrolled_content',
 			'vl_submit_quiz',
 			'vl_submit_assignment',
@@ -129,6 +132,7 @@ final class CapabilitiesMap {
 		],
 		'administrator' => [
 			'vl_enroll_in_course',
+			'vl_view_lesson',
 			'vl_view_enrolled_content',
 			'vl_submit_quiz',
 			'vl_submit_assignment',

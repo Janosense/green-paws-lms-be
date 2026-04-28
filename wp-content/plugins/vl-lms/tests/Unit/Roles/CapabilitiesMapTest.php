@@ -99,11 +99,12 @@ final class CapabilitiesMapTest extends TestCase {
 		);
 	}
 
-	public function test_domain_caps_for_student_has_eight_caps(): void {
+	public function test_domain_caps_for_student_has_nine_caps(): void {
 		$caps = CapabilitiesMap::domain_caps_for_role( 'student' );
 
-		self::assertCount( 8, $caps );
+		self::assertCount( 9, $caps );
 		self::assertContains( 'vl_enroll_in_course', $caps );
+		self::assertContains( 'vl_view_lesson', $caps );
 		self::assertContains( 'vl_download_certificate', $caps );
 	}
 
@@ -125,12 +126,23 @@ final class CapabilitiesMapTest extends TestCase {
 		self::assertNotContains( 'vl_manage_finances', $caps );
 	}
 
-	public function test_domain_caps_for_administrator_contains_all_twenty_three(): void {
+	public function test_domain_caps_for_administrator_contains_all_twenty_four(): void {
 		$caps = CapabilitiesMap::domain_caps_for_role( 'administrator' );
 
-		self::assertCount( 23, $caps );
+		self::assertCount( 24, $caps );
 		self::assertContains( 'vl_manage_finances', $caps );
 		self::assertContains( 'vl_issue_certificates', $caps );
+		self::assertContains( 'vl_view_lesson', $caps );
+	}
+
+	public function test_view_lesson_cap_is_granted_to_every_lms_role(): void {
+		foreach ( [ 'student', 'instructor', 'moderator', 'administrator' ] as $role ) {
+			self::assertContains(
+				'vl_view_lesson',
+				CapabilitiesMap::domain_caps_for_role( $role ),
+				sprintf( 'Role "%s" must hold vl_view_lesson.', $role )
+			);
+		}
 	}
 
 	public function test_enroll_in_course_cap_is_granted_to_every_role_except_subscriber(): void {
