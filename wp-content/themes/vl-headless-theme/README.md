@@ -69,8 +69,4 @@ vl-headless-theme/
 ## Requirements
 
 - WordPress 6.4+
-- PHP 8.1+
-
-## Release notes
-
-- `screenshot.png` is not yet included. Add a 1200×900 PNG before the first public release so the theme shows a sensible preview in **Appearance → Themes**.
+- PHP 8.4+
