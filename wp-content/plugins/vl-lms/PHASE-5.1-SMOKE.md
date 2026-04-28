@@ -238,6 +238,140 @@ curl -s -H "Authorization: Bearer $JWT" \
 # → "topic_not_found"
 ```
 
+## Phase 5.2 — Curriculum endpoint
+
+`GET /vl/v1/learn/courses/{slug}/curriculum` returns the personalised
+navigation tree (modules → lessons → topics), the caller's enrollment
+metadata, total course duration summed from leaves, and a `next_entity`
+hint pointing at the first not-yet-completed leaf.
+
+Reuses the JWTs from §1.
+
+### 12. Guest (no token) → 401
+
+```sh
+curl -i "$BASE/learn/courses/feline-cardio/curriculum" | head -1
+# → HTTP/2 401
+```
+
+### 13. Authed `subscriber` (no `vl_view_lesson` cap) → 403 `rest_forbidden`
+
+```sh
+curl -s -H "Authorization: Bearer $SUB_JWT" \
+  "$BASE/learn/courses/feline-cardio/curriculum" | jq '.code'
+# → "rest_forbidden"
+```
+
+### 14. Authed `student`, not enrolled → 403 `not_enrolled`
+
+```sh
+curl -s -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/courses/feline-cardio/curriculum" | jq '.code'
+# → "not_enrolled"
+```
+
+(Run before any POST to `/enrollments` — see Phase 4.1 for self-enroll.)
+
+### 15. Authed `student`, enrolled — full curriculum
+
+After enrolling the student in the course (`POST /vl/v1/enrollments` with
+the course ID, see Phase 4.1):
+
+```sh
+curl -s -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/courses/feline-cardio/curriculum" | jq '{
+    success,
+    course: .data.course | {id, slug, title, duration_seconds, enrollment},
+    module_count: (.data.modules | length),
+    orphan_count: (.data.orphan_lessons | length),
+    next: .data.next_entity
+  }'
+# → {
+#     "success": true,
+#     "course": {
+#       "id": 100,
+#       "slug": "feline-cardio",
+#       "title": "Feline Cardiology",
+#       "duration_seconds": <sum-of-leaves>,
+#       "enrollment": { "status": "active", "progress_pct": 0, "enrolled_at": "...", "completed_at": null }
+#     },
+#     "module_count": <n>,
+#     "orphan_count": <n>,
+#     "next": { "type": "lesson"|"topic", "id": ..., "slug": "...", "lesson_slug": "..." }
+#   }
+```
+
+`course.duration_seconds` should equal the sum of:
+- each lesson's `duration_seconds` when the lesson has no topics, plus
+- each lesson's topics' summed `duration_seconds` when the lesson has topics.
+
+### 16. All lessons completed → `next_entity` is `null`
+
+After marking every leaf complete (5.3 will provide the write endpoint;
+for now you can manually `INSERT INTO wp_vl_progress` rows or run the
+seed script):
+
+```sh
+curl -s -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/courses/feline-cardio/curriculum" | jq '.data.next_entity'
+# → null
+```
+
+### 17. Course with only orphan lessons (no modules)
+
+For a course where every lesson hangs off the course directly (no
+`vl_module` children):
+
+```sh
+curl -s -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/courses/orphan-only-course/curriculum" | jq '{
+    modules: .data.modules,
+    orphan_count: (.data.orphan_lessons | length),
+    next: .data.next_entity
+  }'
+# → { "modules": [], "orphan_count": <n>, "next": { ... } }
+```
+
+### 18. Lesson with topics — topic-level fields visible
+
+```sh
+curl -s -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/courses/feline-cardio/curriculum" | jq '
+    [.data.modules[].lessons[]
+      | select(.has_topics)
+      | { id, slug, has_topics, topic_count: (.topics | length),
+          topic_progress: [.topics[].progress.status] }]
+  '
+# → [{ "id": 123, "slug": "intro-to-cardiology", "has_topics": true,
+#       "topic_count": <n>, "topic_progress": ["not_started"|"in_progress"|"completed", ...] }, ...]
+```
+
+### 19. Course slug doesn't exist → 404 `course_not_found`
+
+```sh
+curl -i -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/courses/no-such-course/curriculum" | head -1
+# → HTTP/2 404
+
+curl -s -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/courses/no-such-course/curriculum" | jq '.code'
+# → "course_not_found"
+```
+
+### 20. Course exists but is `draft` → 404 `course_not_found`
+
+Draft courses do not surface a separate `course_unpublished` code — the
+slug lookup misses entirely and the response is identical to slug-not-
+found:
+
+```sh
+ddev wp post update <course-id> --post_status=draft
+
+curl -s -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/courses/<draft-slug>/curriculum" | jq '.code'
+# → "course_not_found"
+```
+
 ## Toolchain
 
 From `backend/wp-content/plugins/vl-lms/`:

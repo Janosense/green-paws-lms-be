@@ -59,10 +59,16 @@ use VL\LMS\Learn\Content\Blocks\ParagraphBlockTransformer;
 use VL\LMS\Learn\Content\Blocks\QuoteBlockTransformer;
 use VL\LMS\Learn\Content\Blocks\SeparatorBlockTransformer;
 use VL\LMS\Learn\Content\Blocks\TableBlockTransformer;
+use VL\LMS\Learn\CurriculumController;
+use VL\LMS\Learn\CurriculumTransformer as LearnCurriculumTransformer;
 use VL\LMS\Learn\EntityHierarchy;
 use VL\LMS\Learn\LessonContentController;
 use VL\LMS\Learn\LessonContentTransformer;
+use VL\LMS\Learn\LessonNodeTransformer;
+use VL\LMS\Learn\ModuleNodeTransformer;
+use VL\LMS\Learn\NextEntityResolver;
 use VL\LMS\Learn\TopicContentTransformer;
+use VL\LMS\Learn\TopicNodeTransformer;
 use VL\LMS\Learn\Video\VideoPayloadBuilder;
 use VL\LMS\Repositories\CourseInstructorRepository;
 use VL\LMS\Repositories\EnrollmentRepository;
@@ -241,6 +247,10 @@ final class Plugin {
 		$learn_controller = $this->container->get( LessonContentController::class );
 		if ( $learn_controller instanceof LessonContentController ) {
 			$learn_controller->register_routes();
+		}
+		$curriculum_controller = $this->container->get( CurriculumController::class );
+		if ( $curriculum_controller instanceof CurriculumController ) {
+			$curriculum_controller->register_routes();
 		}
 	}
 
@@ -861,6 +871,80 @@ final class Plugin {
 					$gate,
 					$lesson_transformer,
 					$topic_transformer
+				);
+			}
+		);
+
+		// ---------------------------------------------------------------
+		// Curriculum endpoint (Phase 5.2)
+		//
+		// Personalised navigation tree with progress overlay. Composers
+		// fan out from the leaf-level TopicNodeTransformer up through
+		// LessonNodeTransformer, ModuleNodeTransformer, and finally
+		// CurriculumTransformer; the controller wraps it all behind a
+		// single GET route gated by `vl_view_lesson` and an active
+		// course-level enrollment.
+		// ---------------------------------------------------------------
+
+		$container->set(
+			NextEntityResolver::class,
+			static fn (): NextEntityResolver => new NextEntityResolver()
+		);
+
+		$container->set(
+			TopicNodeTransformer::class,
+			static fn (): TopicNodeTransformer => new TopicNodeTransformer()
+		);
+
+		$container->set(
+			LessonNodeTransformer::class,
+			static function ( Container $c ): LessonNodeTransformer {
+				$topic = $c->get( TopicNodeTransformer::class );
+				assert( $topic instanceof TopicNodeTransformer );
+				return new LessonNodeTransformer( $topic );
+			}
+		);
+
+		$container->set(
+			ModuleNodeTransformer::class,
+			static function ( Container $c ): ModuleNodeTransformer {
+				$lesson = $c->get( LessonNodeTransformer::class );
+				assert( $lesson instanceof LessonNodeTransformer );
+				return new ModuleNodeTransformer( $lesson );
+			}
+		);
+
+		$container->set(
+			LearnCurriculumTransformer::class,
+			static function ( Container $c ): LearnCurriculumTransformer {
+				$module = $c->get( ModuleNodeTransformer::class );
+				assert( $module instanceof ModuleNodeTransformer );
+				$lesson = $c->get( LessonNodeTransformer::class );
+				assert( $lesson instanceof LessonNodeTransformer );
+				$next = $c->get( NextEntityResolver::class );
+				assert( $next instanceof NextEntityResolver );
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				return new LearnCurriculumTransformer( $module, $lesson, $next, $progress, $enrollments );
+			}
+		);
+
+		$container->set(
+			CurriculumController::class,
+			static function ( Container $c ): CurriculumController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$service = $c->get( EnrollmentService::class );
+				assert( $service instanceof EnrollmentService );
+				$transformer = $c->get( LearnCurriculumTransformer::class );
+				assert( $transformer instanceof LearnCurriculumTransformer );
+				return new CurriculumController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$service,
+					$transformer
 				);
 			}
 		);
