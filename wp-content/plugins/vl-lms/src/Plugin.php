@@ -45,8 +45,29 @@ use VL\LMS\Catalog\Transformers\CoverImageTransformer;
 use VL\LMS\Catalog\Transformers\LeadInstructorTransformer;
 use VL\LMS\Catalog\Transformers\WebinarCardTransformer;
 use VL\LMS\CPT\CptRegistrar;
+use VL\LMS\Learn\Access\LessonAccessGate;
+use VL\LMS\Learn\Content\BlockParser;
+use VL\LMS\Learn\Content\BlockTransformerRegistry;
+use VL\LMS\Learn\Content\Blocks\CodeBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\EmbedBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\FileBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\HeadingBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\HtmlFallbackBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\ImageBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\ListBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\ParagraphBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\QuoteBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\SeparatorBlockTransformer;
+use VL\LMS\Learn\Content\Blocks\TableBlockTransformer;
+use VL\LMS\Learn\EntityHierarchy;
+use VL\LMS\Learn\LessonContentController;
+use VL\LMS\Learn\LessonContentTransformer;
+use VL\LMS\Learn\TopicContentTransformer;
+use VL\LMS\Learn\Video\VideoPayloadBuilder;
 use VL\LMS\Repositories\CourseInstructorRepository;
 use VL\LMS\Repositories\EnrollmentRepository;
+use VL\LMS\Repositories\LessonViewRepository;
+use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Support\HeroImageSize;
@@ -216,6 +237,10 @@ final class Plugin {
 		$enrollments_controller = $this->container->get( EnrollmentsController::class );
 		if ( $enrollments_controller instanceof EnrollmentsController ) {
 			$enrollments_controller->register_routes();
+		}
+		$learn_controller = $this->container->get( LessonContentController::class );
+		if ( $learn_controller instanceof LessonContentController ) {
+			$learn_controller->register_routes();
 		}
 	}
 
@@ -638,6 +663,204 @@ final class Plugin {
 					$course_card,
 					$webinar_card,
 					$instructors
+				);
+			}
+		);
+
+		// ---------------------------------------------------------------
+		// Learn subsystem (Phase 5.1)
+		//
+		// Order matters: foundations first (parser, video builder, block
+		// transformers), then registry, then services that compose them.
+		// HtmlFallbackBlockTransformer is appended LAST in the registry's
+		// transformer list — that's the catch-all contract.
+		// ---------------------------------------------------------------
+
+		$container->set(
+			EntityHierarchy::class,
+			static fn (): EntityHierarchy => new EntityHierarchy()
+		);
+
+		$container->set(
+			BlockParser::class,
+			static fn (): BlockParser => new BlockParser()
+		);
+
+		$container->set(
+			VideoPayloadBuilder::class,
+			static fn (): VideoPayloadBuilder => new VideoPayloadBuilder()
+		);
+
+		$container->set(
+			ProgressRepository::class,
+			static fn (): ProgressRepository => new ProgressRepository()
+		);
+
+		// Registered now even though no caller in 5.1b consumes it; the
+		// progress writer in 5.3 will pick it up.
+		$container->set(
+			LessonViewRepository::class,
+			static fn (): LessonViewRepository => new LessonViewRepository()
+		);
+
+		$container->set(
+			ParagraphBlockTransformer::class,
+			static fn (): ParagraphBlockTransformer => new ParagraphBlockTransformer()
+		);
+		$container->set(
+			HeadingBlockTransformer::class,
+			static fn (): HeadingBlockTransformer => new HeadingBlockTransformer()
+		);
+		$container->set(
+			ListBlockTransformer::class,
+			static fn (): ListBlockTransformer => new ListBlockTransformer()
+		);
+		$container->set(
+			ImageBlockTransformer::class,
+			static fn (): ImageBlockTransformer => new ImageBlockTransformer()
+		);
+		$container->set(
+			QuoteBlockTransformer::class,
+			static fn (): QuoteBlockTransformer => new QuoteBlockTransformer()
+		);
+		$container->set(
+			EmbedBlockTransformer::class,
+			static function ( Container $c ): EmbedBlockTransformer {
+				$video_builder = $c->get( VideoPayloadBuilder::class );
+				assert( $video_builder instanceof VideoPayloadBuilder );
+				return new EmbedBlockTransformer( $video_builder );
+			}
+		);
+		$container->set(
+			SeparatorBlockTransformer::class,
+			static fn (): SeparatorBlockTransformer => new SeparatorBlockTransformer()
+		);
+		$container->set(
+			CodeBlockTransformer::class,
+			static fn (): CodeBlockTransformer => new CodeBlockTransformer()
+		);
+		$container->set(
+			TableBlockTransformer::class,
+			static fn (): TableBlockTransformer => new TableBlockTransformer()
+		);
+		$container->set(
+			FileBlockTransformer::class,
+			static fn (): FileBlockTransformer => new FileBlockTransformer()
+		);
+		$container->set(
+			HtmlFallbackBlockTransformer::class,
+			static fn (): HtmlFallbackBlockTransformer => new HtmlFallbackBlockTransformer()
+		);
+
+		$container->set(
+			BlockTransformerRegistry::class,
+			static function ( Container $c ): BlockTransformerRegistry {
+				$paragraph = $c->get( ParagraphBlockTransformer::class );
+				assert( $paragraph instanceof ParagraphBlockTransformer );
+				$heading = $c->get( HeadingBlockTransformer::class );
+				assert( $heading instanceof HeadingBlockTransformer );
+				$list = $c->get( ListBlockTransformer::class );
+				assert( $list instanceof ListBlockTransformer );
+				$image = $c->get( ImageBlockTransformer::class );
+				assert( $image instanceof ImageBlockTransformer );
+				$quote = $c->get( QuoteBlockTransformer::class );
+				assert( $quote instanceof QuoteBlockTransformer );
+				$embed = $c->get( EmbedBlockTransformer::class );
+				assert( $embed instanceof EmbedBlockTransformer );
+				$separator = $c->get( SeparatorBlockTransformer::class );
+				assert( $separator instanceof SeparatorBlockTransformer );
+				$code = $c->get( CodeBlockTransformer::class );
+				assert( $code instanceof CodeBlockTransformer );
+				$table = $c->get( TableBlockTransformer::class );
+				assert( $table instanceof TableBlockTransformer );
+				$file = $c->get( FileBlockTransformer::class );
+				assert( $file instanceof FileBlockTransformer );
+				$fallback = $c->get( HtmlFallbackBlockTransformer::class );
+				assert( $fallback instanceof HtmlFallbackBlockTransformer );
+
+				return new BlockTransformerRegistry(
+					[
+						$paragraph,
+						$heading,
+						$list,
+						$image,
+						$quote,
+						$embed,
+						$separator,
+						$code,
+						$table,
+						$file,
+						// HtmlFallback MUST stay last — it claims every block name.
+						$fallback,
+					]
+				);
+			}
+		);
+
+		$container->set(
+			LessonAccessGate::class,
+			static function ( Container $c ): LessonAccessGate {
+				$service = $c->get( EnrollmentService::class );
+				assert( $service instanceof EnrollmentService );
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				return new LessonAccessGate( $service, $progress, $hierarchy );
+			}
+		);
+
+		$container->set(
+			LessonContentTransformer::class,
+			static function ( Container $c ): LessonContentTransformer {
+				$parser = $c->get( BlockParser::class );
+				assert( $parser instanceof BlockParser );
+				$registry = $c->get( BlockTransformerRegistry::class );
+				assert( $registry instanceof BlockTransformerRegistry );
+				$video_builder = $c->get( VideoPayloadBuilder::class );
+				assert( $video_builder instanceof VideoPayloadBuilder );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				return new LessonContentTransformer( $parser, $registry, $video_builder, $hierarchy, $progress );
+			}
+		);
+
+		$container->set(
+			TopicContentTransformer::class,
+			static function ( Container $c ): TopicContentTransformer {
+				$parser = $c->get( BlockParser::class );
+				assert( $parser instanceof BlockParser );
+				$registry = $c->get( BlockTransformerRegistry::class );
+				assert( $registry instanceof BlockTransformerRegistry );
+				$video_builder = $c->get( VideoPayloadBuilder::class );
+				assert( $video_builder instanceof VideoPayloadBuilder );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				return new TopicContentTransformer( $parser, $registry, $video_builder, $hierarchy, $progress );
+			}
+		);
+
+		$container->set(
+			LessonContentController::class,
+			static function ( Container $c ): LessonContentController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$gate = $c->get( LessonAccessGate::class );
+				assert( $gate instanceof LessonAccessGate );
+				$lesson_transformer = $c->get( LessonContentTransformer::class );
+				assert( $lesson_transformer instanceof LessonContentTransformer );
+				$topic_transformer = $c->get( TopicContentTransformer::class );
+				assert( $topic_transformer instanceof TopicContentTransformer );
+				return new LessonContentController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$gate,
+					$lesson_transformer,
+					$topic_transformer
 				);
 			}
 		);

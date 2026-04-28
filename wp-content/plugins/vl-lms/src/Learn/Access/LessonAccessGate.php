@@ -31,7 +31,7 @@ use WP_Post;
  *
  * @author Tymofii Synianskyi
  */
-final class LessonAccessGate {
+class LessonAccessGate {
 
 	public function __construct(
 		private readonly EnrollmentService $enrollments,
