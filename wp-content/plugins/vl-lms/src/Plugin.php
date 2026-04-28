@@ -20,6 +20,10 @@ use VL\LMS\Auth\Verification\EmailVerificationService;
 use VL\LMS\Catalog\CatalogController;
 use VL\LMS\Catalog\CatalogDetailController;
 use VL\LMS\Catalog\CatalogQuery;
+use VL\LMS\Catalog\Search\RelevanceRanker;
+use VL\LMS\Catalog\Search\SearchController;
+use VL\LMS\Catalog\Search\SearchQuery;
+use VL\LMS\Catalog\Search\SearchQueryRunner;
 use VL\LMS\Catalog\Detail\CourseDetailTransformer;
 use VL\LMS\Catalog\Detail\CurriculumTransformer;
 use VL\LMS\Catalog\Detail\InstructorListTransformer;
@@ -198,6 +202,10 @@ final class Plugin {
 		$taxonomy_controller = $this->container->get( TaxonomyController::class );
 		if ( $taxonomy_controller instanceof TaxonomyController ) {
 			$taxonomy_controller->register_routes();
+		}
+		$search_controller = $this->container->get( SearchController::class );
+		if ( $search_controller instanceof SearchController ) {
+			$search_controller->register_routes();
 		}
 	}
 
@@ -530,6 +538,48 @@ final class Plugin {
 				$webinar = $c->get( WebinarDetailTransformer::class );
 				assert( $webinar instanceof WebinarDetailTransformer );
 				return new CatalogDetailController( VL_LMS_API_NAMESPACE, $course, $webinar );
+			}
+		);
+
+		$container->set(
+			SearchQuery::class,
+			static fn (): SearchQuery => new SearchQuery()
+		);
+
+		$container->set(
+			RelevanceRanker::class,
+			static fn (): RelevanceRanker => new RelevanceRanker()
+		);
+
+		$container->set(
+			SearchQueryRunner::class,
+			static fn (): SearchQueryRunner => new SearchQueryRunner()
+		);
+
+		$container->set(
+			SearchController::class,
+			static function ( Container $c ): SearchController {
+				$query = $c->get( SearchQuery::class );
+				assert( $query instanceof SearchQuery );
+				$runner = $c->get( SearchQueryRunner::class );
+				assert( $runner instanceof SearchQueryRunner );
+				$ranker = $c->get( RelevanceRanker::class );
+				assert( $ranker instanceof RelevanceRanker );
+				$course_card = $c->get( CourseCardTransformer::class );
+				assert( $course_card instanceof CourseCardTransformer );
+				$webinar_card = $c->get( WebinarCardTransformer::class );
+				assert( $webinar_card instanceof WebinarCardTransformer );
+				$instructors = $c->get( CourseInstructorRepository::class );
+				assert( $instructors instanceof CourseInstructorRepository );
+				return new SearchController(
+					VL_LMS_API_NAMESPACE,
+					$query,
+					$runner,
+					$ranker,
+					$course_card,
+					$webinar_card,
+					$instructors
+				);
 			}
 		);
 

@@ -102,6 +102,9 @@ final class PluginTest extends TestCase {
 
 		$detail = $container->get( \VL\LMS\Catalog\CatalogDetailController::class );
 		self::assertInstanceOf( \VL\LMS\Catalog\CatalogDetailController::class, $detail );
+
+		$search = $container->get( \VL\LMS\Catalog\Search\SearchController::class );
+		self::assertInstanceOf( \VL\LMS\Catalog\Search\SearchController::class, $search );
 	}
 
 	public function test_default_dependency_check_uses_class_exists(): void {
