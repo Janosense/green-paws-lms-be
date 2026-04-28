@@ -14,11 +14,12 @@ final class EnrollmentSourceTest extends TestCase {
 	 */
 	public static function valid_strings(): array {
 		return [
-			'manual'   => [ 'manual', EnrollmentSource::MANUAL ],
-			'purchase' => [ 'purchase', EnrollmentSource::PURCHASE ],
-			'group'    => [ 'group', EnrollmentSource::GROUP ],
-			'gift'     => [ 'gift', EnrollmentSource::GIFT ],
-			'grant'    => [ 'grant', EnrollmentSource::GRANT ],
+			'manual'      => [ 'manual', EnrollmentSource::MANUAL ],
+			'purchase'    => [ 'purchase', EnrollmentSource::PURCHASE ],
+			'group'       => [ 'group', EnrollmentSource::GROUP ],
+			'gift'        => [ 'gift', EnrollmentSource::GIFT ],
+			'grant'       => [ 'grant', EnrollmentSource::GRANT ],
+			'self_signup' => [ 'self_signup', EnrollmentSource::SELF_SIGNUP ],
 		];
 	}
 

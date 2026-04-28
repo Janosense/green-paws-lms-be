@@ -133,6 +133,23 @@ final class CapabilitiesMapTest extends TestCase {
 		self::assertContains( 'vl_issue_certificates', $caps );
 	}
 
+	public function test_enroll_in_course_cap_is_granted_to_every_role_except_subscriber(): void {
+		// Subscriber is the WP fallback role for unverified accounts and is
+		// intentionally absent from `DOMAIN_CAPS_BY_ROLE`. The four LMS roles
+		// each get the enrollment cap so a freshly verified user (or any
+		// staff role) can enroll in a free course.
+		foreach ( [ 'student', 'instructor', 'moderator', 'administrator' ] as $role ) {
+			self::assertContains(
+				'vl_enroll_in_course',
+				CapabilitiesMap::domain_caps_for_role( $role ),
+				sprintf( 'Role "%s" must hold vl_enroll_in_course.', $role )
+			);
+		}
+
+		$this->expectException( \InvalidArgumentException::class );
+		CapabilitiesMap::domain_caps_for_role( 'subscriber' );
+	}
+
 	public function test_all_caps_for_unknown_role_throws(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		CapabilitiesMap::all_caps_for_role( 'unknown-role' );

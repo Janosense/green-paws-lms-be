@@ -90,6 +90,39 @@ class EnrollmentRepository {
 	}
 
 	/**
+	 * Sibling of {@see self::list_for_user()} that filters by an explicit set
+	 * of statuses and orders by `enrolled_at DESC` (newest first).
+	 *
+	 * Empty `$statuses` returns an empty list — callers asking for "no
+	 * statuses" almost certainly have a bug; surface that as a no-op rather
+	 * than emitting `WHERE status IN ()` (which is a SQL syntax error).
+	 *
+	 * @param list<EnrollmentStatus> $statuses
+	 *
+	 * @return list<Enrollment>
+	 */
+	public function list_for_user_in_statuses( int $user_id, array $statuses ): array {
+		if ( [] === $statuses ) {
+			return [];
+		}
+
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$values       = array_map( static fn ( EnrollmentStatus $s ): string => $s->value, $statuses );
+		$placeholders = implode( ', ', array_fill( 0, count( $values ), '%s' ) );
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT * FROM {$table} WHERE user_id = %d AND status IN ({$placeholders}) ORDER BY enrolled_at DESC",
+			$user_id,
+			...$values
+		);
+
+		return $this->hydrate_list( $sql );
+	}
+
+	/**
 	 * @return list<Enrollment>
 	 */
 	public function list_for_course( int $course_id, ?EnrollmentStatus $status = null ): array {

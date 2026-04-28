@@ -15,11 +15,12 @@ namespace VL\LMS\Domain\Enrollment;
  */
 enum EnrollmentSource: string {
 
-	case MANUAL   = 'manual';
-	case PURCHASE = 'purchase';
-	case GROUP    = 'group';
-	case GIFT     = 'gift';
-	case GRANT    = 'grant';
+	case MANUAL      = 'manual';
+	case PURCHASE    = 'purchase';
+	case GROUP       = 'group';
+	case GIFT        = 'gift';
+	case GRANT       = 'grant';
+	case SELF_SIGNUP = 'self_signup';
 
 	/**
 	 * Strict parser. See {@see EnrollmentStatus::from_string()}.

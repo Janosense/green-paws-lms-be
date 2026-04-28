@@ -7,14 +7,18 @@ namespace VL\LMS;
 use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
 use VL\LMS\Api\AuthController;
+use VL\LMS\Api\EnrollmentRecordTransformer;
+use VL\LMS\Api\EnrollmentsController;
 use VL\LMS\Api\RestController;
 use VL\LMS\Auth\JwtBridgeTokenIssuer;
+use VL\LMS\Auth\JwtRestAuthenticator;
 use VL\LMS\Auth\LoginGate\UnverifiedLoginBlocker;
 use VL\LMS\Auth\Mail\PasswordResetMailer;
 use VL\LMS\Auth\Mail\VerificationMailer;
 use VL\LMS\Auth\PasswordPolicy;
 use VL\LMS\Auth\PasswordReset\PasswordResetService;
 use VL\LMS\Auth\Registration\RegistrationService;
+use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\Auth\TokenIssuer;
 use VL\LMS\Auth\Verification\EmailVerificationService;
 use VL\LMS\Catalog\CatalogController;
@@ -42,7 +46,9 @@ use VL\LMS\Catalog\Transformers\LeadInstructorTransformer;
 use VL\LMS\Catalog\Transformers\WebinarCardTransformer;
 use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Repositories\CourseInstructorRepository;
+use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
+use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Support\HeroImageSize;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\DifficultyTermsInstaller;
@@ -206,6 +212,10 @@ final class Plugin {
 		$search_controller = $this->container->get( SearchController::class );
 		if ( $search_controller instanceof SearchController ) {
 			$search_controller->register_routes();
+		}
+		$enrollments_controller = $this->container->get( EnrollmentsController::class );
+		if ( $enrollments_controller instanceof EnrollmentsController ) {
+			$enrollments_controller->register_routes();
 		}
 	}
 
@@ -554,6 +564,55 @@ final class Plugin {
 		$container->set(
 			SearchQueryRunner::class,
 			static fn (): SearchQueryRunner => new SearchQueryRunner()
+		);
+
+		$container->set(
+			EnrollmentRepository::class,
+			static fn (): EnrollmentRepository => new EnrollmentRepository()
+		);
+
+		$container->set(
+			EnrollmentService::class,
+			static function ( Container $c ): EnrollmentService {
+				$repository = $c->get( EnrollmentRepository::class );
+				assert( $repository instanceof EnrollmentRepository );
+				return new EnrollmentService( $repository );
+			}
+		);
+
+		$container->set(
+			EnrollmentRecordTransformer::class,
+			static function ( Container $c ): EnrollmentRecordTransformer {
+				$cover = $c->get( CoverImageTransformer::class );
+				assert( $cover instanceof CoverImageTransformer );
+				return new EnrollmentRecordTransformer( $cover );
+			}
+		);
+
+		$container->set(
+			RestAuthenticator::class,
+			static fn (): RestAuthenticator => new JwtRestAuthenticator()
+		);
+
+		$container->set(
+			EnrollmentsController::class,
+			static function ( Container $c ): EnrollmentsController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$service = $c->get( EnrollmentService::class );
+				assert( $service instanceof EnrollmentService );
+				$repository = $c->get( EnrollmentRepository::class );
+				assert( $repository instanceof EnrollmentRepository );
+				$transformer = $c->get( EnrollmentRecordTransformer::class );
+				assert( $transformer instanceof EnrollmentRecordTransformer );
+				return new EnrollmentsController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$service,
+					$repository,
+					$transformer
+				);
+			}
 		);
 
 		$container->set(
