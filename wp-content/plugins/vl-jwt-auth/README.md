@@ -325,6 +325,22 @@ Out of scope for this plugin. Configure CORS in the theme, a dedicated plugin, o
 - RS256 signing (HS256 only in this release; the algorithm is not pluggable yet).
 - Email notifications on new logins (product-level concern, not auth-plugin concern).
 
+## Implementation notes
+
+Rules to keep in mind when contributing to the plugin:
+
+- **Layer separation.** `TokenService` does not touch the database; `RefreshTokenRepository` does not know about JWT encoding or signing. The split is what makes each class unit-testable in isolation — keep it even when a shortcut seems cheap.
+- **Double defense on refresh tokens.** Refresh tokens are JWTs **and** SHA-256-hashed in the DB (signature check + revocation lookup). Do not "simplify" either layer away.
+- **IP storage.** IP addresses are persisted as `VARBINARY(16)` via `INET6_ATON` / `INET6_NTOA`. Never push raw `inet_pton()` output through `$wpdb->prepare()` — driver handling of NULs in binary values is unreliable.
+- **Envelope split.** This plugin's own `vl-auth/v1` endpoints render `{success, data|error}` from inside the handler rather than from `permission_callback`, so the envelope survives auth failures. That is also why `RestController::require_user()` does auth inline instead of delegating to `Middleware`. Other plugins using `\VLJwtAuth\Auth::require_*()` get WordPress's default `WP_Error` rendering — do not try to unify the two shapes.
+- **Login error whitelist.** `RestController::translate_login_error()` only forwards core WP authenticator codes (`invalid_username`, `invalid_email`, `incorrect_password`, `empty_username`, `empty_password`) and codes prefixed `vl_` (reserved for first-party plugins hooking `wp_authenticate_user`, e.g. `vl_lms_email_not_verified`). Anything else collapses to `invalid_credentials`. HTTP status is always `401`. Messages run through `wp_strip_all_tags()` because core's `incorrect_password` embeds an anchor to the lost-password screen and the JSON envelope must stay plain text.
+- **OriginGuard scope.** The guard is applied only on cookie-bearing, state-changing endpoints: `POST /token/refresh`, `POST /logout`, and the bulk `DELETE /sessions`. `DELETE /sessions/{id}` is bearer-only today (does not consume the refresh cookie); if a future change makes it cookie-aware, the guard must be added.
+- **Background cleanup.** Expired refresh-token rows are hard-deleted daily by the `vl_jwt_auth_cleanup_expired_tokens` WP-Cron event (rows whose `expires_at` is older than 30 days). The Activator schedules it; the Deactivator unschedules it. The table does not grow unboundedly.
+- **Domain boundary.** The plugin stays product-agnostic. No courses, enrollment, veterinary knowledge, or anything LMS-specific lands here. Extensions hook in through `vl_jwt_auth_token_claims` (claims) and `vl_jwt_auth_user_authenticated` (side effects) — no other expansion path.
+- **Secrets.** `VL_JWT_AUTH_SECRET_KEY` is read only from a PHP constant (in DDEV: env var → constant). Never read from the database, never committed in any `wp-config*.php` that lives in git. The plugin refuses to register hooks if the constant is missing.
+- **Composer.** `firebase/php-jwt` is pinned to `^7.0`. The v6 line has an open low-severity CVE (missing key-size validation) — when bumping, check Packagist advisories before downgrading the constraint.
+- **Tests.** Deliberately omitted for the MVP. Do not add PHPUnit, Brain Monkey, or other test scaffolding without an explicit ask.
+
 ## License
 
 GPL-2.0-or-later.
