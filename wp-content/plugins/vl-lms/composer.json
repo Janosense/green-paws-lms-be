@@ -4,7 +4,9 @@
     "type": "wordpress-plugin",
     "license": "GPL-2.0-or-later",
     "require": {
-        "php": ">=8.4"
+        "php": ">=8.4",
+        "chillerlan/php-qrcode": "^5.0",
+        "dompdf/dompdf": "^3.0"
     },
     "require-dev": {
         "brain/monkey": "^2.6",

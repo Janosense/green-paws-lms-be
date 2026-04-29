@@ -22,7 +22,7 @@ namespace VL\LMS\Database;
 final class SchemaManager {
 
 	public const string DB_VERSION_OPTION  = 'vl_lms_db_version';
-	public const string CURRENT_DB_VERSION = '4';
+	public const string CURRENT_DB_VERSION = '5';
 
 	/**
 	 * Returns the full prefixed table name for a base suffix.
@@ -65,6 +65,18 @@ final class SchemaManager {
 		return self::table_name( 'lesson_views' );
 	}
 
+	public static function quiz_attempts_table(): string {
+		return self::table_name( 'quiz_attempts' );
+	}
+
+	public static function quiz_answers_table(): string {
+		return self::table_name( 'quiz_answers' );
+	}
+
+	public static function certificates_table(): string {
+		return self::table_name( 'certificates' );
+	}
+
 	/**
 	 * Installs (or migrates) the schema when the stored DB version is
 	 * behind {@see self::CURRENT_DB_VERSION}. Safe to call on every
@@ -86,6 +98,9 @@ final class SchemaManager {
 		self::create_course_instructors_table();
 		self::create_progress_table();
 		self::create_lesson_views_table();
+		self::create_quiz_attempts_table();
+		self::create_quiz_answers_table();
+		self::create_certificates_table();
 
 		update_option( self::DB_VERSION_OPTION, self::CURRENT_DB_VERSION );
 	}
@@ -100,6 +115,9 @@ final class SchemaManager {
 		global $wpdb;
 
 		$tables = [
+			self::certificates_table(),
+			self::quiz_answers_table(),
+			self::quiz_attempts_table(),
 			self::lesson_views_table(),
 			self::progress_table(),
 			self::course_instructors_table(),
@@ -364,6 +382,128 @@ final class SchemaManager {
 			KEY idx_user_lesson_time (user_id, lesson_id, created_at),
 			KEY idx_session (session_uuid),
 			KEY idx_lesson_event (lesson_id, event_type)
+		) {$charset};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Builds and runs `dbDelta` for `{prefix}vl_quiz_attempts`.
+	 *
+	 * One row per quiz attempt. Snapshot columns (`time_limit_seconds`,
+	 * `passing_threshold`, `max_score`, `question_order`) are frozen on
+	 * `start()` and never re-read from the source CPT — so historical
+	 * attempts are immune to instructor edits made after the attempt began.
+	 * The `(user_id, course_id)` index supports the course-completion gate
+	 * lookup ("does this user have a passing final-exam attempt?") without
+	 * re-walking the post-parent tree at check time.
+	 */
+	private static function create_quiz_attempts_table(): void {
+		global $wpdb;
+
+		self::require_db_delta();
+
+		$table   = self::quiz_attempts_table();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			user_id BIGINT UNSIGNED NOT NULL,
+			quiz_id BIGINT UNSIGNED NOT NULL,
+			course_id BIGINT UNSIGNED NOT NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'in_progress',
+			started_at DATETIME NOT NULL,
+			submitted_at DATETIME NULL DEFAULT NULL,
+			time_limit_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+			time_taken_seconds INT UNSIGNED NULL DEFAULT NULL,
+			score INT UNSIGNED NULL DEFAULT NULL,
+			max_score INT UNSIGNED NOT NULL DEFAULT 0,
+			passed TINYINT(1) NULL DEFAULT NULL,
+			passing_threshold TINYINT UNSIGNED NOT NULL DEFAULT 0,
+			question_order LONGTEXT NOT NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			KEY user_quiz (user_id, quiz_id),
+			KEY user_course (user_id, course_id),
+			KEY status (status)
+		) {$charset};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Builds and runs `dbDelta` for `{prefix}vl_quiz_answers`.
+	 *
+	 * One row per (attempt, question). The unique key `attempt_question`
+	 * enforces "one answer per question per attempt" — the upsert path keys
+	 * off this constraint so save-as-you-go writes (Phase 6.1) can rely on
+	 * `INSERT … ON DUPLICATE KEY UPDATE` rather than SELECT-then-{insert/update}.
+	 * Scoring columns (`is_correct`, `points_awarded`) are null until submit,
+	 * when the scoring engine writes them in a single batched update.
+	 */
+	private static function create_quiz_answers_table(): void {
+		global $wpdb;
+
+		self::require_db_delta();
+
+		$table   = self::quiz_answers_table();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			attempt_id BIGINT UNSIGNED NOT NULL,
+			question_id BIGINT UNSIGNED NOT NULL,
+			answer_data LONGTEXT NOT NULL,
+			is_correct TINYINT(1) NULL DEFAULT NULL,
+			points_awarded INT UNSIGNED NULL DEFAULT NULL,
+			answered_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY attempt_question (attempt_id, question_id),
+			KEY question_id (question_id)
+		) {$charset};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Builds and runs `dbDelta` for `{prefix}vl_certificates`.
+	 *
+	 * Each issued certificate carries a public RFC 4122 v4 UUID (used in
+	 * verification URLs and on the rendered PDF) and a JSON `snapshot_data`
+	 * blob — the latter freezes the rendering inputs (course title, learner
+	 * name, instructor names, issued-at, score) so retroactive edits to the
+	 * source course never alter a previously-issued certificate. Revocation
+	 * is soft (`revoked_at`); active-per-(user,course) uniqueness is
+	 * enforced in the service layer because MySQL has no partial unique
+	 * index over a nullable column.
+	 */
+	private static function create_certificates_table(): void {
+		global $wpdb;
+
+		self::require_db_delta();
+
+		$table   = self::certificates_table();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			uuid CHAR(36) NOT NULL,
+			user_id BIGINT UNSIGNED NOT NULL,
+			course_id BIGINT UNSIGNED NOT NULL,
+			enrollment_id BIGINT UNSIGNED NOT NULL,
+			issued_at DATETIME NOT NULL,
+			revoked_at DATETIME NULL DEFAULT NULL,
+			final_score INT UNSIGNED NULL DEFAULT NULL,
+			final_max_score INT UNSIGNED NULL DEFAULT NULL,
+			snapshot_data LONGTEXT NOT NULL,
+			pdf_path VARCHAR(255) NULL DEFAULT NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uuid (uuid),
+			KEY user_id (user_id),
+			KEY user_course (user_id, course_id)
 		) {$charset};";
 
 		dbDelta( $sql );
