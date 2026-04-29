@@ -198,6 +198,68 @@ composer run makepot # regenerate translation template
 
 Coverage is not gated. `phpunit --coverage-html build/coverage/` works when Xdebug or PCOV is available.
 
+## Demo data seeder (Phase 5.7)
+
+`wp vl-lms demo …` populates the database with realistic Ukrainian veterinary
+content — taxonomies, instructors with bios + avatars, students, 6 self-paced
+courses (with modules, lessons, topics, quizzes), 2 cohort courses with
+sessions, 5 webinars, course-instructor relationships, 7 enrollments at
+varied progress states (100% completed, 25%, 60% in-progress with a
+resume-toast-demoable leaf, just-started, empty), and the matching
+`vl_progress` + `vl_lesson_views` rows.
+
+Subcommands:
+
+```bash
+ddev wp vl-lms demo seed [--force] [--skip-progress]
+ddev wp vl-lms demo reset [--force]
+ddev wp vl-lms demo status
+```
+
+Behaviour:
+
+- **Idempotent.** Re-running `seed` skips every artifact already tagged with
+  `_vl_demo_seed = '1'` (posts/users/attachments) or `vl_demo_seed = '1'`
+  (terms / users). `ProgressSeeder` is the single exception — it always
+  wipes its rows and re-emits, so the row count after run 2 equals run 1.
+- **Environment guard.** Refuses to run on `wp_get_environment_type() ===
+  'production'` without `--force`; even with `--force`, an interactive
+  `WP_CLI::confirm` is required.
+- **`--skip-progress`.** Skips the progress / lesson-views write loop —
+  handy when iterating on lesson content.
+
+Demo users (login):
+
+- `instructor.melnychenko`, `instructor.lytvynenko`, `instructor.shevchenko`
+- `student.bohdan`, `student.sofia`, `student.dmytro`, `student.iryna`
+
+Passwords are randomly generated. Reset one explicitly when manual login is
+needed: `ddev wp user update student.bohdan --user_pass='your-password'`.
+Demo users are flagged email-verified at seed time so no inbox round-trip is
+required to log in.
+
+### Cover and avatar images
+
+Primary source: Picsum (`https://picsum.photos/seed/{stable-key}/{w}/{h}`).
+Fallback: locally bundled JPEGs under `assets/demo/`. To pre-fetch the
+fallback once on a developer machine:
+
+```bash
+bash wp-content/plugins/vl-lms/assets/demo/fetch-fallback.sh
+```
+
+The script is idempotent — already-downloaded files are skipped.
+
+### Frontend smoke URLs
+
+After seeding:
+
+- `/dashboard` as `student.bohdan` → 1 completed course (Review CTA) +
+  1 in-progress course (Continue CTA with progress bar).
+- `/dashboard` as `student.iryna` → empty state with "Browse catalog" CTA.
+- `/learn/{lesson-slug}` as `student.sofia` for the in-progress leaf in
+  course 2 → resume toast appears at 1:30.
+
 ## License
 
 GPL-2.0-or-later.

@@ -23,6 +23,8 @@ use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\Auth\TokenIssuer;
 use VL\LMS\Auth\Verification\EmailVerificationService;
 use VL\LMS\Catalog\CatalogController;
+use VL\LMS\Cli\DemoCommand;
+use VL\LMS\Services\CourseInstructors\CourseInstructorService;
 use VL\LMS\Catalog\CatalogDetailController;
 use VL\LMS\Catalog\CatalogQuery;
 use VL\LMS\Catalog\Search\RelevanceRanker;
@@ -182,6 +184,12 @@ final class Plugin {
 		// paid exactly on the request that clears it.
 		if ( '1' === get_option( Activator::FIRST_RUN_PENDING_OPTION ) ) {
 			add_action( 'init', [ $this, 'run_first_run_tasks' ], 20 );
+		}
+
+		// CLI subsystem (Phase 5.7). Registered only inside WP-CLI so the
+		// class file is never autoloaded for web requests.
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			\WP_CLI::add_command( 'vl-lms demo', new DemoCommand( $this->container ) );
 		}
 
 		/**
@@ -412,6 +420,15 @@ final class Plugin {
 		$container->set(
 			CourseInstructorRepository::class,
 			static fn (): CourseInstructorRepository => new CourseInstructorRepository()
+		);
+
+		$container->set(
+			CourseInstructorService::class,
+			static function ( Container $c ): CourseInstructorService {
+				$repo = $c->get( CourseInstructorRepository::class );
+				assert( $repo instanceof CourseInstructorRepository );
+				return new CourseInstructorService( $repo );
+			}
 		);
 
 		$container->set(
