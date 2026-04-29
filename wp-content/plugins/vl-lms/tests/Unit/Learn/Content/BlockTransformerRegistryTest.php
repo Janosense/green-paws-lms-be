@@ -45,14 +45,14 @@ final class BlockTransformerRegistryTest extends TestCase {
 	}
 
 	public function test_first_matching_transformer_wins(): void {
-		$first = $this->namedTransformer(
+		$first    = $this->namedTransformer(
 			'core/paragraph',
 			[
 				'type' => 'paragraph',
 				'tag'  => 'first',
 			]
 		);
-		$second = $this->namedTransformer(
+		$second   = $this->namedTransformer(
 			'core/paragraph',
 			[
 				'type' => 'paragraph',

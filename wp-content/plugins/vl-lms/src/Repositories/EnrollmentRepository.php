@@ -206,6 +206,63 @@ class EnrollmentRepository {
 	}
 
 	/**
+	 * Targeted progress-state update keyed on `(user_id, course_id)`.
+	 *
+	 * Used by the Phase 5.3 progress-write pipeline:
+	 * {@see \VL\LMS\Services\Progress\CourseProgressCalculator} writes the
+	 * recomputed `progress_pct`; {@see \VL\LMS\Services\Progress\CompletionPropagator}
+	 * promotes the row to `COMPLETED` when the curriculum has no final exam
+	 * and the user has finished every leaf.
+	 *
+	 * `completed_at` is written verbatim from the caller — pass `null` when
+	 * status is anything other than `COMPLETED`. The `now` timestamp is
+	 * injected (rather than read from a clock) so the calling service can
+	 * reuse the same instant across the upsert + view-row insert + state
+	 * update sequence.
+	 *
+	 * Returns `true` when a row matched the `(user_id, course_id)` pair and
+	 * at least one column changed; `false` either when no row matched or when
+	 * the update was a no-op (all columns already at the target values).
+	 * Callers that need to distinguish "missing row" from "no-op" should
+	 * pre-fetch via {@see self::find_for_user_and_course()} — in 5.3 the
+	 * progress pipeline always carries fresh data so the no-op case does
+	 * not arise.
+	 */
+	public function update_progress_state(
+		int $user_id,
+		int $course_id,
+		int $progress_pct,
+		EnrollmentStatus $status,
+		?\DateTimeImmutable $completed_at,
+		\DateTimeImmutable $now
+	): bool {
+		$wpdb = $this->wpdb();
+
+		$data = [
+			'progress_pct' => $progress_pct,
+			'status'       => $status->value,
+			'completed_at' => null === $completed_at ? null : $completed_at->format( 'Y-m-d H:i:s' ),
+			'updated_at'   => $now->format( 'Y-m-d H:i:s' ),
+		];
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$result = $wpdb->update(
+			$this->table(),
+			$data,
+			[
+				'user_id'   => $user_id,
+				'course_id' => $course_id,
+			]
+		);
+
+		if ( false === $result ) {
+			return false;
+		}
+
+		return (int) $result > 0;
+	}
+
+	/**
 	 * @return list<Enrollment>
 	 */
 	private function hydrate_list( string $sql ): array {

@@ -9,6 +9,7 @@ use VL\LMS\Access\TableBackedCoInstructorLookup;
 use VL\LMS\Api\AuthController;
 use VL\LMS\Api\EnrollmentRecordTransformer;
 use VL\LMS\Api\EnrollmentsController;
+use VL\LMS\Api\ProgressController;
 use VL\LMS\Api\RestController;
 use VL\LMS\Auth\JwtBridgeTokenIssuer;
 use VL\LMS\Auth\JwtRestAuthenticator;
@@ -76,6 +77,10 @@ use VL\LMS\Repositories\LessonViewRepository;
 use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
+use VL\LMS\Services\Progress\CompletionPropagator;
+use VL\LMS\Services\Progress\CourseProgressCalculator;
+use VL\LMS\Services\Progress\PositionWriteRule;
+use VL\LMS\Services\Progress\ProgressService;
 use VL\LMS\Support\HeroImageSize;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\DifficultyTermsInstaller;
@@ -251,6 +256,10 @@ final class Plugin {
 		$curriculum_controller = $this->container->get( CurriculumController::class );
 		if ( $curriculum_controller instanceof CurriculumController ) {
 			$curriculum_controller->register_routes();
+		}
+		$progress_controller = $this->container->get( ProgressController::class );
+		if ( $progress_controller instanceof ProgressController ) {
+			$progress_controller->register_routes();
 		}
 	}
 
@@ -945,6 +954,88 @@ final class Plugin {
 					$authenticator,
 					$service,
 					$transformer
+				);
+			}
+		);
+
+		// ---------------------------------------------------------------
+		// Progress write subsystem (Phase 5.3)
+		//
+		// Single POST endpoint that journals lesson-player events and
+		// upserts vl_progress. On `event_type=complete`, the propagator
+		// fans the completion up through topic → lesson → module →
+		// course, recomputes vl_enrollments.progress_pct, and (for
+		// final-exam-less courses at 100%) flips the enrollment to
+		// COMPLETED.
+		// ---------------------------------------------------------------
+
+		$container->set(
+			PositionWriteRule::class,
+			static fn (): PositionWriteRule => new PositionWriteRule()
+		);
+
+		$container->set(
+			CourseProgressCalculator::class,
+			static function ( Container $c ): CourseProgressCalculator {
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				return new CourseProgressCalculator( $progress, $enrollments );
+			}
+		);
+
+		$container->set(
+			CompletionPropagator::class,
+			static function ( Container $c ): CompletionPropagator {
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$calculator = $c->get( CourseProgressCalculator::class );
+				assert( $calculator instanceof CourseProgressCalculator );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				return new CompletionPropagator( $progress, $hierarchy, $calculator, $enrollments );
+			}
+		);
+
+		$container->set(
+			ProgressService::class,
+			static function ( Container $c ): ProgressService {
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				$views = $c->get( LessonViewRepository::class );
+				assert( $views instanceof LessonViewRepository );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$rule = $c->get( PositionWriteRule::class );
+				assert( $rule instanceof PositionWriteRule );
+				$propagator = $c->get( CompletionPropagator::class );
+				assert( $propagator instanceof CompletionPropagator );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				return new ProgressService( $progress, $views, $hierarchy, $rule, $propagator, $enrollments );
+			}
+		);
+
+		$container->set(
+			ProgressController::class,
+			static function ( Container $c ): ProgressController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$service = $c->get( ProgressService::class );
+				assert( $service instanceof ProgressService );
+				return new ProgressController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$enrollments,
+					$hierarchy,
+					$service
 				);
 			}
 		);

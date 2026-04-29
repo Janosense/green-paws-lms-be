@@ -303,4 +303,78 @@ final class EnrollmentRepositoryTest extends TestCase {
 
 		self::assertFalse( $this->repo->delete( 42 ) );
 	}
+
+	public function test_update_progress_state_writes_to_user_course_row(): void {
+		$captured_data  = null;
+		$captured_where = null;
+
+		$this->wpdb->shouldReceive( 'update' )
+			->once()
+			->andReturnUsing(
+				function ( string $table, array $data, array $where ) use ( &$captured_data, &$captured_where ): int {
+					$captured_data  = $data;
+					$captured_where = $where;
+					return 1;
+				}
+			);
+
+		$now = new \DateTimeImmutable( '2026-04-28 12:34:56', new \DateTimeZone( 'UTC' ) );
+
+		$ok = $this->repo->update_progress_state( 7, 100, 50, EnrollmentStatus::ACTIVE, null, $now );
+
+		self::assertTrue( $ok );
+		self::assertSame(
+			[
+				'user_id'   => 7,
+				'course_id' => 100,
+			],
+			$captured_where
+		);
+		self::assertSame( 50, $captured_data['progress_pct'] );
+		self::assertSame( 'active', $captured_data['status'] );
+		self::assertNull( $captured_data['completed_at'] );
+		self::assertSame( '2026-04-28 12:34:56', $captured_data['updated_at'] );
+	}
+
+	public function test_update_progress_state_writes_completed_at_when_status_completed(): void {
+		$captured_data = null;
+
+		$this->wpdb->shouldReceive( 'update' )
+			->once()
+			->andReturnUsing(
+				function ( string $table, array $data ) use ( &$captured_data ): int {
+					$captured_data = $data;
+					return 1;
+				}
+			);
+
+		$now          = new \DateTimeImmutable( '2026-04-28 12:34:56', new \DateTimeZone( 'UTC' ) );
+		$completed_at = new \DateTimeImmutable( '2026-04-28 12:00:00', new \DateTimeZone( 'UTC' ) );
+
+		$this->repo->update_progress_state( 7, 100, 100, EnrollmentStatus::COMPLETED, $completed_at, $now );
+
+		self::assertSame( '2026-04-28 12:00:00', $captured_data['completed_at'] );
+		self::assertSame( 'completed', $captured_data['status'] );
+		self::assertSame( 100, $captured_data['progress_pct'] );
+	}
+
+	public function test_update_progress_state_returns_false_on_miss(): void {
+		$this->wpdb->shouldReceive( 'update' )->once()->andReturn( 0 );
+
+		$now = new \DateTimeImmutable( '2026-04-28 12:34:56', new \DateTimeZone( 'UTC' ) );
+
+		self::assertFalse(
+			$this->repo->update_progress_state( 999, 999, 0, EnrollmentStatus::ACTIVE, null, $now )
+		);
+	}
+
+	public function test_update_progress_state_returns_false_on_wpdb_failure(): void {
+		$this->wpdb->shouldReceive( 'update' )->once()->andReturn( false );
+
+		$now = new \DateTimeImmutable( '2026-04-28 12:34:56', new \DateTimeZone( 'UTC' ) );
+
+		self::assertFalse(
+			$this->repo->update_progress_state( 7, 100, 50, EnrollmentStatus::ACTIVE, null, $now )
+		);
+	}
 }

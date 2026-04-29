@@ -130,14 +130,14 @@ final class TopicContentTransformerTest extends TestCase {
 		?int $module_ref_id = null,
 		?int $lesson_ref_id = null
 	): WP_Post {
-		$post              = Mockery::mock( 'WP_Post' );
-		$post->ID          = $id;
-		$post->post_type   = $type;
-		$post->post_name   = $slug;
-		$post->post_title  = $title;
-		$post->post_status = 'publish';
-		$post->post_parent = 0;
-		$post->menu_order  = $menu_order;
+		$post               = Mockery::mock( 'WP_Post' );
+		$post->ID           = $id;
+		$post->post_type    = $type;
+		$post->post_name    = $slug;
+		$post->post_title   = $title;
+		$post->post_status  = 'publish';
+		$post->post_parent  = 0;
+		$post->menu_order   = $menu_order;
 		$post->post_content = '';
 		if ( null !== $course_ref_id ) {
 			$post->course_ref_id = $course_ref_id;
@@ -159,10 +159,10 @@ final class TopicContentTransformerTest extends TestCase {
 	}
 
 	public function test_full_happy_path_shape(): void {
-		$course = $this->post( 100, 'vl_course', 'feline-cardio', 'Feline Cardiology' );
-		$module = $this->post( 110, 'vl_module', 'module-1-basics', 'Module 1: Basics' );
-		$lesson = $this->post( 123, 'vl_lesson', 'intro', 'Intro' );
-		$topic  = $this->post( 200, 'vl_topic', 'anatomy', 'Anatomy', 1, 100, 110, 123 );
+		$course              = $this->post( 100, 'vl_course', 'feline-cardio', 'Feline Cardiology' );
+		$module              = $this->post( 110, 'vl_module', 'module-1-basics', 'Module 1: Basics' );
+		$lesson              = $this->post( 123, 'vl_lesson', 'intro', 'Intro' );
+		$topic               = $this->post( 200, 'vl_topic', 'anatomy', 'Anatomy', 1, 100, 110, 123 );
 		$topic->post_content = 'Topic body';
 
 		$this->setMeta( 200, '_vl_topic_video_url', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' );

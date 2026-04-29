@@ -169,14 +169,14 @@ final class LessonContentTransformerTest extends TestCase {
 		?int $course_ref_id = null,
 		?int $module_ref_id = null
 	): WP_Post {
-		$post              = Mockery::mock( 'WP_Post' );
-		$post->ID          = $id;
-		$post->post_type   = $type;
-		$post->post_name   = $slug;
-		$post->post_title  = $title;
-		$post->post_status = 'publish';
-		$post->post_parent = 0;
-		$post->menu_order  = $menu_order;
+		$post               = Mockery::mock( 'WP_Post' );
+		$post->ID           = $id;
+		$post->post_type    = $type;
+		$post->post_name    = $slug;
+		$post->post_title   = $title;
+		$post->post_status  = 'publish';
+		$post->post_parent  = 0;
+		$post->menu_order   = $menu_order;
 		$post->post_content = '';
 		if ( null !== $course_ref_id ) {
 			$post->course_ref_id = $course_ref_id;
@@ -195,9 +195,9 @@ final class LessonContentTransformerTest extends TestCase {
 	}
 
 	public function test_full_happy_path_shape(): void {
-		$course = $this->post( 100, 'vl_course', 'feline-cardio', 'Feline Cardiology' );
-		$module = $this->post( 110, 'vl_module', 'module-1-basics', 'Module 1: Basics' );
-		$lesson = $this->post( 123, 'vl_lesson', 'intro-to-cardiology', 'Intro to Cardiology', 1, 100, 110 );
+		$course               = $this->post( 100, 'vl_course', 'feline-cardio', 'Feline Cardiology' );
+		$module               = $this->post( 110, 'vl_module', 'module-1-basics', 'Module 1: Basics' );
+		$lesson               = $this->post( 123, 'vl_lesson', 'intro-to-cardiology', 'Intro to Cardiology', 1, 100, 110 );
 		$lesson->post_content = 'Welcome to the lesson';
 
 		$this->setMeta( 123, '_vl_lesson_video_url', 'https://vimeo.com/76979871' );

@@ -132,6 +132,32 @@ final class InMemoryEnrollmentRepository extends EnrollmentRepository {
 		return true;
 	}
 
+	public function update_progress_state(
+		int $user_id,
+		int $course_id,
+		int $progress_pct,
+		EnrollmentStatus $status,
+		?\DateTimeImmutable $completed_at,
+		\DateTimeImmutable $now
+	): bool {
+		foreach ( $this->rows as $id => $row ) {
+			if ( (int) $row['user_id'] !== $user_id || (int) $row['course_id'] !== $course_id ) {
+				continue;
+			}
+			$this->rows[ $id ] = array_merge(
+				$row,
+				[
+					'progress_pct' => $progress_pct,
+					'status'       => $status->value,
+					'completed_at' => null === $completed_at ? null : $completed_at->format( 'Y-m-d H:i:s' ),
+					'updated_at'   => $now->format( 'Y-m-d H:i:s' ),
+				]
+			);
+			return true;
+		}
+		return false;
+	}
+
 	/**
 	 * Test helper: directly seed a row. Useful for setting up state that
 	 * bypasses the service (e.g., a REVOKED row with a specific

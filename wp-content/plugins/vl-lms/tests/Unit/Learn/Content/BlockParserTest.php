@@ -99,10 +99,10 @@ final class BlockParserTest extends TestCase {
 		Functions\when( 'parse_blocks' )->justReturn(
 			[
 				[
-					'blockName'   => 'core/list',
-					'attrs'       => [ 'ordered' => false ],
-					'innerHTML'   => '<ul></ul>',
-					'innerBlocks' => [
+					'blockName'    => 'core/list',
+					'attrs'        => [ 'ordered' => false ],
+					'innerHTML'    => '<ul></ul>',
+					'innerBlocks'  => [
 						[
 							'blockName'    => 'core/list-item',
 							'attrs'        => [],

@@ -372,6 +372,246 @@ curl -s -H "Authorization: Bearer $JWT" \
 # → "course_not_found"
 ```
 
+# POST /progress (Phase 5.3)
+
+Single write endpoint that journals one lesson-player event, upserts
+`vl_progress`, and (on `event_type=complete`) runs synchronous fan-up
+through topic → lesson → module → course. Gated by `vl_view_lesson` plus
+a course-level active enrollment.
+
+The recipes assume the same `feline-cardio` fixture used above. Resolve
+your concrete IDs once:
+
+```sh
+LESSON_ID=$(ddev wp post list --post_type=vl_lesson --name=cardio-anatomy --field=ID --format=ids)
+TOPIC_ID=$(ddev wp post list --post_type=vl_topic --name=anatomy-of-feline-heart --field=ID --format=ids)
+DRAFT_LESSON_ID=$(ddev wp post list --post_type=vl_lesson --post_status=draft --field=ID --format=ids | head -n1)
+
+UUID="8c7e9f2a-2c1d-4d2c-9e89-3f5d2a3b4c5d"
+```
+
+### 1. Guest → 401
+
+```sh
+curl -i -X POST "$BASE/progress" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":10}" \
+  | head -1
+# → HTTP/2 401
+```
+
+### 2. Authed `subscriber` (no `vl_view_lesson`) → 403 `rest_forbidden`
+
+```sh
+SUB_JWT=$(curl -s -X POST "$AUTH/token" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"subscriber@example.test","password":"hunter2hunter2"}' \
+  | jq -r '.data.access_token')
+
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $SUB_JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":10}" \
+  | jq '.code'
+# → "rest_forbidden"
+```
+
+### 3. Missing `entity_type` → 400 `invalid_payload`
+
+```sh
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":10}" \
+  | jq '{ code, message }'
+# → { "code": "invalid_payload", "message": "Field 'entity_type' is required." }
+```
+
+### 4. Malformed UUID → 400 `invalid_payload`
+
+```sh
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"not-a-uuid\",\"event_type\":\"progress\",\"position_seconds\":10}" \
+  | jq '.code'
+# → "invalid_payload"
+```
+
+### 5. `entity_type=module` → 400 `invalid_payload`
+
+Modules don't receive direct events. Backend rejects.
+
+```sh
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"module\",\"entity_id\":1,\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":10}" \
+  | jq '.code'
+# → "invalid_payload"
+```
+
+### 6. Draft lesson → 404 `entity_not_found`
+
+```sh
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${DRAFT_LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":10}" \
+  | jq '.code'
+# → "entity_not_found"
+```
+
+### 7. Published lesson, user not enrolled → 403 `not_enrolled`
+
+```sh
+NOENROLL_JWT=$(curl -s -X POST "$AUTH/token" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"unenrolled-student@example.test","password":"hunter2hunter2"}' \
+  | jq -r '.data.access_token')
+
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $NOENROLL_JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":10}" \
+  | jq '.code'
+# → "not_enrolled"
+```
+
+### 8. First `progress` event on a fresh lesson → 201
+
+```sh
+curl -i -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":240}" \
+  | head -1
+# → HTTP/2 201
+
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":240}" \
+  | jq '.data.progress.status, .data.progress.position_seconds, .data.fanup.lesson_completed'
+# → "in_progress"
+# → 240
+# → false
+```
+
+### 9. Smaller `progress` value does NOT shrink stored position
+
+```sh
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":120}" \
+  | jq '.data.progress.position_seconds'
+# → 240   (preserved per write rule §key-decision-2)
+```
+
+### 10. `seek` overwrites the stored position
+
+```sh
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"seek\",\"position_seconds\":60,\"payload\":{\"from\":240,\"to\":60}}" \
+  | jq '.data.progress.position_seconds'
+# → 60
+```
+
+### 11. `complete` on a topic-less lesson promotes the lesson
+
+`cardio-anatomy` is the topic-less lesson in the fixture. Completion sets
+`fanup.lesson_completed=true` and recomputes `course_progress_pct`.
+
+```sh
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"complete\",\"position_seconds\":600}" \
+  | jq '.data.progress.status, .data.fanup.lesson_completed, .data.fanup.course_progress_pct'
+# → "completed"
+# → true
+# → <new pct>
+```
+
+### 12. Completing every topic of a lesson auto-promotes the lesson
+
+`intro-to-cardiology` has topic children. Issue a `complete` for each
+topic; the response on the LAST one carries `lesson_completed=true`
+(promotion is implicit from the topic fan-up). Verify by re-reading the
+lesson via the read endpoint.
+
+```sh
+for TID in $(ddev wp post list --post_type=vl_topic --post_parent="$LESSON_ID_INTRO" --field=ID --format=ids); do
+  curl -s -X POST "$BASE/progress" \
+    -H "Authorization: Bearer $JWT" \
+    -H "Content-Type: application/json" \
+    -d "{\"entity_type\":\"topic\",\"entity_id\":${TID},\"session_uuid\":\"$UUID\",\"event_type\":\"complete\",\"position_seconds\":300}" \
+    | jq '.data.fanup.lesson_completed'
+done
+# Last iteration → true
+
+curl -s -H "Authorization: Bearer $JWT" \
+  "$BASE/learn/lessons/intro-to-cardiology" \
+  | jq '.data.progress.status'
+# → "completed"
+```
+
+### 13. Completing the final lesson in a no-final-exam course flips the enrollment
+
+```sh
+# After completing every leaf:
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LAST_LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"complete\",\"position_seconds\":600}" \
+  | jq '.data.fanup'
+# → { "lesson_completed": true, "module_completed": <bool>,
+#     "course_progress_pct": 100, "course_completed": true }
+
+curl -s -H "Authorization: Bearer $JWT" "$BASE/enrollments/me" \
+  | jq '.data.items[] | select(.course_slug == "feline-cardio") | { status, progress_pct, completed_at }'
+# → { "status": "completed", "progress_pct": 100, "completed_at": "<ISO>" }
+```
+
+### 14. `payload` over 4 KB → 413 `payload_too_large`
+
+```sh
+BIG=$(python3 -c 'print("a"*5000)')
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"progress\",\"position_seconds\":10,\"payload\":{\"blob\":\"$BIG\"}}" \
+  | jq '.code'
+# → "payload_too_large"
+```
+
+### 15. Re-completing a lesson preserves the original `completed_at`
+
+The journal accepts duplicate `complete` events (no server-side dedup),
+but `vl_progress.completed_at` is NOT overwritten on re-completion.
+
+```sh
+# First complete:
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$UUID\",\"event_type\":\"complete\",\"position_seconds\":600}" \
+  | jq '.data.progress.completed_at'
+# → "<original ISO>"
+
+# Second complete (same lesson, fresh session):
+curl -s -X POST "$BASE/progress" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{\"entity_type\":\"lesson\",\"entity_id\":${LESSON_ID},\"session_uuid\":\"$(uuidgen | tr A-Z a-z)\",\"event_type\":\"complete\",\"position_seconds\":600}" \
+  | jq '.data.progress.completed_at, .data.fanup.lesson_completed'
+# → "<original ISO>"   (NOT overwritten)
+# → true               (already-complete is consistent)
+```
+
 ## Toolchain
 
 From `backend/wp-content/plugins/vl-lms/`:
