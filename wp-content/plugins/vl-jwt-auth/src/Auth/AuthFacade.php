@@ -42,6 +42,11 @@ final class AuthFacade {
 	public static function user_from_request( WP_REST_Request $request ): ?WP_User {
 		$header = (string) $request->get_header( 'authorization' );
 		$token  = self::parse_bearer( $header );
+
+		if ( null === $token ) {
+			$token = self::bearer_from_body( $request );
+		}
+
 		if ( null === $token ) {
 			return null;
 		}
@@ -95,6 +100,42 @@ final class AuthFacade {
 			(string) VL_JWT_AUTH_SECRET_KEY,
 			new ClaimsBuilder( new Settings() )
 		);
+	}
+
+	/**
+	 * Fall back to a `__bearer` token in the JSON request body when no
+	 * Authorization header is present. POST-only by design — supports
+	 * `navigator.sendBeacon` unload events (which cannot set custom
+	 * headers) from the lesson-player progress tracker.
+	 *
+	 * The field is pruned via `set_param('__bearer', null)` so downstream
+	 * REST controllers that read params do not see the token leak.
+	 */
+	private static function bearer_from_body( WP_REST_Request $request ): ?string {
+		if ( 'POST' !== strtoupper( (string) $request->get_method() ) ) {
+			return null;
+		}
+
+		$content_type = (array) $request->get_content_type();
+		$media        = isset( $content_type['value'] ) ? strtolower( (string) $content_type['value'] ) : '';
+		if ( 'application/json' !== $media ) {
+			return null;
+		}
+
+		$params = $request->get_json_params();
+		if ( ! is_array( $params ) || ! isset( $params['__bearer'] ) ) {
+			return null;
+		}
+
+		$token = $params['__bearer'];
+		// Always strip the field so downstream consumers don't see it.
+		$request->set_param( '__bearer', null );
+
+		if ( ! is_string( $token ) || '' === $token ) {
+			return null;
+		}
+
+		return $token;
 	}
 
 	private static function parse_bearer( string $header ): ?string {
