@@ -10,6 +10,7 @@ use VL\LMS\Api\AuthController;
 use VL\LMS\Api\EnrollmentRecordTransformer;
 use VL\LMS\Api\EnrollmentsController;
 use VL\LMS\Api\ProgressController;
+use VL\LMS\Api\QuizAttemptsController;
 use VL\LMS\Api\RestController;
 use VL\LMS\Auth\JwtBridgeTokenIssuer;
 use VL\LMS\Auth\JwtRestAuthenticator;
@@ -74,9 +75,20 @@ use VL\LMS\Learn\TopicContentTransformer;
 use VL\LMS\Learn\TopicNodeTransformer;
 use VL\LMS\Learn\Video\VideoPayloadBuilder;
 use VL\LMS\Repositories\CourseInstructorRepository;
+use VL\LMS\Quiz\Access\QuizAccessGate;
+use VL\LMS\Quiz\QuestionDeliveryTransformer;
+use VL\LMS\Quiz\QuizAttemptService;
+use VL\LMS\Quiz\QuizCourseResolver;
+use VL\LMS\Quiz\Scoring\MultipleChoiceScorer;
+use VL\LMS\Quiz\Scoring\QuizScoringEngine;
+use VL\LMS\Quiz\Scoring\SingleChoiceScorer;
+use VL\LMS\Quiz\Scoring\TextScorer;
+use VL\LMS\Quiz\Scoring\TrueFalseScorer;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\LessonViewRepository;
 use VL\LMS\Repositories\ProgressRepository;
+use VL\LMS\Repositories\QuizAnswerRepository;
+use VL\LMS\Repositories\QuizAttemptRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Progress\CompletionPropagator;
@@ -268,6 +280,10 @@ final class Plugin {
 		$progress_controller = $this->container->get( ProgressController::class );
 		if ( $progress_controller instanceof ProgressController ) {
 			$progress_controller->register_routes();
+		}
+		$quiz_attempts_controller = $this->container->get( QuizAttemptsController::class );
+		if ( $quiz_attempts_controller instanceof QuizAttemptsController ) {
+			$quiz_attempts_controller->register_routes();
 		}
 	}
 
@@ -1003,6 +1019,11 @@ final class Plugin {
 		);
 
 		$container->set(
+			QuizAttemptRepository::class,
+			static fn (): QuizAttemptRepository => new QuizAttemptRepository()
+		);
+
+		$container->set(
 			CompletionPropagator::class,
 			static function ( Container $c ): CompletionPropagator {
 				$progress = $c->get( ProgressRepository::class );
@@ -1013,7 +1034,9 @@ final class Plugin {
 				assert( $calculator instanceof CourseProgressCalculator );
 				$enrollments = $c->get( EnrollmentRepository::class );
 				assert( $enrollments instanceof EnrollmentRepository );
-				return new CompletionPropagator( $progress, $hierarchy, $calculator, $enrollments );
+				$quiz_attempts = $c->get( QuizAttemptRepository::class );
+				assert( $quiz_attempts instanceof QuizAttemptRepository );
+				return new CompletionPropagator( $progress, $hierarchy, $calculator, $enrollments, $quiz_attempts );
 			}
 		);
 
@@ -1053,6 +1076,132 @@ final class Plugin {
 					$enrollments,
 					$hierarchy,
 					$service
+				);
+			}
+		);
+
+		// ---------------------------------------------------------------
+		// Quiz subsystem (Phase 6.1)
+		//
+		// Quiz attempt lifecycle: start → save_answer → submit, plus
+		// fetch_state for the resume path. The four per-type scorers are
+		// composed into a single QuizScoringEngine; the service sits on
+		// the gate, the engine, the delivery transformer, and the
+		// course-completion propagator (whose new
+		// reevaluate_course_completion method is invoked on a passing
+		// final-exam submit).
+		// ---------------------------------------------------------------
+
+		$container->set(
+			QuizAnswerRepository::class,
+			static fn (): QuizAnswerRepository => new QuizAnswerRepository()
+		);
+
+		$container->set(
+			QuizCourseResolver::class,
+			static fn (): QuizCourseResolver => new QuizCourseResolver()
+		);
+
+		$container->set(
+			QuizAccessGate::class,
+			static function ( Container $c ): QuizAccessGate {
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
+				$attempts = $c->get( QuizAttemptRepository::class );
+				assert( $attempts instanceof QuizAttemptRepository );
+				$resolver = $c->get( QuizCourseResolver::class );
+				assert( $resolver instanceof QuizCourseResolver );
+				return new QuizAccessGate( $enrollments, $attempts, $resolver );
+			}
+		);
+
+		$container->set(
+			QuestionDeliveryTransformer::class,
+			static fn (): QuestionDeliveryTransformer => new QuestionDeliveryTransformer()
+		);
+
+		$container->set(
+			SingleChoiceScorer::class,
+			static fn (): SingleChoiceScorer => new SingleChoiceScorer()
+		);
+		$container->set(
+			MultipleChoiceScorer::class,
+			static fn (): MultipleChoiceScorer => new MultipleChoiceScorer()
+		);
+		$container->set(
+			TrueFalseScorer::class,
+			static fn (): TrueFalseScorer => new TrueFalseScorer()
+		);
+		$container->set(
+			TextScorer::class,
+			static function ( Container $c ): TextScorer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new TextScorer( $logger );
+			}
+		);
+
+		$container->set(
+			QuizScoringEngine::class,
+			static function ( Container $c ): QuizScoringEngine {
+				$single = $c->get( SingleChoiceScorer::class );
+				assert( $single instanceof SingleChoiceScorer );
+				$multi = $c->get( MultipleChoiceScorer::class );
+				assert( $multi instanceof MultipleChoiceScorer );
+				$tf = $c->get( TrueFalseScorer::class );
+				assert( $tf instanceof TrueFalseScorer );
+				$text = $c->get( TextScorer::class );
+				assert( $text instanceof TextScorer );
+				return new QuizScoringEngine( $single, $multi, $tf, $text );
+			}
+		);
+
+		$container->set(
+			QuizAttemptService::class,
+			static function ( Container $c ): QuizAttemptService {
+				$gate = $c->get( QuizAccessGate::class );
+				assert( $gate instanceof QuizAccessGate );
+				$attempts = $c->get( QuizAttemptRepository::class );
+				assert( $attempts instanceof QuizAttemptRepository );
+				$answers = $c->get( QuizAnswerRepository::class );
+				assert( $answers instanceof QuizAnswerRepository );
+				$scoring = $c->get( QuizScoringEngine::class );
+				assert( $scoring instanceof QuizScoringEngine );
+				$delivery = $c->get( QuestionDeliveryTransformer::class );
+				assert( $delivery instanceof QuestionDeliveryTransformer );
+				$resolver = $c->get( QuizCourseResolver::class );
+				assert( $resolver instanceof QuizCourseResolver );
+				$propagator = $c->get( CompletionPropagator::class );
+				assert( $propagator instanceof CompletionPropagator );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new QuizAttemptService(
+					$gate,
+					$attempts,
+					$answers,
+					$scoring,
+					$delivery,
+					$resolver,
+					$propagator,
+					$logger
+				);
+			}
+		);
+
+		$container->set(
+			QuizAttemptsController::class,
+			static function ( Container $c ): QuizAttemptsController {
+				$service = $c->get( QuizAttemptService::class );
+				assert( $service instanceof QuizAttemptService );
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new QuizAttemptsController(
+					VL_LMS_API_NAMESPACE,
+					$service,
+					$authenticator,
+					$logger
 				);
 			}
 		);

@@ -12,12 +12,15 @@ use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Domain\Progress\EntityType;
 use VL\LMS\Domain\Progress\ProgressStatus;
+use VL\LMS\Domain\Quiz\QuizAttempt;
+use VL\LMS\Domain\Quiz\QuizAttemptStatus;
 use VL\LMS\Learn\EntityHierarchy;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Services\Progress\CompletionPropagator;
 use VL\LMS\Services\Progress\CourseProgressCalculator;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use VL\LMS\Tests\Fixtures\InMemoryProgressRepository;
+use VL\LMS\Tests\Fixtures\InMemoryQuizAttemptRepository;
 use WP_Post;
 
 final class CompletionPropagatorTest extends TestCase {
@@ -26,6 +29,7 @@ final class CompletionPropagatorTest extends TestCase {
 
 	private InMemoryProgressRepository $progress;
 	private InMemoryEnrollmentRepository $enrollments;
+	private InMemoryQuizAttemptRepository $quiz_attempts;
 	private \DateTimeImmutable $now;
 
 	/** @var Mockery\MockInterface&CourseProgressCalculator */
@@ -35,7 +39,8 @@ final class CompletionPropagatorTest extends TestCase {
 
 	private int $recompute_calls = 0;
 
-	private bool $has_final_exam = false;
+	/** @var list<int> */
+	private array $final_exam_quiz_ids = [];
 
 	/** @var array<int, list<WP_Post>> */
 	private array $sibling_topics = [];
@@ -52,15 +57,16 @@ final class CompletionPropagatorTest extends TestCase {
 
 		Functions\when( '__' )->returnArg();
 
-		$this->now         = new \DateTimeImmutable( '2026-04-28 12:00:00', new \DateTimeZone( 'UTC' ) );
-		$this->progress    = new InMemoryProgressRepository( fn (): \DateTimeImmutable => $this->now );
-		$this->enrollments = new InMemoryEnrollmentRepository();
+		$this->now           = new \DateTimeImmutable( '2026-04-28 12:00:00', new \DateTimeZone( 'UTC' ) );
+		$this->progress      = new InMemoryProgressRepository( fn (): \DateTimeImmutable => $this->now );
+		$this->enrollments   = new InMemoryEnrollmentRepository();
+		$this->quiz_attempts = new InMemoryQuizAttemptRepository();
 
-		$this->sibling_topics  = [];
-		$this->sibling_lessons = [];
-		$this->recompute_pct   = 0;
-		$this->recompute_calls = 0;
-		$this->has_final_exam  = false;
+		$this->sibling_topics      = [];
+		$this->sibling_lessons     = [];
+		$this->recompute_pct       = 0;
+		$this->recompute_calls     = 0;
+		$this->final_exam_quiz_ids = [];
 
 		$this->calculator = Mockery::mock( CourseProgressCalculator::class );
 		$pct_ref          = &$this->recompute_pct;
@@ -87,27 +93,30 @@ final class CompletionPropagatorTest extends TestCase {
 			$this->hierarchy,
 			$this->calculator,
 			$this->enrollments,
+			$this->quiz_attempts,
 			$this->sibling_topics,
 			$this->sibling_lessons,
-			$this->has_final_exam,
+			$this->final_exam_quiz_ids,
 			$this->now
 		) extends CompletionPropagator {
 
 			/**
 			 * @param array<int, list<WP_Post>> $sibling_topics
 			 * @param array<int, list<WP_Post>> $sibling_lessons
+			 * @param list<int>                 $final_exam_quiz_ids
 			 */
 			public function __construct(
 				InMemoryProgressRepository $progress,
 				EntityHierarchy $hierarchy,
 				CourseProgressCalculator $calc,
 				EnrollmentRepository $enrollments,
+				InMemoryQuizAttemptRepository $quiz_attempts,
 				private array $sibling_topics,
 				private array $sibling_lessons,
-				private bool $has_final_exam,
+				private array $final_exam_quiz_ids,
 				private \DateTimeImmutable $clock_now
 			) {
-				parent::__construct( $progress, $hierarchy, $calc, $enrollments );
+				parent::__construct( $progress, $hierarchy, $calc, $enrollments, $quiz_attempts );
 			}
 
 			protected function query_sibling_topics( int $lesson_id ): array {
@@ -118,8 +127,8 @@ final class CompletionPropagatorTest extends TestCase {
 				return $this->sibling_lessons[ $parent_id ] ?? [];
 			}
 
-			protected function course_has_final_exam( int $course_id ): bool {
-				return $this->has_final_exam;
+			protected function find_final_exam_quiz_ids_in_course( int $course_id ): array {
+				return $this->final_exam_quiz_ids;
 			}
 
 			protected function now(): \DateTimeImmutable {
@@ -276,8 +285,8 @@ final class CompletionPropagatorTest extends TestCase {
 		$lesson = $this->post( 200, 'vl_lesson' );
 		$this->hierarchy->shouldReceive( 'resolveModule' )->with( $lesson )->andReturn( null );
 
-		$this->recompute_pct  = 100;
-		$this->has_final_exam = false;
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [];
 
 		$this->enrollments->seed(
 			[
@@ -302,8 +311,8 @@ final class CompletionPropagatorTest extends TestCase {
 		$lesson = $this->post( 200, 'vl_lesson' );
 		$this->hierarchy->shouldReceive( 'resolveModule' )->with( $lesson )->andReturn( null );
 
-		$this->recompute_pct  = 100;
-		$this->has_final_exam = true;
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [ 999 ];
 
 		$this->enrollments->seed(
 			[
@@ -337,5 +346,112 @@ final class CompletionPropagatorTest extends TestCase {
 		$this->propagator()->propagate( 1, 100, $lesson );
 
 		self::assertSame( 1, $this->recompute_calls );
+	}
+
+	public function test_reevaluate_flips_when_both_arms_pass(): void {
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [ 999 ];
+
+		$this->seed_passed_attempt( 1, 100, 999 );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		$flipped = $this->propagator()->reevaluate_course_completion( 1, 100 );
+
+		self::assertTrue( $flipped );
+		$row = $this->enrollments->find_for_user_and_course( 1, 100 );
+		self::assertNotNull( $row );
+		self::assertSame( EnrollmentStatus::COMPLETED, $row->status );
+	}
+
+	public function test_reevaluate_does_not_flip_when_lesson_progress_below_100(): void {
+		$this->recompute_pct       = 80;
+		$this->final_exam_quiz_ids = [ 999 ];
+
+		$this->seed_passed_attempt( 1, 100, 999 );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		$flipped = $this->propagator()->reevaluate_course_completion( 1, 100 );
+
+		self::assertFalse( $flipped );
+		$row = $this->enrollments->find_for_user_and_course( 1, 100 );
+		self::assertNotNull( $row );
+		self::assertSame( EnrollmentStatus::ACTIVE, $row->status );
+	}
+
+	public function test_reevaluate_does_not_flip_when_no_passed_final_exam(): void {
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [ 999 ];
+
+		// No passed attempt seeded — final-exam arm fails.
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		$flipped = $this->propagator()->reevaluate_course_completion( 1, 100 );
+
+		self::assertFalse( $flipped );
+	}
+
+	public function test_propagate_at_100_pct_with_final_exam_does_not_flip(): void {
+		$lesson = $this->post( 200, 'vl_lesson' );
+		$this->hierarchy->shouldReceive( 'resolveModule' )->with( $lesson )->andReturn( null );
+
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [ 999 ];
+
+		// Simulate a student who finished all lessons but never took
+		// (or never passed) the final exam.
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		$result = $this->propagator()->propagate( 1, 100, $lesson );
+
+		self::assertFalse( $result->course_completed );
+		self::assertSame( 100, $result->course_progress_pct );
+	}
+
+	private function seed_passed_attempt( int $user_id, int $course_id, int $quiz_id ): void {
+		$now = $this->now;
+		$this->quiz_attempts->insert(
+			new QuizAttempt(
+				0,
+				$user_id,
+				$quiz_id,
+				$course_id,
+				QuizAttemptStatus::SUBMITTED,
+				$now,
+				$now,
+				0,
+				60,
+				90,
+				100,
+				true,
+				70,
+				[ 201 ],
+				$now,
+				$now
+			)
+		);
 	}
 }

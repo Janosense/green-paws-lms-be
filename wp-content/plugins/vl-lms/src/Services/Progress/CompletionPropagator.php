@@ -10,6 +10,7 @@ use VL\LMS\Domain\Progress\ProgressStatus;
 use VL\LMS\Learn\EntityHierarchy;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\ProgressRepository;
+use VL\LMS\Repositories\QuizAttemptRepository;
 use WP_Post;
 use WP_Query;
 
@@ -22,15 +23,23 @@ use WP_Query;
  * skip it when the lesson is course-direct); both finally drive a course
  * `progress_pct` recomputation through {@see CourseProgressCalculator}.
  *
- * Course-status flips are gated by the presence of a final exam:
+ * Course-status flips are gated by the **course-completion contract (E2)**
+ * — both arms must hold:
  *
- * - No final-exam quiz reachable from the course AND `progress_pct === 100`
- *   → enrollment moves to `COMPLETED` with `completed_at = now()`.
- * - Final-exam quiz exists → enrollment stays `ACTIVE`; the Phase 6 quiz
- *   subsystem owns the eventual transition.
+ * - **Lesson-progress arm.** {@see CourseProgressCalculator} reports
+ *   `progress_pct === 100`.
+ * - **Final-exam arm.** Either the course has no `_vl_quiz_is_final_exam`
+ *   quiz (arm trivially passes), or the user has at least one passed
+ *   final-exam attempt for this course in `vl_quiz_attempts`.
  *
- * Three `WP_Query` round trips are isolated as `protected` seam methods so
- * unit tests can subclass and supply fixtures without booting WordPress.
+ * Both `propagate()` (driven by lesson-`complete` events) and
+ * `reevaluate_course_completion()` (driven by quiz `submit`) route
+ * through {@see self::check_course_completion_gate()} so the contract
+ * lives in exactly one place.
+ *
+ * Several `WP_Query` round trips are isolated as `protected` seam methods
+ * so unit tests can subclass and supply fixtures without booting
+ * WordPress.
  *
  * @author Tymofii Synianskyi
  */
@@ -40,7 +49,8 @@ class CompletionPropagator {
 		private readonly ProgressRepository $progress,
 		private readonly EntityHierarchy $hierarchy,
 		private readonly CourseProgressCalculator $course_calc,
-		private readonly EnrollmentRepository $enrollments
+		private readonly EnrollmentRepository $enrollments,
+		private readonly QuizAttemptRepository $quiz_attempts
 	) {
 	}
 
@@ -65,8 +75,8 @@ class CompletionPropagator {
 		$progress_pct     = $this->course_calc->recompute( $user_id, $course_id );
 		$course_completed = false;
 
-		if ( 100 === $progress_pct && ! $this->course_has_final_exam( $course_id ) ) {
-			$course_completed = $this->maybe_complete_enrollment( $user_id, $course_id );
+		if ( 100 === $progress_pct ) {
+			$course_completed = $this->maybe_flip_if_both_arms_pass( $user_id, $course_id, $progress_pct );
 		}
 
 		return new PropagationResult(
@@ -75,6 +85,59 @@ class CompletionPropagator {
 			$progress_pct,
 			$course_completed
 		);
+	}
+
+	/**
+	 * Re-check both arms of the course-completion gate (E2) and flip the
+	 * enrollment to `COMPLETED` if both pass.
+	 *
+	 * Idempotent — already-completed enrollments and missing rows are
+	 * no-ops. Used by the quiz submit path on a passing final-exam to
+	 * close the loop after the lesson-progress side was already at 100%.
+	 *
+	 * Returns `true` if the enrollment ended (or already was)
+	 * `COMPLETED` after this call, `false` otherwise.
+	 */
+	public function reevaluate_course_completion( int $user_id, int $course_id ): bool {
+		$pct = $this->course_calc->recompute( $user_id, $course_id );
+		return $this->maybe_flip_if_both_arms_pass( $user_id, $course_id, $pct );
+	}
+
+	/**
+	 * Apply the two-arm E2 gate and flip if both pass. Caller is
+	 * responsible for supplying a freshly-recomputed `$progress_pct`.
+	 */
+	private function maybe_flip_if_both_arms_pass( int $user_id, int $course_id, int $progress_pct ): bool {
+		if ( 100 !== $progress_pct ) {
+			return false;
+		}
+		if ( ! $this->check_final_exam_arm( $user_id, $course_id ) ) {
+			return false;
+		}
+		return $this->maybe_complete_enrollment( $user_id, $course_id );
+	}
+
+	/**
+	 * Final-exam arm: either no final-exam quiz exists in the course (the
+	 * arm passes by default) or the user has at least one passed
+	 * final-exam attempt for this course.
+	 */
+	private function check_final_exam_arm( int $user_id, int $course_id ): bool {
+		$final_exam_ids = $this->find_final_exam_quiz_ids_in_course( $course_id );
+		if ( [] === $final_exam_ids ) {
+			return true;
+		}
+		foreach ( $final_exam_ids as $quiz_id ) {
+			$pass = $this->quiz_attempts->find_passed_final_exam_for_user_in_course(
+				$user_id,
+				$course_id,
+				$quiz_id
+			);
+			if ( null !== $pass ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -240,16 +303,21 @@ class CompletionPropagator {
 	}
 
 	/**
-	 * Whether the course's curriculum contains any quiz flagged as the
-	 * final exam.
+	 * IDs of every published `vl_quiz` post flagged
+	 * `_vl_quiz_is_final_exam=1` whose parent chain resolves to
+	 * `$course_id`.
 	 *
-	 * The query scans every `vl_quiz` post that has the
-	 * `_vl_quiz_is_final_exam=1` meta flag, then walks each one's parent
-	 * chain to the course via {@see EntityHierarchy::resolveCourse()}. This
-	 * is `O(n_final_exams_in_system)` — acceptable in 5.3; revisit if it
-	 * becomes hot.
+	 * The query scans every `vl_quiz` with the meta flag in a single
+	 * `WP_Query`, then walks each one's parent chain to the course via
+	 * {@see EntityHierarchy::resolveCourse()}. `O(n_final_exams_in_system)`
+	 * — acceptable until courses commonly host many final exams.
+	 *
+	 * Isolated as a `protected` seam so tests can subclass and supply a
+	 * deterministic curriculum without instantiating `WP_Query`.
+	 *
+	 * @return list<int>
 	 */
-	protected function course_has_final_exam( int $course_id ): bool {
+	protected function find_final_exam_quiz_ids_in_course( int $course_id ): array {
 		$query = new WP_Query(
 			[
 				'post_type'              => 'vl_quiz',
@@ -267,16 +335,17 @@ class CompletionPropagator {
 			]
 		);
 
+		$ids = [];
 		foreach ( $query->posts as $quiz ) {
 			if ( ! $quiz instanceof WP_Post ) {
 				continue;
 			}
 			$course = $this->hierarchy->resolveCourse( $quiz );
 			if ( $course instanceof WP_Post && (int) $course->ID === $course_id ) {
-				return true;
+				$ids[] = (int) $quiz->ID;
 			}
 		}
-		return false;
+		return $ids;
 	}
 
 	/**
