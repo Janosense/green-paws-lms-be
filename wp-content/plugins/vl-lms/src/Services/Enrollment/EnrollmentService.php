@@ -106,6 +106,16 @@ final class EnrollmentService {
 			]
 		);
 
+		/**
+		 * Fires after an enrollment is revoked. Phase 6.3
+		 * {@see \VL\LMS\Certificate\CertificateRevoker} listens to this
+		 * to soft-revoke any certificates issued for the enrollment.
+		 *
+		 * @param int         $enrollment_id The revoked enrollment row's ID.
+		 * @param string|null $reason        Optional human-readable reason.
+		 */
+		do_action( 'vl_lms_enrollment_revoked', $existing->id, $reason );
+
 		return $this->require_by_id( $existing->id );
 	}
 

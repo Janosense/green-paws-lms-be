@@ -240,6 +240,7 @@ class CompletionPropagator {
 		}
 		if ( EnrollmentStatus::COMPLETED === $existing->status ) {
 			// Already completed; preserve the original completed_at.
+			// Idempotent — do not re-fire the course-completed action.
 			return true;
 		}
 		if ( EnrollmentStatus::ACTIVE !== $existing->status ) {
@@ -256,6 +257,21 @@ class CompletionPropagator {
 			$now,
 			$now
 		);
+
+		/**
+		 * Fires once when an enrollment transitions to `completed`. The
+		 * Phase 6.3 {@see \VL\LMS\Certificate\CertificateAutoIssuer}
+		 * listens to this action to issue a completion certificate when
+		 * the course has `_vl_course_certificate_enabled='1'`.
+		 *
+		 * Idempotent: re-running the propagator after the flip returns
+		 * `true` from this method but does NOT re-fire the action.
+		 *
+		 * @param int $user_id
+		 * @param int $course_id
+		 * @param int $enrollment_id
+		 */
+		do_action( 'vl_lms_course_completed', $user_id, $course_id, $existing->id );
 
 		return true;
 	}

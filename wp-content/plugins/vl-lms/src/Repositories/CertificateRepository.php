@@ -90,6 +90,34 @@ class CertificateRepository {
 	/**
 	 * @return list<Certificate>
 	 */
+	public function list_for_enrollment( int $enrollment_id ): array {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT * FROM {$table} WHERE enrollment_id = %d ORDER BY issued_at DESC",
+			$enrollment_id
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $rows as $row ) {
+			if ( is_array( $row ) ) {
+				$out[] = Certificate::from_array( $row );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @return list<Certificate>
+	 */
 	public function list_for_user( int $user_id ): array {
 		$wpdb  = $this->wpdb();
 		$table = $this->table();

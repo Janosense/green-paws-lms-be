@@ -67,6 +67,20 @@ final class InMemoryCertificateRepository extends CertificateRepository {
 	/**
 	 * @return list<Certificate>
 	 */
+	public function list_for_enrollment( int $enrollment_id ): array {
+		$out = [];
+		foreach ( $this->rows as $row ) {
+			if ( $row->enrollment_id === $enrollment_id ) {
+				$out[] = $row;
+			}
+		}
+		usort( $out, static fn ( Certificate $a, Certificate $b ): int => $b->issued_at <=> $a->issued_at );
+		return array_values( $out );
+	}
+
+	/**
+	 * @return list<Certificate>
+	 */
 	public function list_for_user( int $user_id ): array {
 		$out = [];
 		foreach ( $this->rows as $row ) {

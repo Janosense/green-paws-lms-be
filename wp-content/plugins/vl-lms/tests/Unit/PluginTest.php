@@ -20,6 +20,7 @@ final class PluginTest extends TestCase {
 		parent::setUp();
 		Monkey\setUp();
 		Functions\when( 'get_option' )->justReturn( false );
+		Functions\when( 'add_option' )->justReturn( true );
 		$this->reset_plugin_state();
 	}
 

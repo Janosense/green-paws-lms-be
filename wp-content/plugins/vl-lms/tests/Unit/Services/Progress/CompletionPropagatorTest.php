@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Tests\Unit\Services\Progress;
 
 use Brain\Monkey;
+use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -429,6 +430,62 @@ final class CompletionPropagatorTest extends TestCase {
 
 		self::assertFalse( $result->course_completed );
 		self::assertSame( 100, $result->course_progress_pct );
+	}
+
+	public function test_reevaluate_fires_course_completed_action_when_flip_succeeds(): void {
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [];
+
+		$enrollment_id = $this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		Actions\expectDone( 'vl_lms_course_completed' )
+			->once()
+			->with( 1, 100, $enrollment_id );
+
+		$flipped = $this->propagator()->reevaluate_course_completion( 1, 100 );
+
+		self::assertTrue( $flipped );
+	}
+
+	public function test_reevaluate_does_not_fire_action_when_already_completed(): void {
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [];
+
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::COMPLETED->value,
+			]
+		);
+
+		Actions\expectDone( 'vl_lms_course_completed' )->never();
+
+		$result = $this->propagator()->reevaluate_course_completion( 1, 100 );
+		self::assertTrue( $result );
+	}
+
+	public function test_reevaluate_does_not_fire_action_when_no_op(): void {
+		$this->recompute_pct       = 80;
+		$this->final_exam_quiz_ids = [];
+
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		Actions\expectDone( 'vl_lms_course_completed' )->never();
+
+		self::assertFalse( $this->propagator()->reevaluate_course_completion( 1, 100 ) );
 	}
 
 	private function seed_passed_attempt( int $user_id, int $course_id, int $quiz_id ): void {

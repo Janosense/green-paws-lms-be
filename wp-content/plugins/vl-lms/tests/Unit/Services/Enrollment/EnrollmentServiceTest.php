@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VL\LMS\Tests\Unit\Services\Enrollment;
 
+use Brain\Monkey;
+use Brain\Monkey\Actions;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\Enrollment\EnrollmentSource;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
@@ -18,8 +20,14 @@ final class EnrollmentServiceTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		Monkey\setUp();
 		$this->repo    = new InMemoryEnrollmentRepository();
 		$this->service = new EnrollmentService( $this->repo );
+	}
+
+	protected function tearDown(): void {
+		Monkey\tearDown();
+		parent::tearDown();
 	}
 
 	public function test_enroll_creates_active_row_when_none_exists(): void {
@@ -120,6 +128,25 @@ final class EnrollmentServiceTest extends TestCase {
 		self::assertSame( 42, $enrollment->revoked_by );
 		self::assertSame( 'refund requested', $enrollment->revoke_reason );
 		self::assertMatchesRegularExpression( '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', (string) $enrollment->revoked_at );
+	}
+
+	public function test_revoke_fires_vl_lms_enrollment_revoked_action(): void {
+		$id = $this->repo->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 7,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		Actions\expectDone( 'vl_lms_enrollment_revoked' )
+			->once()
+			->with( $id, 'policy violation' );
+
+		$enrollment = $this->service->revoke( $id, 42, 'policy violation' );
+
+		// Belt-and-braces: ensure the row actually flipped before the action.
+		self::assertSame( EnrollmentStatus::REVOKED, $enrollment->status );
 	}
 
 	public function test_revoke_throws_when_enrollment_missing(): void {

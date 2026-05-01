@@ -159,6 +159,39 @@ final class CertificateRepositoryTest extends TestCase {
 		self::assertNotNull( $rows[1]->revoked_at );
 	}
 
+	public function test_list_for_enrollment_filters_by_enrollment_id(): void {
+		$captured_args = [];
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, ...$args ) use ( &$captured_args ): string {
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )
+			->once()
+			->andReturn(
+				[
+					self::row( 1 ),
+					self::row( 2, '8e2c4d2a-0000-4000-8000-000000000002', '2026-04-29 09:00:00' ),
+				]
+			);
+
+		$rows = $this->repo->list_for_enrollment( 21 );
+
+		self::assertCount( 2, $rows );
+		self::assertSame( [ 21 ], $captured_args );
+	}
+
+	public function test_list_for_enrollment_returns_empty_when_no_rows(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );
+
+		self::assertSame( [], $this->repo->list_for_enrollment( 9999 ) );
+	}
+
 	public function test_insert_writes_row_with_audit_columns_and_returns_insert_id(): void {
 		$this->clock_ticks = [ self::utc( '2026-04-28 10:00:00' ) ];
 

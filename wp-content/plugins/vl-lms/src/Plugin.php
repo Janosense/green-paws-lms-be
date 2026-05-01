@@ -7,11 +7,20 @@ namespace VL\LMS;
 use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
 use VL\LMS\Api\AuthController;
+use VL\LMS\Api\CertificatesController;
+use VL\LMS\Api\CertificateVerificationController;
 use VL\LMS\Api\EnrollmentRecordTransformer;
 use VL\LMS\Api\EnrollmentsController;
 use VL\LMS\Api\ProgressController;
 use VL\LMS\Api\QuizAttemptsController;
 use VL\LMS\Api\RestController;
+use VL\LMS\Certificate\CertificateAutoIssuer;
+use VL\LMS\Certificate\CertificateRevoker;
+use VL\LMS\Certificate\CertificateService;
+use VL\LMS\Certificate\Pdf\CertificateRenderer;
+use VL\LMS\Certificate\Pdf\PdfGenerator;
+use VL\LMS\Certificate\Pdf\QrCodeGenerator;
+use VL\LMS\Certificate\SnapshotBuilder;
 use VL\LMS\Auth\JwtBridgeTokenIssuer;
 use VL\LMS\Auth\JwtRestAuthenticator;
 use VL\LMS\Auth\LoginGate\UnverifiedLoginBlocker;
@@ -74,6 +83,7 @@ use VL\LMS\Learn\NextEntityResolver;
 use VL\LMS\Learn\TopicContentTransformer;
 use VL\LMS\Learn\TopicNodeTransformer;
 use VL\LMS\Learn\Video\VideoPayloadBuilder;
+use VL\LMS\Repositories\CertificateRepository;
 use VL\LMS\Repositories\CourseInstructorRepository;
 use VL\LMS\Quiz\Access\QuizAccessGate;
 use VL\LMS\Quiz\QuestionDeliveryTransformer;
@@ -204,6 +214,23 @@ final class Plugin {
 			\WP_CLI::add_command( 'vl-lms demo', new DemoCommand( $this->container ) );
 		}
 
+		// Phase 6.3 — certificate option defaults. `add_option` is a
+		// no-op when the option already exists, so this is safe on every
+		// boot.
+		add_option( 'vl_lms_certificate_issuer', 'Green Paws LMS' );
+		add_option( 'vl_lms_frontend_url', '' );
+
+		// Phase 6.3 — wire the certificate auto-issuer to course
+		// completion and the revoker to enrollment revocation.
+		$certificate_auto_issuer = $this->container->get( CertificateAutoIssuer::class );
+		if ( $certificate_auto_issuer instanceof CertificateAutoIssuer ) {
+			$certificate_auto_issuer->register();
+		}
+		$certificate_revoker = $this->container->get( CertificateRevoker::class );
+		if ( $certificate_revoker instanceof CertificateRevoker ) {
+			$certificate_revoker->register();
+		}
+
 		/**
 		 * Fires once the plugin has finished booting.
 		 *
@@ -284,6 +311,14 @@ final class Plugin {
 		$quiz_attempts_controller = $this->container->get( QuizAttemptsController::class );
 		if ( $quiz_attempts_controller instanceof QuizAttemptsController ) {
 			$quiz_attempts_controller->register_routes();
+		}
+		$certificates_controller = $this->container->get( CertificatesController::class );
+		if ( $certificates_controller instanceof CertificatesController ) {
+			$certificates_controller->register_routes();
+		}
+		$certificate_verification_controller = $this->container->get( CertificateVerificationController::class );
+		if ( $certificate_verification_controller instanceof CertificateVerificationController ) {
+			$certificate_verification_controller->register_routes();
 		}
 	}
 
@@ -1203,6 +1238,134 @@ final class Plugin {
 					$authenticator,
 					$logger
 				);
+			}
+		);
+
+		// ---------------------------------------------------------------
+		// Certificate subsystem (Phase 6.3)
+		//
+		// The auto-issuer subscribes to `vl_lms_course_completed` (fired
+		// from CompletionPropagator after a successful enrollment flip)
+		// and the revoker subscribes to `vl_lms_enrollment_revoked` (fired
+		// from EnrollmentService::revoke). Both subscriptions are wired in
+		// `boot()` after the container builds. The PDF generator + renderer
+		// + QR generator power the lazy-disk-cached download path.
+		// ---------------------------------------------------------------
+
+		$container->set(
+			CertificateRepository::class,
+			static fn (): CertificateRepository => new CertificateRepository()
+		);
+
+		$container->set(
+			SnapshotBuilder::class,
+			static function ( Container $c ): SnapshotBuilder {
+				$instructors = $c->get( CourseInstructorService::class );
+				assert( $instructors instanceof CourseInstructorService );
+				return new SnapshotBuilder( $instructors );
+			}
+		);
+
+		$container->set(
+			CertificateService::class,
+			static function ( Container $c ): CertificateService {
+				$certs = $c->get( CertificateRepository::class );
+				assert( $certs instanceof CertificateRepository );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				$snapshot = $c->get( SnapshotBuilder::class );
+				assert( $snapshot instanceof SnapshotBuilder );
+				$attempts = $c->get( QuizAttemptRepository::class );
+				assert( $attempts instanceof QuizAttemptRepository );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new CertificateService( $certs, $enrollments, $snapshot, $attempts, $logger );
+			}
+		);
+
+		$container->set(
+			CertificateAutoIssuer::class,
+			static function ( Container $c ): CertificateAutoIssuer {
+				$service = $c->get( CertificateService::class );
+				assert( $service instanceof CertificateService );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new CertificateAutoIssuer( $service, $enrollments, $logger );
+			}
+		);
+
+		$container->set(
+			CertificateRevoker::class,
+			static function ( Container $c ): CertificateRevoker {
+				$service = $c->get( CertificateService::class );
+				assert( $service instanceof CertificateService );
+				$certs = $c->get( CertificateRepository::class );
+				assert( $certs instanceof CertificateRepository );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new CertificateRevoker( $service, $certs, $logger );
+			}
+		);
+
+		$container->set(
+			QrCodeGenerator::class,
+			static fn (): QrCodeGenerator => new QrCodeGenerator()
+		);
+
+		$container->set(
+			CertificateRenderer::class,
+			static function ( Container $c ): CertificateRenderer {
+				$qr = $c->get( QrCodeGenerator::class );
+				assert( $qr instanceof QrCodeGenerator );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new CertificateRenderer( $qr, $logger );
+			}
+		);
+
+		$container->set(
+			PdfGenerator::class,
+			static function ( Container $c ): PdfGenerator {
+				$renderer = $c->get( CertificateRenderer::class );
+				assert( $renderer instanceof CertificateRenderer );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new PdfGenerator( $renderer, $logger );
+			}
+		);
+
+		$container->set(
+			CertificatesController::class,
+			static function ( Container $c ): CertificatesController {
+				$service = $c->get( CertificateService::class );
+				assert( $service instanceof CertificateService );
+				$pdf = $c->get( PdfGenerator::class );
+				assert( $pdf instanceof PdfGenerator );
+				$repo = $c->get( CertificateRepository::class );
+				assert( $repo instanceof CertificateRepository );
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new CertificatesController(
+					VL_LMS_API_NAMESPACE,
+					$service,
+					$pdf,
+					$repo,
+					$authenticator,
+					$logger
+				);
+			}
+		);
+
+		$container->set(
+			CertificateVerificationController::class,
+			static function ( Container $c ): CertificateVerificationController {
+				$service = $c->get( CertificateService::class );
+				assert( $service instanceof CertificateService );
+				return new CertificateVerificationController( VL_LMS_API_NAMESPACE, $service );
 			}
 		);
 
