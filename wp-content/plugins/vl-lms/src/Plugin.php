@@ -99,9 +99,20 @@ use VL\LMS\Repositories\LessonViewRepository;
 use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Repositories\QuizAnswerRepository;
 use VL\LMS\Repositories\QuizAttemptRepository;
+use VL\LMS\Repositories\SessionAttendanceRepository;
+use VL\LMS\Repositories\WebinarRegistrationRepository;
+use VL\LMS\Repositories\ZoomWebhookEventRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Progress\CompletionPropagator;
+use VL\LMS\Services\Zoom\HttpZoomClient;
+use VL\LMS\Services\Zoom\Settings\ZoomSettingsProvider;
+use VL\LMS\Services\Zoom\TokenHttpClient;
+use VL\LMS\Services\Zoom\TokenProvider;
+use VL\LMS\Services\Zoom\WpHttpTokenHttpClient;
+use VL\LMS\Services\Zoom\WpRemoteZoomApiHttpClient;
+use VL\LMS\Services\Zoom\ZoomApiHttpClient;
+use VL\LMS\Services\Zoom\ZoomClient;
 use VL\LMS\Services\Progress\CourseProgressCalculator;
 use VL\LMS\Services\Progress\PositionWriteRule;
 use VL\LMS\Services\Progress\ProgressService;
@@ -1366,6 +1377,68 @@ final class Plugin {
 				$service = $c->get( CertificateService::class );
 				assert( $service instanceof CertificateService );
 				return new CertificateVerificationController( VL_LMS_API_NAMESPACE, $service );
+			}
+		);
+
+		// ---------------------------------------------------------------
+		// Zoom integration foundations (Phase 7.0)
+		//
+		// Repositories for the three new tables plus the outbound-HTTP
+		// stack (settings → S2S OAuth token → HTTP-bearer client). All
+		// services are registered as lazy factories so a plugin boot with
+		// no Zoom credentials configured never reaches `wp_remote_*`.
+		// MeetingSynchronizer and the webhook controller land in 7.1+.
+		// ---------------------------------------------------------------
+
+		$container->set(
+			SessionAttendanceRepository::class,
+			static fn (): SessionAttendanceRepository => new SessionAttendanceRepository()
+		);
+
+		$container->set(
+			WebinarRegistrationRepository::class,
+			static fn (): WebinarRegistrationRepository => new WebinarRegistrationRepository()
+		);
+
+		$container->set(
+			ZoomWebhookEventRepository::class,
+			static fn (): ZoomWebhookEventRepository => new ZoomWebhookEventRepository()
+		);
+
+		$container->set(
+			ZoomSettingsProvider::class,
+			static fn (): ZoomSettingsProvider => new ZoomSettingsProvider()
+		);
+
+		$container->set(
+			TokenHttpClient::class,
+			static fn (): TokenHttpClient => new WpHttpTokenHttpClient()
+		);
+
+		$container->set(
+			TokenProvider::class,
+			static function ( Container $c ): TokenProvider {
+				$settings = $c->get( ZoomSettingsProvider::class );
+				assert( $settings instanceof ZoomSettingsProvider );
+				$http = $c->get( TokenHttpClient::class );
+				assert( $http instanceof TokenHttpClient );
+				return new TokenProvider( $settings, $http );
+			}
+		);
+
+		$container->set(
+			ZoomApiHttpClient::class,
+			static fn (): ZoomApiHttpClient => new WpRemoteZoomApiHttpClient()
+		);
+
+		$container->set(
+			ZoomClient::class,
+			static function ( Container $c ): ZoomClient {
+				$tokens = $c->get( TokenProvider::class );
+				assert( $tokens instanceof TokenProvider );
+				$http = $c->get( ZoomApiHttpClient::class );
+				assert( $http instanceof ZoomApiHttpClient );
+				return new HttpZoomClient( $tokens, $http );
 			}
 		);
 

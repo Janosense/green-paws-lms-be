@@ -79,8 +79,20 @@ final class SchemaManagerTest extends TestCase {
 		self::assertSame( 'wp_vl_certificates', SchemaManager::certificates_table() );
 	}
 
-	public function test_current_db_version_is_five(): void {
-		self::assertSame( '5', SchemaManager::CURRENT_DB_VERSION );
+	public function test_session_attendance_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_session_attendance', SchemaManager::session_attendance_table() );
+	}
+
+	public function test_webinar_registrations_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_webinar_registrations', SchemaManager::webinar_registrations_table() );
+	}
+
+	public function test_zoom_webhook_events_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_zoom_webhook_events', SchemaManager::zoom_webhook_events_table() );
+	}
+
+	public function test_current_db_version_is_six(): void {
+		self::assertSame( '6', SchemaManager::CURRENT_DB_VERSION );
 	}
 
 	public function test_install_short_circuits_when_version_matches(): void {
@@ -96,7 +108,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 10 )
+			->times( 13 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -118,6 +130,9 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_quiz_attempts', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_quiz_answers', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_certificates', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_session_attendance', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_webinar_registrations', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_zoom_webhook_events', $combined );
 
 		self::assertStringContainsString( 'UNIQUE KEY uk_user_course (user_id, course_id)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY uk_slug (slug)', $combined );
@@ -127,6 +142,9 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'UNIQUE KEY uniq_user_entity (user_id, entity_type, entity_id)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY attempt_question (attempt_id, question_id)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY uuid (uuid)', $combined );
+		self::assertStringContainsString( 'UNIQUE KEY uniq_session_participant (session_id, zoom_participant_uuid)', $combined );
+		self::assertStringContainsString( 'UNIQUE KEY uniq_webinar_user (webinar_id, user_id)', $combined );
+		self::assertStringContainsString( 'UNIQUE KEY tracking_id (tracking_id)', $combined );
 
 		self::assertStringContainsString( 'KEY idx_owner (owner_id)', $combined );
 		self::assertStringContainsString( 'KEY idx_status (status)', $combined );
@@ -138,6 +156,10 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'KEY idx_lesson_event (lesson_id, event_type)', $combined );
 		self::assertStringContainsString( 'KEY user_quiz (user_id, quiz_id)', $combined );
 		self::assertStringContainsString( 'KEY user_course (user_id, course_id)', $combined );
+		self::assertStringContainsString( 'KEY session_user (session_id, user_id)', $combined );
+		self::assertStringContainsString( 'KEY webinar_status (webinar_id, status)', $combined );
+		self::assertStringContainsString( 'KEY user_status (user_id, status)', $combined );
+		self::assertStringContainsString( 'KEY processing_status (processing_status)', $combined );
 	}
 
 	public function test_install_updates_version_option_after_creating_tables(): void {
@@ -163,17 +185,17 @@ final class SchemaManagerTest extends TestCase {
 	public function test_install_runs_migration_path_when_stored_version_is_behind(): void {
 		Functions\when( 'get_option' )->justReturn( '2' );
 		Functions\when( 'update_option' )->justReturn( true );
-		Functions\expect( 'dbDelta' )->times( 10 )->andReturn( [] );
+		Functions\expect( 'dbDelta' )->times( 13 )->andReturn( [] );
 
 		SchemaManager::install();
 	}
 
-	public function test_install_upgrade_path_from_four_creates_three_new_tables(): void {
+	public function test_install_upgrade_path_from_five_creates_three_new_tables(): void {
 		$captured_sql = [];
-		Functions\when( 'get_option' )->justReturn( '4' );
+		Functions\when( 'get_option' )->justReturn( '5' );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 10 )
+			->times( 13 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -185,14 +207,14 @@ final class SchemaManagerTest extends TestCase {
 
 		$combined = implode( "\n", $captured_sql );
 
-		self::assertStringContainsString( 'CREATE TABLE wp_vl_quiz_attempts', $combined );
-		self::assertStringContainsString( 'CREATE TABLE wp_vl_quiz_answers', $combined );
-		self::assertStringContainsString( 'CREATE TABLE wp_vl_certificates', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_session_attendance', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_webinar_registrations', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_zoom_webhook_events', $combined );
 	}
 
-	public function test_install_upgrade_path_from_four_writes_version_five(): void {
+	public function test_install_upgrade_path_from_five_writes_version_six(): void {
 		$saved_value = null;
-		Functions\when( 'get_option' )->justReturn( '4' );
+		Functions\when( 'get_option' )->justReturn( '5' );
 		Functions\when( 'dbDelta' )->justReturn( [] );
 		Functions\expect( 'update_option' )
 			->once()
@@ -207,7 +229,7 @@ final class SchemaManagerTest extends TestCase {
 
 		SchemaManager::install();
 
-		self::assertSame( '5', $saved_value );
+		self::assertSame( '6', $saved_value );
 	}
 
 	public function test_uninstall_drops_all_tables_and_deletes_version_option(): void {
@@ -238,5 +260,8 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_quiz_attempts', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_quiz_answers', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_certificates', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_session_attendance', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_webinar_registrations', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_zoom_webhook_events', $combined );
 	}
 }

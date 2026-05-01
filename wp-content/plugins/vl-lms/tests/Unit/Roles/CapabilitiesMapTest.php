@@ -99,13 +99,15 @@ final class CapabilitiesMapTest extends TestCase {
 		);
 	}
 
-	public function test_domain_caps_for_student_has_ten_caps(): void {
+	public function test_domain_caps_for_student_has_twelve_caps(): void {
 		$caps = CapabilitiesMap::domain_caps_for_role( 'student' );
 
-		self::assertCount( 10, $caps );
+		self::assertCount( 12, $caps );
 		self::assertContains( 'vl_enroll_in_course', $caps );
 		self::assertContains( 'vl_view_lesson', $caps );
 		self::assertContains( 'vl_download_certificate', $caps );
+		self::assertContains( 'vl_view_session_recording', $caps );
+		self::assertContains( 'vl_view_webinar_recording', $caps );
 	}
 
 	public function test_domain_caps_for_instructor_has_expected_grants(): void {
@@ -126,13 +128,45 @@ final class CapabilitiesMapTest extends TestCase {
 		self::assertNotContains( 'vl_manage_finances', $caps );
 	}
 
-	public function test_domain_caps_for_administrator_contains_all_twenty_five(): void {
+	public function test_domain_caps_for_administrator_contains_all_twenty_seven(): void {
 		$caps = CapabilitiesMap::domain_caps_for_role( 'administrator' );
 
-		self::assertCount( 25, $caps );
+		self::assertCount( 27, $caps );
 		self::assertContains( 'vl_manage_finances', $caps );
 		self::assertContains( 'vl_issue_certificates', $caps );
 		self::assertContains( 'vl_view_lesson', $caps );
+		self::assertContains( 'vl_view_session_recording', $caps );
+		self::assertContains( 'vl_view_webinar_recording', $caps );
+	}
+
+	public function test_view_session_recording_cap_is_granted_to_every_lms_role(): void {
+		foreach ( [ 'student', 'instructor', 'moderator', 'administrator' ] as $role ) {
+			self::assertContains(
+				'vl_view_session_recording',
+				CapabilitiesMap::domain_caps_for_role( $role ),
+				sprintf( 'Role "%s" must hold vl_view_session_recording.', $role )
+			);
+		}
+	}
+
+	public function test_view_webinar_recording_cap_is_granted_to_every_lms_role(): void {
+		foreach ( [ 'student', 'instructor', 'moderator', 'administrator' ] as $role ) {
+			self::assertContains(
+				'vl_view_webinar_recording',
+				CapabilitiesMap::domain_caps_for_role( $role ),
+				sprintf( 'Role "%s" must hold vl_view_webinar_recording.', $role )
+			);
+		}
+	}
+
+	public function test_register_for_webinar_cap_is_granted_to_every_lms_role(): void {
+		foreach ( [ 'student', 'instructor', 'moderator', 'administrator' ] as $role ) {
+			self::assertContains(
+				'vl_register_for_webinar',
+				CapabilitiesMap::domain_caps_for_role( $role ),
+				sprintf( 'Role "%s" must hold vl_register_for_webinar.', $role )
+			);
+		}
 	}
 
 	public function test_submit_quiz_cap_is_granted_to_every_lms_role(): void {

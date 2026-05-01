@@ -26,6 +26,19 @@ curl http://localhost:8080/wp-json/vl/v1/healthz
 
 Activation runs `RolesInstaller`, `SchemaManager`, and queues a first-run flag picked up on the next `init` to seed default `vl_difficulty` terms and flush rewrite rules. Re-activation is idempotent at every step.
 
+## External integrations — Zoom
+
+The Phase 7 live-meeting subsystem talks to Zoom via Server-to-Server OAuth. Credentials resolve from `wp-config.php` constants first, with WP options as a fallback for a future admin UI (mirrors the `VL_CORS_ORIGINS` precedent):
+
+```php
+define( 'VL_ZOOM_ACCOUNT_ID',     'your-account-id' );
+define( 'VL_ZOOM_CLIENT_ID',      'your-client-id' );
+define( 'VL_ZOOM_CLIENT_SECRET',  'your-client-secret' );
+define( 'VL_ZOOM_WEBHOOK_SECRET', 'your-webhook-secret' );
+```
+
+If a constant is undefined or empty, `ZoomSettingsProvider` reads the matching option (`vl_lms_zoom_account_id`, `vl_lms_zoom_client_id`, `vl_lms_zoom_client_secret`, `vl_lms_zoom_webhook_secret`). With nothing configured, `ZoomCredentials::is_configured()` returns `false` and the integration short-circuits without breaking plugin boot — only the live-meeting and webinar code paths surface a `ZoomAuthException` when actually invoked.
+
 ## REST surface
 
 All routes live under `vl/v1`. Success responses use `{ success: true, data: {...} }`; errors come back as WordPress's default `WP_Error` shape (`{ code, message, data: { status } }`). This is distinct from `vl-jwt-auth`'s `{ success: false, error: {...} }` envelope on its own routes.
