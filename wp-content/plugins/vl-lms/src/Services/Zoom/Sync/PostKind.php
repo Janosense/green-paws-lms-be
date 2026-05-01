@@ -91,4 +91,32 @@ enum PostKind: string {
 			self::WEBINAR => '_vl_webinar_zoom_synced_payload_hash',
 		};
 	}
+
+	/**
+	 * Meta key the Phase 7.2 `recording.completed` handler writes the MP4
+	 * play URL into.
+	 */
+	public function meta_key_recording_url(): string {
+		return match ( $this ) {
+			self::SESSION => '_vl_session_recording_url',
+			self::WEBINAR => '_vl_webinar_recording_url',
+		};
+	}
+
+	/**
+	 * Meta key for the recording-access expiry window the
+	 * `recording.completed` handler computes.
+	 *
+	 * SESSION returns `null` — instructors set
+	 * `_vl_session_recording_available_until` manually for ad-hoc
+	 * sessions, and the recording handler MUST NOT clobber that value.
+	 * WEBINAR returns the webinar key, computed as
+	 * `recording_completed_at + recording_access_days`.
+	 */
+	public function meta_key_recording_available_until(): ?string {
+		return match ( $this ) {
+			self::SESSION => null,
+			self::WEBINAR => '_vl_webinar_recording_available_until',
+		};
+	}
 }

@@ -31,6 +31,8 @@ final class PostKindTest extends TestCase {
 		self::assertSame( '_vl_session_zoom_start_url', $kind->meta_key_zoom_start_url() );
 		self::assertSame( '_vl_session_zoom_password', $kind->meta_key_zoom_password() );
 		self::assertSame( '_vl_session_zoom_synced_payload_hash', $kind->meta_key_synced_payload_hash() );
+		self::assertSame( '_vl_session_recording_url', $kind->meta_key_recording_url() );
+		self::assertNull( $kind->meta_key_recording_available_until() );
 	}
 
 	public function test_webinar_meta_keys_use_webinar_prefix(): void {
@@ -44,5 +46,7 @@ final class PostKindTest extends TestCase {
 		self::assertSame( '_vl_webinar_zoom_start_url', $kind->meta_key_zoom_start_url() );
 		self::assertSame( '_vl_webinar_zoom_password', $kind->meta_key_zoom_password() );
 		self::assertSame( '_vl_webinar_zoom_synced_payload_hash', $kind->meta_key_synced_payload_hash() );
+		self::assertSame( '_vl_webinar_recording_url', $kind->meta_key_recording_url() );
+		self::assertSame( '_vl_webinar_recording_available_until', $kind->meta_key_recording_available_until() );
 	}
 }

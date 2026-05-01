@@ -14,6 +14,7 @@ use VL\LMS\Api\EnrollmentsController;
 use VL\LMS\Api\ProgressController;
 use VL\LMS\Api\QuizAttemptsController;
 use VL\LMS\Api\RestController;
+use VL\LMS\Api\ZoomWebhookController;
 use VL\LMS\Certificate\CertificateAutoIssuer;
 use VL\LMS\Certificate\CertificateRevoker;
 use VL\LMS\Certificate\CertificateService;
@@ -106,6 +107,7 @@ use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Progress\CompletionPropagator;
 use VL\LMS\Services\Zoom\HttpZoomClient;
+use VL\LMS\Services\Zoom\PostLookup;
 use VL\LMS\Services\Zoom\Settings\ZoomSettingsProvider;
 use VL\LMS\Services\Zoom\Sync\DiffDetector;
 use VL\LMS\Services\Zoom\Sync\MeetingPayloadBuilder;
@@ -116,6 +118,17 @@ use VL\LMS\Services\Zoom\Sync\PostMetaAccessor;
 use VL\LMS\Services\Zoom\Sync\SyncLock;
 use VL\LMS\Services\Zoom\TokenHttpClient;
 use VL\LMS\Services\Zoom\TokenProvider;
+use VL\LMS\Services\Zoom\Webhook\HandlerRegistry;
+use VL\LMS\Services\Zoom\Webhook\Handlers\MeetingEndedHandler;
+use VL\LMS\Services\Zoom\Webhook\Handlers\MeetingStartedHandler;
+use VL\LMS\Services\Zoom\Webhook\Handlers\ParticipantJoinedHandler;
+use VL\LMS\Services\Zoom\Webhook\Handlers\ParticipantLeftHandler;
+use VL\LMS\Services\Zoom\Webhook\Handlers\RecordingCompletedHandler;
+use VL\LMS\Services\Zoom\Webhook\UrlValidationResponder;
+use VL\LMS\Services\Zoom\Webhook\WebhookEventDispatcher;
+use VL\LMS\Services\Zoom\Webhook\WebhookRequestParser;
+use VL\LMS\Services\Zoom\Webhook\WebhookSignatureVerifier;
+use VL\LMS\Services\Zoom\Webhook\WebinarJoinTracker;
 use VL\LMS\Services\Zoom\WpHttpTokenHttpClient;
 use VL\LMS\Services\Zoom\WpRemoteZoomApiHttpClient;
 use VL\LMS\Services\Zoom\ZoomApiHttpClient;
@@ -345,6 +358,10 @@ final class Plugin {
 		$certificate_verification_controller = $this->container->get( CertificateVerificationController::class );
 		if ( $certificate_verification_controller instanceof CertificateVerificationController ) {
 			$certificate_verification_controller->register_routes();
+		}
+		$zoom_webhook_controller = $this->container->get( ZoomWebhookController::class );
+		if ( $zoom_webhook_controller instanceof ZoomWebhookController ) {
+			$zoom_webhook_controller->register_routes();
 		}
 	}
 
@@ -1526,6 +1543,187 @@ final class Plugin {
 				$synchronizer = $c->get( MeetingSynchronizer::class );
 				assert( $synchronizer instanceof MeetingSynchronizer );
 				return new MeetingSynchronizerBootstrap( $synchronizer );
+			}
+		);
+
+		// ---------------------------------------------------------------
+		// Zoom webhook receiver (Phase 7.2)
+		//
+		// Inbound channel from Zoom. The controller verifies HMAC-SHA256
+		// signature + 5-minute replay window, parses the body, short-
+		// circuits the Marketplace `endpoint.url_validation` challenge,
+		// and routes operational events through WebhookEventDispatcher
+		// (which dedups on x-zm-trackingid against vl_zoom_webhook_events
+		// before invoking the matching handler).
+		// ---------------------------------------------------------------
+
+		$container->set(
+			PostLookup::class,
+			static fn (): PostLookup => new PostLookup()
+		);
+
+		$container->set(
+			WebinarJoinTracker::class,
+			static fn (): WebinarJoinTracker => new WebinarJoinTracker()
+		);
+
+		$container->set(
+			WebhookSignatureVerifier::class,
+			static function ( Container $c ): WebhookSignatureVerifier {
+				$settings = $c->get( ZoomSettingsProvider::class );
+				assert( $settings instanceof ZoomSettingsProvider );
+				return new WebhookSignatureVerifier(
+					$settings,
+					static fn (): int => time()
+				);
+			}
+		);
+
+		$container->set(
+			WebhookRequestParser::class,
+			static fn (): WebhookRequestParser => new WebhookRequestParser()
+		);
+
+		$container->set(
+			UrlValidationResponder::class,
+			static fn (): UrlValidationResponder => new UrlValidationResponder()
+		);
+
+		$container->set(
+			MeetingStartedHandler::class,
+			static function ( Container $c ): MeetingStartedHandler {
+				$lookup = $c->get( PostLookup::class );
+				assert( $lookup instanceof PostLookup );
+				$meta = $c->get( PostMetaAccessor::class );
+				assert( $meta instanceof PostMetaAccessor );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new MeetingStartedHandler( $lookup, $meta, $logger );
+			}
+		);
+
+		$container->set(
+			MeetingEndedHandler::class,
+			static function ( Container $c ): MeetingEndedHandler {
+				$lookup = $c->get( PostLookup::class );
+				assert( $lookup instanceof PostLookup );
+				$meta = $c->get( PostMetaAccessor::class );
+				assert( $meta instanceof PostMetaAccessor );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new MeetingEndedHandler( $lookup, $meta, $logger );
+			}
+		);
+
+		$container->set(
+			ParticipantJoinedHandler::class,
+			static function ( Container $c ): ParticipantJoinedHandler {
+				$lookup = $c->get( PostLookup::class );
+				assert( $lookup instanceof PostLookup );
+				$attendance = $c->get( SessionAttendanceRepository::class );
+				assert( $attendance instanceof SessionAttendanceRepository );
+				$tracker = $c->get( WebinarJoinTracker::class );
+				assert( $tracker instanceof WebinarJoinTracker );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new ParticipantJoinedHandler( $lookup, $attendance, $tracker, $logger );
+			}
+		);
+
+		$container->set(
+			ParticipantLeftHandler::class,
+			static function ( Container $c ): ParticipantLeftHandler {
+				$lookup = $c->get( PostLookup::class );
+				assert( $lookup instanceof PostLookup );
+				$attendance = $c->get( SessionAttendanceRepository::class );
+				assert( $attendance instanceof SessionAttendanceRepository );
+				$tracker = $c->get( WebinarJoinTracker::class );
+				assert( $tracker instanceof WebinarJoinTracker );
+				$registrations = $c->get( WebinarRegistrationRepository::class );
+				assert( $registrations instanceof WebinarRegistrationRepository );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new ParticipantLeftHandler(
+					$lookup,
+					$attendance,
+					$tracker,
+					$registrations,
+					$logger
+				);
+			}
+		);
+
+		$container->set(
+			RecordingCompletedHandler::class,
+			static function ( Container $c ): RecordingCompletedHandler {
+				$lookup = $c->get( PostLookup::class );
+				assert( $lookup instanceof PostLookup );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new RecordingCompletedHandler( $lookup, $logger );
+			}
+		);
+
+		$container->set(
+			HandlerRegistry::class,
+			static function ( Container $c ): HandlerRegistry {
+				$started = $c->get( MeetingStartedHandler::class );
+				assert( $started instanceof MeetingStartedHandler );
+				$ended = $c->get( MeetingEndedHandler::class );
+				assert( $ended instanceof MeetingEndedHandler );
+				$joined = $c->get( ParticipantJoinedHandler::class );
+				assert( $joined instanceof ParticipantJoinedHandler );
+				$left = $c->get( ParticipantLeftHandler::class );
+				assert( $left instanceof ParticipantLeftHandler );
+				$recording = $c->get( RecordingCompletedHandler::class );
+				assert( $recording instanceof RecordingCompletedHandler );
+				return new HandlerRegistry( $started, $ended, $joined, $left, $recording );
+			}
+		);
+
+		$container->set(
+			WebhookEventDispatcher::class,
+			static function ( Container $c ): WebhookEventDispatcher {
+				$repo = $c->get( ZoomWebhookEventRepository::class );
+				assert( $repo instanceof ZoomWebhookEventRepository );
+				$registry = $c->get( HandlerRegistry::class );
+				assert( $registry instanceof HandlerRegistry );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new WebhookEventDispatcher(
+					$repo,
+					$registry,
+					$logger,
+					static fn (): \DateTimeImmutable
+						=> new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			ZoomWebhookController::class,
+			static function ( Container $c ): ZoomWebhookController {
+				$verifier = $c->get( WebhookSignatureVerifier::class );
+				assert( $verifier instanceof WebhookSignatureVerifier );
+				$parser = $c->get( WebhookRequestParser::class );
+				assert( $parser instanceof WebhookRequestParser );
+				$responder = $c->get( UrlValidationResponder::class );
+				assert( $responder instanceof UrlValidationResponder );
+				$dispatcher = $c->get( WebhookEventDispatcher::class );
+				assert( $dispatcher instanceof WebhookEventDispatcher );
+				$settings = $c->get( ZoomSettingsProvider::class );
+				assert( $settings instanceof ZoomSettingsProvider );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new ZoomWebhookController(
+					VL_LMS_API_NAMESPACE,
+					$verifier,
+					$parser,
+					$responder,
+					$dispatcher,
+					$settings,
+					$logger
+				);
 			}
 		);
 

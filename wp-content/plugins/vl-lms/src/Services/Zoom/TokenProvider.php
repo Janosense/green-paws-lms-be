@@ -69,8 +69,8 @@ class TokenProvider {
 
 		$response = $this->http->request_token( $creds );
 
-		$token       = isset( $response['access_token'] ) && is_string( $response['access_token'] ) ? $response['access_token'] : '';
-		$expires_in  = isset( $response['expires_in'] ) && is_numeric( $response['expires_in'] ) ? (int) $response['expires_in'] : 0;
+		$token      = isset( $response['access_token'] ) && is_string( $response['access_token'] ) ? $response['access_token'] : '';
+		$expires_in = isset( $response['expires_in'] ) && is_numeric( $response['expires_in'] ) ? (int) $response['expires_in'] : 0;
 
 		if ( '' === $token || $expires_in <= 0 ) {
 			throw new ZoomAuthException( 'Zoom token response missing access_token or expires_in.' );

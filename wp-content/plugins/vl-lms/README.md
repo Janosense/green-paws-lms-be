@@ -65,6 +65,32 @@ Troubleshooting a non-syncing post:
 3. Confirm `_vl_{kind}_scheduled_start` is populated — a missing start yields `NOOP / MISSING_REQUIRED_META`.
 4. Subscribe to `vl_lms_zoom_meeting_sync_failed` (or read the `error_log` line emitted by `Logger`) to see the wrapped `ZoomApiException` / `ZoomAuthException`.
 
+### Phase 7.2 — Zoom webhooks
+
+Zoom posts events to `POST https://<your-site>/wp-json/vl/v1/webhooks/zoom`. The receiver verifies an HMAC-SHA256 signature against `VL_ZOOM_WEBHOOK_SECRET` (5-minute replay window enforced via `x-zm-request-timestamp`), parses the body, dedups on `x-zm-trackingid` against `{prefix}vl_zoom_webhook_events`, and routes operational events to per-event handlers.
+
+Two-step Marketplace setup:
+
+1. Paste the URL into your Zoom app's "Event Subscriptions" panel and click **Validate**. The receiver answers the `endpoint.url_validation` challenge inline with the documented `{plainToken, encryptedToken}` shape.
+2. Enable these five operational events:
+   - `meeting.started` → flips `_vl_{kind}_status` from `scheduled` to `live`.
+   - `meeting.ended` → flips `_vl_{kind}_status` to `completed`.
+   - `meeting.participant_joined` → records a row in `vl_session_attendance` (sessions) or stashes an open join transient (webinars).
+   - `meeting.participant_left` → closes the session row with `duration_seconds`, or credits `vl_webinar_registrations.attended_duration_seconds` for the matching registered user.
+   - `recording.completed` → writes `_vl_session_recording_url` (sessions, leaving `_vl_session_recording_available_until` untouched) or `_vl_webinar_recording_url` + `_vl_webinar_recording_available_until = now + recording_access_days` (webinars). When `recording_access_days = 0` the handler is a no-op.
+
+The receiver always returns 200 for handler-side outcomes — `{success: true, status: 'processed'|'ignored'|'failed', message}` — because Zoom retries on non-2xx and the dedup table is the single retry-mitigation strategy. Authenticity failures return 401 (`webhook_invalid_signature` / `webhook_misconfigured`); shape failures return 400 (`webhook_invalid_payload`, with the parser's reason code in the body).
+
+`MeetingSynchronizer` from 7.1 stays dormant during webhook handling — handlers write meta with `update_post_meta`, which does NOT trigger `save_post`.
+
+Troubleshooting:
+
+1. **401 webhook_invalid_signature** — check `VL_ZOOM_WEBHOOK_SECRET` matches your Zoom app's secret and that your server clock is within 5 minutes of UTC (NTP).
+2. **401 webhook_misconfigured** — `VL_ZOOM_WEBHOOK_SECRET` is empty. Define the constant or set the `vl_lms_zoom_webhook_secret` option.
+3. **400 webhook_invalid_payload** — the body shape changed; the response code (e.g. `missing_event_ts`) tells you which validation tripped. Compare against Zoom's published payload version.
+4. **Events processed but no state change** — the event's meeting_id doesn't match any post. Confirm `wp post meta get <id> _vl_{kind}_zoom_meeting_id` matches the Zoom-side meeting that actually fired.
+5. **Webinar `attended_duration_seconds` not incrementing** — under heavy traffic an object-cache backend (Redis / Memcached) may evict `WebinarJoinTracker` transients before TTL, in which case the matching `participant_left` becomes a no-op. Check the cache configuration.
+
 ## REST surface
 
 All routes live under `vl/v1`. Success responses use `{ success: true, data: {...} }`; errors come back as WordPress's default `WP_Error` shape (`{ code, message, data: { status } }`). This is distinct from `vl-jwt-auth`'s `{ success: false, error: {...} }` envelope on its own routes.

@@ -203,6 +203,19 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Days of recording access after the event (0 = no recording offered).',
 			],
+			'_vl_webinar_recording_available_until' => [
+				'type'              => 'string',
+				'single'            => true,
+				'default'           => '',
+				'show_in_rest'      => false,
+				'sanitize_callback' => static fn ( mixed $v ): string => self::sanitize_iso8601( $v ),
+				// Auto-managed by the Phase 7.2 `recording.completed`
+				// webhook handler. Locked from wp-admin Custom Fields and
+				// REST writes — the handler uses `update_post_meta`
+				// directly, which bypasses this gate.
+				'auth_callback'     => static fn (): bool => false,
+				'description'       => 'ISO 8601 UTC end of the recording access window. Auto-managed by the recording webhook handler.',
+			],
 			'_vl_webinar_preview_video_url'      => [
 				'type'              => 'string',
 				'single'            => true,

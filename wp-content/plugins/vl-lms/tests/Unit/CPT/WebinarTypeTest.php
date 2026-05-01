@@ -36,6 +36,7 @@ final class WebinarTypeTest extends TestCase {
 		'_vl_webinar_zoom_password',
 		'_vl_webinar_recording_url',
 		'_vl_webinar_recording_access_days',
+		'_vl_webinar_recording_available_until',
 		'_vl_webinar_preview_video_url',
 		'_vl_webinar_materials',
 	];
@@ -87,11 +88,23 @@ final class WebinarTypeTest extends TestCase {
 		self::assertTrue( $this->invoke_protected( 'show_in_menu' ) );
 	}
 
-	public function test_meta_fields_contain_exactly_seventeen_documented_keys(): void {
+	public function test_meta_fields_contain_exactly_eighteen_documented_keys(): void {
 		$fields = $this->invoke_protected( 'meta_fields' );
 
 		self::assertSame( self::EXPECTED_META_KEYS, array_keys( $fields ) );
-		self::assertCount( 17, $fields );
+		self::assertCount( 18, $fields );
+	}
+
+	public function test_recording_available_until_meta_is_admin_locked(): void {
+		$fields = $this->invoke_protected( 'meta_fields' );
+		$meta   = $fields['_vl_webinar_recording_available_until'];
+
+		self::assertSame( '', $meta['default'] );
+		self::assertSame( 'string', $meta['type'] );
+		self::assertFalse( $meta['show_in_rest'] );
+		// Auth callback always returns false — the recording webhook
+		// handler bypasses it via update_post_meta().
+		self::assertFalse( ( $meta['auth_callback'] )() );
 	}
 
 	public function test_every_meta_field_is_single_with_show_in_rest_false_and_callable_sanitizer(): void {
@@ -124,6 +137,7 @@ final class WebinarTypeTest extends TestCase {
 		self::assertSame( '', $fields['_vl_webinar_zoom_password']['default'] );
 		self::assertSame( '', $fields['_vl_webinar_recording_url']['default'] );
 		self::assertSame( 0, $fields['_vl_webinar_recording_access_days']['default'] );
+		self::assertSame( '', $fields['_vl_webinar_recording_available_until']['default'] );
 		self::assertSame( '', $fields['_vl_webinar_preview_video_url']['default'] );
 		self::assertSame( [], $fields['_vl_webinar_materials']['default'] );
 	}
