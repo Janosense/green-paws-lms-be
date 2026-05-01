@@ -39,6 +39,32 @@ define( 'VL_ZOOM_WEBHOOK_SECRET', 'your-webhook-secret' );
 
 If a constant is undefined or empty, `ZoomSettingsProvider` reads the matching option (`vl_lms_zoom_account_id`, `vl_lms_zoom_client_id`, `vl_lms_zoom_client_secret`, `vl_lms_zoom_webhook_secret`). With nothing configured, `ZoomCredentials::is_configured()` returns `false` and the integration short-circuits without breaking plugin boot — only the live-meeting and webinar code paths surface a `ZoomAuthException` when actually invoked.
 
+### Phase 7.1 — meeting sync
+
+`MeetingSynchronizer` reconciles every `vl_session` and `vl_webinar` post with its Zoom meeting on each `save_post`, `wp_trash_post`, and `untrashed_post`. It runs at hook priority `20` so the Custom Fields metabox (priority `10`) has already persisted the new meta values when the synchronizer reads them.
+
+Each run resolves to one of five outcomes (see `SyncDecision`):
+
+- `CREATE` — first publish or untrash with no meeting on file. The Zoom-returned `id`, `join_url`, `start_url`, and `password` land in `_vl_{kind}_zoom_meeting_id|join_url|start_url|password`.
+- `UPDATE` — meeting exists and the canonical payload fingerprint changed (title, start time, duration, password). The existing password is reused so previously-shared join URLs stay valid.
+- `DELETE` — post was trashed or its `_vl_{kind}_status` was flipped to `cancelled`. The four meta fields are cleared. A 404 from Zoom on delete is treated as success.
+- `NOOP` — payload identical to the last sync (`SyncReason::NO_DIFF`), or required scheduling meta is missing (`MISSING_REQUIRED_META`), or the post is cancelled and never had a meeting.
+- `SKIPPED` — credentials missing (`NOT_CONFIGURED`), the request is a revision/autosave, the post status is `auto-draft` / `inherit`, or another sync is already in flight (`LOCKED`, 30-second transient lock keyed by post id).
+
+Two reserved actions fire on every run for downstream consumers (Phase 7.6 reminder mailer, Phase 9 audit log):
+
+```php
+do_action( 'vl_lms_zoom_meeting_synced', int $post_id, PostKind $kind, SyncDecision $decision, ?string $meeting_id );
+do_action( 'vl_lms_zoom_meeting_sync_failed', int $post_id, PostKind $kind, SyncDecision $intended, \Throwable $exception );
+```
+
+Troubleshooting a non-syncing post:
+
+1. Check that the four `VL_ZOOM_*` constants are set and `ZoomCredentials::is_configured()` returns `true` — a misconfigured site silently produces `SKIPPED / NOT_CONFIGURED`.
+2. Confirm the post status is not `auto-draft` / `inherit` and that the request is not a revision/autosave.
+3. Confirm `_vl_{kind}_scheduled_start` is populated — a missing start yields `NOOP / MISSING_REQUIRED_META`.
+4. Subscribe to `vl_lms_zoom_meeting_sync_failed` (or read the `error_log` line emitted by `Logger`) to see the wrapped `ZoomApiException` / `ZoomAuthException`.
+
 ## REST surface
 
 All routes live under `vl/v1`. Success responses use `{ success: true, data: {...} }`; errors come back as WordPress's default `WP_Error` shape (`{ code, message, data: { status } }`). This is distinct from `vl-jwt-auth`'s `{ success: false, error: {...} }` envelope on its own routes.

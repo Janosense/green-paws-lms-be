@@ -107,6 +107,13 @@ use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Progress\CompletionPropagator;
 use VL\LMS\Services\Zoom\HttpZoomClient;
 use VL\LMS\Services\Zoom\Settings\ZoomSettingsProvider;
+use VL\LMS\Services\Zoom\Sync\DiffDetector;
+use VL\LMS\Services\Zoom\Sync\MeetingPayloadBuilder;
+use VL\LMS\Services\Zoom\Sync\MeetingSynchronizer;
+use VL\LMS\Services\Zoom\Sync\MeetingSynchronizerBootstrap;
+use VL\LMS\Services\Zoom\Sync\PasswordGenerator;
+use VL\LMS\Services\Zoom\Sync\PostMetaAccessor;
+use VL\LMS\Services\Zoom\Sync\SyncLock;
 use VL\LMS\Services\Zoom\TokenHttpClient;
 use VL\LMS\Services\Zoom\TokenProvider;
 use VL\LMS\Services\Zoom\WpHttpTokenHttpClient;
@@ -240,6 +247,14 @@ final class Plugin {
 		$certificate_revoker = $this->container->get( CertificateRevoker::class );
 		if ( $certificate_revoker instanceof CertificateRevoker ) {
 			$certificate_revoker->register();
+		}
+
+		// Phase 7.1 — register the Zoom meeting synchronizer's WP hooks.
+		// Wired unconditionally; if credentials are absent, each sync()
+		// returns SKIPPED/NOT_CONFIGURED instead of producing partial state.
+		$meeting_sync_bootstrap = $this->container->get( MeetingSynchronizerBootstrap::class );
+		if ( $meeting_sync_bootstrap instanceof MeetingSynchronizerBootstrap ) {
+			$meeting_sync_bootstrap->register();
 		}
 
 		/**
@@ -1439,6 +1454,78 @@ final class Plugin {
 				$http = $c->get( ZoomApiHttpClient::class );
 				assert( $http instanceof ZoomApiHttpClient );
 				return new HttpZoomClient( $tokens, $http );
+			}
+		);
+
+		// ---------------------------------------------------------------
+		// Zoom meeting sync (Phase 7.1)
+		//
+		// Reconciles `vl_session` / `vl_webinar` posts with their Zoom
+		// meetings on every save / trash / untrash. The bootstrap is
+		// instantiated unconditionally; missing credentials surface as a
+		// `SyncResult{decision: SKIPPED, reason: NOT_CONFIGURED}` per call.
+		// ---------------------------------------------------------------
+
+		$container->set(
+			PostMetaAccessor::class,
+			static fn (): PostMetaAccessor => new PostMetaAccessor()
+		);
+
+		$container->set(
+			PasswordGenerator::class,
+			static fn (): PasswordGenerator => new PasswordGenerator()
+		);
+
+		$container->set(
+			MeetingPayloadBuilder::class,
+			static function ( Container $c ): MeetingPayloadBuilder {
+				$passwords = $c->get( PasswordGenerator::class );
+				assert( $passwords instanceof PasswordGenerator );
+				return new MeetingPayloadBuilder( $passwords );
+			}
+		);
+
+		$container->set(
+			DiffDetector::class,
+			static function ( Container $c ): DiffDetector {
+				$meta = $c->get( PostMetaAccessor::class );
+				assert( $meta instanceof PostMetaAccessor );
+				return new DiffDetector( $meta );
+			}
+		);
+
+		$container->set(
+			SyncLock::class,
+			static fn (): SyncLock => new SyncLock()
+		);
+
+		$container->set(
+			MeetingSynchronizer::class,
+			static function ( Container $c ): MeetingSynchronizer {
+				$client = $c->get( ZoomClient::class );
+				assert( $client instanceof ZoomClient );
+				$settings = $c->get( ZoomSettingsProvider::class );
+				assert( $settings instanceof ZoomSettingsProvider );
+				$meta = $c->get( PostMetaAccessor::class );
+				assert( $meta instanceof PostMetaAccessor );
+				$builder = $c->get( MeetingPayloadBuilder::class );
+				assert( $builder instanceof MeetingPayloadBuilder );
+				$diff = $c->get( DiffDetector::class );
+				assert( $diff instanceof DiffDetector );
+				$lock = $c->get( SyncLock::class );
+				assert( $lock instanceof SyncLock );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new MeetingSynchronizer( $client, $settings, $meta, $builder, $diff, $lock, $logger );
+			}
+		);
+
+		$container->set(
+			MeetingSynchronizerBootstrap::class,
+			static function ( Container $c ): MeetingSynchronizerBootstrap {
+				$synchronizer = $c->get( MeetingSynchronizer::class );
+				assert( $synchronizer instanceof MeetingSynchronizer );
+				return new MeetingSynchronizerBootstrap( $synchronizer );
 			}
 		);
 
