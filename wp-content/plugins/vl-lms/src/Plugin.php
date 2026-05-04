@@ -149,6 +149,16 @@ use VL\LMS\Services\Progress\CourseProgressCalculator;
 use VL\LMS\Services\Progress\PositionWriteRule;
 use VL\LMS\Services\Progress\ProgressService;
 use VL\LMS\Services\Progress\SessionAttendanceProgressListener;
+use VL\LMS\Mail\AppUrlResolver;
+use VL\LMS\Mail\CertificateIssuedMailer;
+use VL\LMS\Mail\HtmlMailSender;
+use VL\LMS\Mail\RecordingReadyMailer;
+use VL\LMS\Mail\SessionReminderMailer;
+use VL\LMS\Mail\WebinarReminderMailer;
+use VL\LMS\Services\Notifications\CertificateIssuedListener;
+use VL\LMS\Services\Notifications\RecordingReadyListener;
+use VL\LMS\Services\Notifications\ReminderDispatcher;
+use VL\LMS\Services\Notifications\ReminderScheduler;
 use VL\LMS\Support\HeroImageSize;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\DifficultyTermsInstaller;
@@ -289,6 +299,33 @@ final class Plugin {
 		$meeting_sync_bootstrap = $this->container->get( MeetingSynchronizerBootstrap::class );
 		if ( $meeting_sync_bootstrap instanceof MeetingSynchronizerBootstrap ) {
 			$meeting_sync_bootstrap->register();
+		}
+
+		// Phase 7.6 — wire the reminder scheduler to save_post_*, the cron
+		// hook to the dispatcher, and the recording-ready / certificate-issued
+		// listeners to their respective domain actions. The scheduler hooks
+		// at priority 30 (after MeetingSynchronizer's 20) so a fresh meeting
+		// id is in post-meta by the time we look at the row.
+		$reminder_scheduler = $this->container->get( ReminderScheduler::class );
+		if ( $reminder_scheduler instanceof ReminderScheduler ) {
+			$reminder_scheduler->register();
+		}
+		$reminder_dispatcher = $this->container->get( ReminderDispatcher::class );
+		if ( $reminder_dispatcher instanceof ReminderDispatcher ) {
+			add_action(
+				ReminderScheduler::CRON_HOOK,
+				[ $reminder_dispatcher, 'dispatch' ],
+				10,
+				3
+			);
+		}
+		$recording_listener = $this->container->get( RecordingReadyListener::class );
+		if ( $recording_listener instanceof RecordingReadyListener ) {
+			$recording_listener->register();
+		}
+		$cert_issued_listener = $this->container->get( CertificateIssuedListener::class );
+		if ( $cert_issued_listener instanceof CertificateIssuedListener ) {
+			$cert_issued_listener->register();
 		}
 
 		/**
@@ -1912,6 +1949,139 @@ final class Plugin {
 					$transformer,
 					$enrollments
 				);
+			}
+		);
+
+		// Phase 7.6 — transactional mail + reminder cron wiring.
+		$container->set(
+			AppUrlResolver::class,
+			static function ( Container $c ): AppUrlResolver {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new AppUrlResolver( $logger );
+			}
+		);
+
+		$container->set(
+			HtmlMailSender::class,
+			static fn (): HtmlMailSender => new HtmlMailSender()
+		);
+
+		$container->set(
+			SessionReminderMailer::class,
+			static function ( Container $c ): SessionReminderMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				$sender = $c->get( HtmlMailSender::class );
+				assert( $sender instanceof HtmlMailSender );
+				return new SessionReminderMailer( $logger, $resolver, $sender );
+			}
+		);
+
+		$container->set(
+			WebinarReminderMailer::class,
+			static function ( Container $c ): WebinarReminderMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				$sender = $c->get( HtmlMailSender::class );
+				assert( $sender instanceof HtmlMailSender );
+				return new WebinarReminderMailer( $logger, $resolver, $sender );
+			}
+		);
+
+		$container->set(
+			RecordingReadyMailer::class,
+			static function ( Container $c ): RecordingReadyMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				$sender = $c->get( HtmlMailSender::class );
+				assert( $sender instanceof HtmlMailSender );
+				return new RecordingReadyMailer( $logger, $resolver, $sender );
+			}
+		);
+
+		$container->set(
+			CertificateIssuedMailer::class,
+			static function ( Container $c ): CertificateIssuedMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				$certs = $c->get( CertificateRepository::class );
+				assert( $certs instanceof CertificateRepository );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				$sender = $c->get( HtmlMailSender::class );
+				assert( $sender instanceof HtmlMailSender );
+				return new CertificateIssuedMailer( $logger, $certs, $resolver, $sender );
+			}
+		);
+
+		$container->set(
+			ReminderScheduler::class,
+			static function ( Container $c ): ReminderScheduler {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new ReminderScheduler(
+					$logger,
+					static fn (): \DateTimeImmutable
+						=> new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			ReminderDispatcher::class,
+			static function ( Container $c ): ReminderDispatcher {
+				$session_mailer = $c->get( SessionReminderMailer::class );
+				assert( $session_mailer instanceof SessionReminderMailer );
+				$webinar_mailer = $c->get( WebinarReminderMailer::class );
+				assert( $webinar_mailer instanceof WebinarReminderMailer );
+				$registrations = $c->get( WebinarRegistrationRepository::class );
+				assert( $registrations instanceof WebinarRegistrationRepository );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new ReminderDispatcher(
+					$session_mailer,
+					$webinar_mailer,
+					$registrations,
+					$enrollments,
+					$logger,
+					static fn (): \DateTimeImmutable
+						=> new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			RecordingReadyListener::class,
+			static function ( Container $c ): RecordingReadyListener {
+				$mailer = $c->get( RecordingReadyMailer::class );
+				assert( $mailer instanceof RecordingReadyMailer );
+				$registrations = $c->get( WebinarRegistrationRepository::class );
+				assert( $registrations instanceof WebinarRegistrationRepository );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new RecordingReadyListener( $mailer, $registrations, $enrollments, $logger );
+			}
+		);
+
+		$container->set(
+			CertificateIssuedListener::class,
+			static function ( Container $c ): CertificateIssuedListener {
+				$mailer = $c->get( CertificateIssuedMailer::class );
+				assert( $mailer instanceof CertificateIssuedMailer );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new CertificateIssuedListener( $mailer, $logger );
 			}
 		);
 

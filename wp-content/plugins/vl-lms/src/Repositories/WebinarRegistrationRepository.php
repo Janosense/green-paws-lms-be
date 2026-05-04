@@ -156,6 +156,39 @@ class WebinarRegistrationRepository {
 		return $this->hydrate_list( $sql );
 	}
 
+	/**
+	 * Phase 7.6 — list user IDs of every active registration for a webinar.
+	 * Used by the recording-ready listener and the reminder dispatcher.
+	 *
+	 * @return list<int>
+	 */
+	public function list_active_user_ids_for_webinar( int $webinar_id ): array {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT user_id FROM {$table} WHERE webinar_id = %d AND status = %s",
+			$webinar_id,
+			WebinarRegistrationStatus::ACTIVE->value
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_col( $sql );
+
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $rows as $row ) {
+			$id = (int) $row;
+			if ( $id > 0 ) {
+				$out[] = $id;
+			}
+		}
+		return $out;
+	}
+
 	public function count_active_for_webinar( int $webinar_id ): int {
 		$wpdb  = $this->wpdb();
 		$table = $this->table();

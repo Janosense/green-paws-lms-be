@@ -31,7 +31,8 @@ final class SeederContext {
 		public readonly bool $force,
 		public readonly bool $skip_progress,
 		public readonly int $seed,
-		callable $logger
+		callable $logger,
+		public readonly bool $skip_zoom = false
 	) {
 		$this->logger = $logger;
 	}

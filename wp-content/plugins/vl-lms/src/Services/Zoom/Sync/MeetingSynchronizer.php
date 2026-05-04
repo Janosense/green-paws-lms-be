@@ -38,6 +38,16 @@ class MeetingSynchronizer {
 	 */
 	private const array SKIPPED_POST_STATUSES = [ 'auto-draft', 'inherit' ];
 
+	/**
+	 * Phase 7.6 demo-seeder bypass flag. The demo CLI wraps post creation
+	 * in {@see self::bypass()} so this synchronizer short-circuits with
+	 * {@see SyncReason::DEMO_BYPASS} instead of issuing real Zoom API
+	 * calls. Static-scoped because `save_post_*` callbacks resolve through
+	 * a singleton-ish container instance, and the alternative
+	 * (remove_action / re-add) is brittle around exact priorities.
+	 */
+	private static bool $bypass_active = false;
+
 	private ZoomClient $client;
 
 	private ZoomSettingsProvider $settings;
@@ -108,10 +118,32 @@ class MeetingSynchronizer {
 	}
 
 	/**
+	 * Run `$callback` with the demo-bypass flag set, restoring the prior
+	 * value in `finally` so a nested seeder invocation is safe.
+	 *
+	 * @template T
+	 * @param callable(): T $callback
+	 * @return T
+	 */
+	public static function bypass( callable $callback ): mixed {
+		$prior               = self::$bypass_active;
+		self::$bypass_active = true;
+		try {
+			return $callback();
+		} finally {
+			self::$bypass_active = $prior;
+		}
+	}
+
+	/**
 	 * Orchestrator entry point. Always returns; never throws across the
 	 * boundary — failures are wrapped into {@see SyncResult::failed()}.
 	 */
 	public function sync( int $post_id, WP_Post $post, PostKind $kind ): SyncResult {
+		if ( self::$bypass_active ) {
+			return SyncResult::skipped( $post_id, $kind, SyncReason::DEMO_BYPASS );
+		}
+
 		if ( ! $this->settings->get_credentials()->is_configured() ) {
 			return SyncResult::skipped( $post_id, $kind, SyncReason::NOT_CONFIGURED );
 		}

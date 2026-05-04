@@ -53,6 +53,11 @@ final class DemoCommand {
 	 * [--skip-progress]
 	 * : Skip the progress / lesson-views write loop.
 	 *
+	 * [--skip-zoom=<bool>]
+	 * : Suppress real Zoom sync calls and stamp deterministic fake meeting
+	 * meta on every seeded session/webinar. Default: true on non-production
+	 * environments, false otherwise.
+	 *
 	 * @param list<string>          $args       Positional args (unused).
 	 * @param array<string, mixed>  $assoc_args Associative args.
 	 */
@@ -61,6 +66,7 @@ final class DemoCommand {
 
 		$force         = (bool) ( $assoc_args['force'] ?? false );
 		$skip_progress = (bool) ( $assoc_args['skip-progress'] ?? false );
+		$skip_zoom     = $this->resolve_skip_zoom( $assoc_args );
 
 		$this->guard_environment( $force );
 
@@ -71,8 +77,13 @@ final class DemoCommand {
 			seed: 42,
 			logger: static function ( string $message ): void {
 				WP_CLI::log( $message );
-			}
+			},
+			skip_zoom: $skip_zoom
 		);
+
+		if ( $skip_zoom ) {
+			WP_CLI::log( __( 'Demo seed: Zoom sync bypassed; deterministic fake meeting meta will be written.', 'vl-lms' ) );
+		}
 
 		WP_CLI::log( __( 'Starting vl-lms demo seed.', 'vl-lms' ) );
 
@@ -411,6 +422,27 @@ final class DemoCommand {
 		}
 		WP_CLI::warning( __( 'Running vl-lms demo on a PRODUCTION environment.', 'vl-lms' ) );
 		WP_CLI::confirm( __( 'You are about to seed/reset demo data on a PRODUCTION environment. Continue?', 'vl-lms' ) );
+	}
+
+	/**
+	 * Resolve the `--skip-zoom` flag with a three-way default.
+	 *
+	 *   - `--skip-zoom=true` / `--skip-zoom=1` → force skip.
+	 *   - `--skip-zoom=false` / `--skip-zoom=0` → force engage Zoom sync.
+	 *   - omitted → `wp_get_environment_type() !== 'production'`.
+	 *
+	 * @param array<string, mixed> $assoc_args
+	 */
+	private function resolve_skip_zoom( array $assoc_args ): bool {
+		if ( ! array_key_exists( 'skip-zoom', $assoc_args ) ) {
+			return 'production' !== $this->environment_type();
+		}
+		$raw = $assoc_args['skip-zoom'];
+		if ( is_bool( $raw ) ) {
+			return $raw;
+		}
+		$normalized = strtolower( trim( (string) $raw ) );
+		return in_array( $normalized, [ '1', 'true', 'yes', 'on' ], true );
 	}
 
 	private function environment_type(): string {

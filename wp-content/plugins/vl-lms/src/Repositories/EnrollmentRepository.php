@@ -144,6 +144,41 @@ class EnrollmentRepository {
 		return $this->hydrate_list( $sql );
 	}
 
+	/**
+	 * Phase 7.6 — list user IDs of every active (or completed-but-not-revoked)
+	 * enrollment in a course. Used by the cohort-session reminder dispatcher
+	 * and the recording-ready listener to fan-out emails.
+	 *
+	 * @return list<int>
+	 */
+	public function list_active_user_ids_for_course( int $course_id ): array {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT DISTINCT user_id FROM {$table} WHERE course_id = %d AND status IN (%s, %s)",
+			$course_id,
+			EnrollmentStatus::ACTIVE->value,
+			EnrollmentStatus::COMPLETED->value
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_col( $sql );
+
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $rows as $row ) {
+			$id = (int) $row;
+			if ( $id > 0 ) {
+				$out[] = $id;
+			}
+		}
+		return $out;
+	}
+
 	public function count_for_course( int $course_id, ?EnrollmentStatus $status = null ): int {
 		$wpdb  = $this->wpdb();
 		$table = $this->table();

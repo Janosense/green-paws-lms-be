@@ -119,5 +119,19 @@ class CertificateAutoIssuer {
 				'uuid'      => $result->certificate?->uuid,
 			]
 		);
+
+		/**
+		 * Phase 7.6 — fired on the new-issue branch only (not on idempotent
+		 * / skipped / failed). `Services\Notifications\CertificateIssuedListener`
+		 * picks this up to dispatch the certificate-issued email. The action
+		 * is fired AFTER all logging so a listener exception cannot rewrite
+		 * the issued-state log line.
+		 *
+		 * @param int $certificate_id
+		 * @param int $user_id
+		 */
+		if ( null !== $result->certificate ) {
+			do_action( 'vl_lms_certificate_issued', $result->certificate->id, $user_id );
+		}
 	}
 }

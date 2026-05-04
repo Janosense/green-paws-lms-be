@@ -22,4 +22,5 @@ enum SyncReason: string {
 	case CANCELLED_WITHOUT_MEETING = 'cancelled_without_meeting';
 	case NO_DIFF                   = 'no_diff';
 	case MISSING_REQUIRED_META     = 'missing_required_meta';
+	case DEMO_BYPASS               = 'demo_bypass';
 }

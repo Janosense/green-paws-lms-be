@@ -6,6 +6,7 @@ namespace VL\LMS\Cli\Seeders;
 
 use VL\LMS\Cli\SeederContext;
 use VL\LMS\Cli\SeederResult;
+use VL\LMS\Services\Zoom\Sync\MeetingSynchronizer;
 
 /**
  * Seeds the 5 demo webinars — one live, two scheduled, two completed.
@@ -100,18 +101,19 @@ final class WebinarsSeeder {
 			$start_ts = $now + (int) ( $spec['offset_hours'] * HOUR_IN_SECONDS );
 			$end_ts   = $start_ts + ( $spec['duration_minutes'] * MINUTE_IN_SECONDS );
 
-			$post_id = wp_insert_post(
-				[
-					'post_type'    => 'vl_webinar',
-					'post_status'  => 'publish',
-					'post_title'   => $spec['title'],
-					'post_name'    => $spec['slug'],
-					'post_content' => $this->description( $spec ),
-					'post_excerpt' => sprintf( 'Вебінар: %s', $spec['title'] ),
-					'post_author'  => $lead_user_id,
-				],
-				true
-			);
+			$insert_args = [
+				'post_type'    => 'vl_webinar',
+				'post_status'  => 'publish',
+				'post_title'   => $spec['title'],
+				'post_name'    => $spec['slug'],
+				'post_content' => $this->description( $spec ),
+				'post_excerpt' => sprintf( 'Вебінар: %s', $spec['title'] ),
+				'post_author'  => $lead_user_id,
+			];
+
+			$post_id = $context->skip_zoom
+				? MeetingSynchronizer::bypass( static fn () => wp_insert_post( $insert_args, true ) )
+				: wp_insert_post( $insert_args, true );
 
 			if ( is_wp_error( $post_id ) ) {
 				++$summary->failed;
@@ -126,7 +128,12 @@ final class WebinarsSeeder {
 			update_post_meta( $post_id, '_vl_webinar_price', $spec['price'] );
 			update_post_meta( $post_id, '_vl_webinar_currency', 'UAH' );
 			update_post_meta( $post_id, '_vl_webinar_max_attendees', 200 );
-			update_post_meta( $post_id, '_vl_webinar_zoom_join_url', 'https://zoom.example.test/j/' . wp_generate_password( 10, false ) );
+
+			if ( $context->skip_zoom ) {
+				$this->stamp_fake_zoom_meta( $post_id );
+			} else {
+				update_post_meta( $post_id, '_vl_webinar_zoom_join_url', 'https://zoom.example.test/j/' . wp_generate_password( 10, false ) );
+			}
 
 			if ( 'completed' === $spec['status'] ) {
 				update_post_meta( $post_id, '_vl_webinar_recording_url', 'https://recordings.example.test/' . $spec['slug'] );
@@ -165,6 +172,21 @@ final class WebinarsSeeder {
 			'summary'  => $summary,
 			'webinars' => $out,
 		];
+	}
+
+	/**
+	 * @param array{slug:string,title:string,offset_hours:float,duration_minutes:int,status:string,price:float,categories:list<string>} $spec
+	 */
+	/**
+	 * Phase 7.6 — write deterministic Zoom-meta fakes when `--skip-zoom`
+	 * is engaged. Mirrors the meta keys `MeetingSynchronizer` would have
+	 * populated; the deterministic suffix lets tests assert exact values.
+	 */
+	private function stamp_fake_zoom_meta( int $post_id ): void {
+		update_post_meta( $post_id, '_vl_webinar_zoom_meeting_id', 'demo-' . $post_id );
+		update_post_meta( $post_id, '_vl_webinar_zoom_join_url', 'https://example.test/join/demo-' . $post_id );
+		update_post_meta( $post_id, '_vl_webinar_zoom_start_url', 'https://example.test/start/demo-' . $post_id );
+		update_post_meta( $post_id, '_vl_webinar_zoom_password', sprintf( 'demo%06d', $post_id ) );
 	}
 
 	/**

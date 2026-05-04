@@ -479,7 +479,7 @@ final class CoursesSeeder {
 					$quiz_out = $this->ensure_quiz( $course_post_id, $course_index, $spec, $lead_user_id, $summary );
 				}
 			} else {
-				$sessions_out = $this->ensure_sessions( $course_post_id, $course_index, $spec, $lead_user_id, $summary );
+				$sessions_out = $this->ensure_sessions( $course_post_id, $course_index, $spec, $lead_user_id, $summary, $context );
 			}
 
 			$courses[] = [
@@ -841,7 +841,7 @@ final class CoursesSeeder {
 	 *
 	 * @return list<int>
 	 */
-	private function ensure_sessions( int $course_id, int $course_index, array $course_spec, int $lead_user_id, SeederResult $summary ): array {
+	private function ensure_sessions( int $course_id, int $course_index, array $course_spec, int $lead_user_id, SeederResult $summary, SeederContext $context ): array {
 		$out   = [];
 		$now   = time();
 		$specs = $course_spec['sessions'] ?? [];
@@ -858,19 +858,20 @@ final class CoursesSeeder {
 			$start_ts = $now + (int) ( $session_spec['offset_days'] * DAY_IN_SECONDS );
 			$end_ts   = $start_ts + ( $session_spec['duration_minutes'] * MINUTE_IN_SECONDS );
 
-			$post_id = wp_insert_post(
-				[
-					'post_type'    => 'vl_session',
-					'post_status'  => 'publish',
-					'post_title'   => $session_spec['title'],
-					'post_name'    => $slug,
-					'post_content' => '<!-- wp:paragraph --><p>' . esc_html( $session_spec['title'] ) . '</p><!-- /wp:paragraph -->',
-					'post_parent'  => $course_id,
-					'menu_order'   => $session_index,
-					'post_author'  => $lead_user_id,
-				],
-				true
-			);
+			$insert_args = [
+				'post_type'    => 'vl_session',
+				'post_status'  => 'publish',
+				'post_title'   => $session_spec['title'],
+				'post_name'    => $slug,
+				'post_content' => '<!-- wp:paragraph --><p>' . esc_html( $session_spec['title'] ) . '</p><!-- /wp:paragraph -->',
+				'post_parent'  => $course_id,
+				'menu_order'   => $session_index,
+				'post_author'  => $lead_user_id,
+			];
+
+			$post_id = $context->skip_zoom
+				? \VL\LMS\Services\Zoom\Sync\MeetingSynchronizer::bypass( static fn () => wp_insert_post( $insert_args, true ) )
+				: wp_insert_post( $insert_args, true );
 
 			if ( is_wp_error( $post_id ) ) {
 				++$summary->failed;
@@ -883,7 +884,15 @@ final class CoursesSeeder {
 			update_post_meta( $post_id, '_vl_session_scheduled_start', gmdate( 'Y-m-d\TH:i:s\Z', $start_ts ) );
 			update_post_meta( $post_id, '_vl_session_scheduled_end', gmdate( 'Y-m-d\TH:i:s\Z', $end_ts ) );
 			update_post_meta( $post_id, '_vl_session_status', $session_spec['status'] );
-			update_post_meta( $post_id, '_vl_session_zoom_join_url', 'https://zoom.example.test/j/' . wp_generate_password( 10, false ) );
+
+			if ( $context->skip_zoom ) {
+				update_post_meta( $post_id, '_vl_session_zoom_meeting_id', 'demo-' . $post_id );
+				update_post_meta( $post_id, '_vl_session_zoom_join_url', 'https://example.test/join/demo-' . $post_id );
+				update_post_meta( $post_id, '_vl_session_zoom_start_url', 'https://example.test/start/demo-' . $post_id );
+				update_post_meta( $post_id, '_vl_session_zoom_password', sprintf( 'demo%06d', $post_id ) );
+			} else {
+				update_post_meta( $post_id, '_vl_session_zoom_join_url', 'https://zoom.example.test/j/' . wp_generate_password( 10, false ) );
+			}
 
 			++$summary->created;
 			$out[] = $post_id;

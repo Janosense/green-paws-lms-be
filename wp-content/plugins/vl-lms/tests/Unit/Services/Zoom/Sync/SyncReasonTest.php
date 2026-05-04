@@ -17,9 +17,10 @@ final class SyncReasonTest extends TestCase {
 		self::assertSame( 'cancelled_without_meeting', SyncReason::CANCELLED_WITHOUT_MEETING->value );
 		self::assertSame( 'no_diff', SyncReason::NO_DIFF->value );
 		self::assertSame( 'missing_required_meta', SyncReason::MISSING_REQUIRED_META->value );
+		self::assertSame( 'demo_bypass', SyncReason::DEMO_BYPASS->value );
 	}
 
-	public function test_case_count_is_seven(): void {
-		self::assertCount( 7, SyncReason::cases() );
+	public function test_case_count_is_eight(): void {
+		self::assertCount( 8, SyncReason::cases() );
 	}
 }

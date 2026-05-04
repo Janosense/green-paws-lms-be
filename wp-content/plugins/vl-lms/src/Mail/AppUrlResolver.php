@@ -1,0 +1,41 @@
+<?php
+
+declare(strict_types=1);
+
+namespace VL\LMS\Mail;
+
+use VL\LMS\Support\Logger;
+
+/**
+ * Shared frontend-base-URL resolver for Phase 7.6 transactional mailers.
+ *
+ * Mirrors `Auth\Mail\VerificationMailer::app_url()` semantics — the
+ * `VL_LMS_APP_URL` PHP constant points at the frontend's deployed origin,
+ * with a `home_url()` fallback (and a warning log) for misconfigured
+ * environments.
+ *
+ * @author Tymofii Synianskyi
+ */
+final class AppUrlResolver {
+
+	public function __construct(
+		private readonly Logger $logger
+	) {
+	}
+
+	public function base_url(): string {
+		if ( defined( 'VL_LMS_APP_URL' ) && '' !== (string) constant( 'VL_LMS_APP_URL' ) ) {
+			return (string) constant( 'VL_LMS_APP_URL' );
+		}
+		$this->logger->warning(
+			'VL_LMS_APP_URL is not defined; transactional email links will point at home_url().'
+		);
+		return (string) home_url();
+	}
+
+	public function path( string $path ): string {
+		$base    = rtrim( $this->base_url(), '/' );
+		$cleaned = '/' . ltrim( $path, '/' );
+		return $base . $cleaned;
+	}
+}

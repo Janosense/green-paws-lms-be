@@ -60,6 +60,16 @@ final class RecordingCompletedHandler implements EventHandler {
 
 		if ( PostKind::SESSION === $found->kind ) {
 			update_post_meta( $post_id, $found->kind->meta_key_recording_url(), $mp4_url );
+			/**
+			 * Phase 7.6 — fire after the recording URL lands in post meta so
+			 * `Services\Notifications\RecordingReadyListener` can fan-out the
+			 * recording-ready email to course enrollees. Mirrors the symmetric
+			 * webinar path below.
+			 *
+			 * @param int      $post_id
+			 * @param PostKind $kind
+			 */
+			do_action( 'vl_lms_recording_published', $post_id, $found->kind );
 			return HandlerOutcome::applied(
 				'session_recording_stored',
 				sprintf( 'Stored recording URL on session %d.', $post_id )
@@ -84,6 +94,8 @@ final class RecordingCompletedHandler implements EventHandler {
 			$until = $until->setTimezone( new \DateTimeZone( 'UTC' ) );
 			update_post_meta( $post_id, $until_key, $until->format( 'Y-m-d\TH:i:s\Z' ) );
 		}
+
+		do_action( 'vl_lms_recording_published', $post_id, $found->kind );
 
 		return HandlerOutcome::applied(
 			'webinar_recording_stored',
