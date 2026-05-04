@@ -19,18 +19,25 @@ use VL\LMS\Api\Transformers\WebinarRegistrationTransformer;
 use VL\LMS\Api\WebinarAccessController;
 use VL\LMS\Api\OrdersController;
 use VL\LMS\Api\OrderTransformer;
+use VL\LMS\Api\PaymentsController;
 use VL\LMS\Api\PreparedPaymentTransformer;
 use VL\LMS\Api\WebinarRegistrationsController;
 use VL\LMS\Api\ZoomWebhookController;
+use VL\LMS\Orders\OrderEnrollmentFanout;
+use VL\LMS\Orders\OrderExpirationCron;
 use VL\LMS\Orders\OrderService;
 use VL\LMS\Orders\PriceResolver;
 use VL\LMS\Orders\PurchasableLookup;
+use VL\LMS\Payments\LiqPay\CallbackHandler as LiqPayCallbackHandler;
+use VL\LMS\Payments\LiqPay\CallbackParser as LiqPayCallbackParser;
 use VL\LMS\Payments\LiqPay\LiqPayClient;
 use VL\LMS\Payments\LiqPay\PayloadBuilder as LiqPayPayloadBuilder;
 use VL\LMS\Payments\LiqPay\Settings as LiqPaySettings;
 use VL\LMS\Payments\LiqPay\SignatureBuilder as LiqPaySignatureBuilder;
+use VL\LMS\Payments\LiqPay\SignatureVerifier as LiqPaySignatureVerifier;
 use VL\LMS\Payments\PaymentProvider;
 use VL\LMS\Repositories\OrderRepository;
+use VL\LMS\Repositories\PaymentRepository;
 use VL\LMS\Certificate\CertificateAutoIssuer;
 use VL\LMS\Certificate\CertificateRevoker;
 use VL\LMS\Certificate\CertificateService;
@@ -340,6 +347,25 @@ final class Plugin {
 			$cert_issued_listener->register();
 		}
 
+		// Phase 8.2 — wire the order fan-out listener (priority 10 for
+		// provisioning-first ordering; future mailers / observers attach
+		// at priority ≥ 20). The listener idempotently calls
+		// EnrollmentService::enroll or WebinarRegistrationService::register_for_purchase
+		// based on the order's entity_type.
+		$order_fanout = $this->container->get( OrderEnrollmentFanout::class );
+		if ( $order_fanout instanceof OrderEnrollmentFanout ) {
+			add_action( 'vl_lms_order_paid', [ $order_fanout, 'on_order_paid' ], 10, 2 );
+		}
+
+		// Phase 8.2 — register the hourly order-expiration cron and wire the
+		// tick callback. `register()` is idempotent (guarded by
+		// wp_next_scheduled), safe on every boot.
+		$order_expiration_cron = $this->container->get( OrderExpirationCron::class );
+		if ( $order_expiration_cron instanceof OrderExpirationCron ) {
+			$order_expiration_cron->register();
+			add_action( OrderExpirationCron::HOOK_NAME, [ $order_expiration_cron, 'on_tick' ] );
+		}
+
 		/**
 		 * Fires once the plugin has finished booting.
 		 *
@@ -448,6 +474,10 @@ final class Plugin {
 		$orders_controller = $this->container->get( OrdersController::class );
 		if ( $orders_controller instanceof OrdersController ) {
 			$orders_controller->register_routes();
+		}
+		$payments_controller = $this->container->get( PaymentsController::class );
+		if ( $payments_controller instanceof PaymentsController ) {
+			$payments_controller->register_routes();
 		}
 	}
 
@@ -2187,8 +2217,8 @@ final class Plugin {
 				assert( $prices instanceof PriceResolver );
 				$lookup = $c->get( PurchasableLookup::class );
 				assert( $lookup instanceof PurchasableLookup );
-				$enrollments = $c->get( EnrollmentRepository::class );
-				assert( $enrollments instanceof EnrollmentRepository );
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
 				$webinars = $c->get( WebinarRegistrationService::class );
 				assert( $webinars instanceof WebinarRegistrationService );
 				$provider = $c->get( PaymentProvider::class );
@@ -2232,6 +2262,88 @@ final class Plugin {
 					$order_transformer,
 					$payment_transformer
 				);
+			}
+		);
+
+		// --- Phase 8.2 — LiqPay inbound + fan-out + expiration cron ---
+
+		$container->set(
+			PaymentRepository::class,
+			static fn (): PaymentRepository => new PaymentRepository()
+		);
+
+		$container->set(
+			LiqPaySignatureVerifier::class,
+			static function ( Container $c ): LiqPaySignatureVerifier {
+				$settings = $c->get( LiqPaySettings::class );
+				assert( $settings instanceof LiqPaySettings );
+				$builder = $c->get( LiqPaySignatureBuilder::class );
+				assert( $builder instanceof LiqPaySignatureBuilder );
+				return new LiqPaySignatureVerifier( $settings, $builder );
+			}
+		);
+
+		$container->set(
+			LiqPayCallbackParser::class,
+			static function ( Container $c ): LiqPayCallbackParser {
+				$verifier = $c->get( LiqPaySignatureVerifier::class );
+				assert( $verifier instanceof LiqPaySignatureVerifier );
+				return new LiqPayCallbackParser( $verifier );
+			}
+		);
+
+		$container->set(
+			LiqPayCallbackHandler::class,
+			static function ( Container $c ): LiqPayCallbackHandler {
+				$orders = $c->get( OrderRepository::class );
+				assert( $orders instanceof OrderRepository );
+				$payments = $c->get( PaymentRepository::class );
+				assert( $payments instanceof PaymentRepository );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new LiqPayCallbackHandler( $orders, $payments, $logger );
+			}
+		);
+
+		$container->set(
+			PaymentsController::class,
+			static function ( Container $c ): PaymentsController {
+				$parser = $c->get( LiqPayCallbackParser::class );
+				assert( $parser instanceof LiqPayCallbackParser );
+				$handler = $c->get( LiqPayCallbackHandler::class );
+				assert( $handler instanceof LiqPayCallbackHandler );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new PaymentsController(
+					VL_LMS_API_NAMESPACE,
+					$parser,
+					$handler,
+					$logger
+				);
+			}
+		);
+
+		$container->set(
+			OrderEnrollmentFanout::class,
+			static function ( Container $c ): OrderEnrollmentFanout {
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
+				$webinars = $c->get( WebinarRegistrationService::class );
+				assert( $webinars instanceof WebinarRegistrationService );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new OrderEnrollmentFanout( $enrollments, $webinars, $logger );
+			}
+		);
+
+		$container->set(
+			OrderExpirationCron::class,
+			static function ( Container $c ): OrderExpirationCron {
+				$orders = $c->get( OrderRepository::class );
+				assert( $orders instanceof OrderRepository );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new OrderExpirationCron( $orders, $logger );
 			}
 		);
 

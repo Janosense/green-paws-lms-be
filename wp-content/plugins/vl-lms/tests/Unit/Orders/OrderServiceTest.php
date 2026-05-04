@@ -9,6 +9,8 @@ use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
+use VL\LMS\Domain\Enrollment\Enrollment;
+use VL\LMS\Domain\Enrollment\EnrollmentSource;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Domain\Money\Money;
 use VL\LMS\Domain\Order\OrderStatus;
@@ -30,8 +32,8 @@ use VL\LMS\Orders\PriceResolver;
 use VL\LMS\Orders\PurchasableLookup;
 use VL\LMS\Payments\Exception\PaymentProviderUnavailableException;
 use VL\LMS\Payments\PaymentProvider;
+use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Webinars\WebinarRegistrationService;
-use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use VL\LMS\Tests\Fixtures\InMemoryOrderRepository;
 use WP_Post;
 
@@ -40,7 +42,9 @@ final class OrderServiceTest extends TestCase {
 	use MockeryPHPUnitIntegration;
 
 	private InMemoryOrderRepository $orders;
-	private InMemoryEnrollmentRepository $enrollments;
+
+	/** @var Mockery\MockInterface&EnrollmentService */
+	private $enrollments;
 
 	/** @var Mockery\MockInterface&PriceResolver */
 	private $prices;
@@ -63,12 +67,15 @@ final class OrderServiceTest extends TestCase {
 		Monkey\setUp();
 
 		$this->orders      = new InMemoryOrderRepository();
-		$this->enrollments = new InMemoryEnrollmentRepository();
-		$this->prices      = Mockery::mock( PriceResolver::class );
-		$this->lookup      = Mockery::mock( PurchasableLookup::class );
-		$this->webinars    = Mockery::mock( WebinarRegistrationService::class );
-		$this->provider    = Mockery::mock( PaymentProvider::class );
-		$this->now         = new \DateTimeImmutable( '2026-05-01 12:00:00', new \DateTimeZone( 'UTC' ) );
+		$this->enrollments = Mockery::mock( EnrollmentService::class );
+		$this->enrollments->shouldReceive( 'find_for_user_and_course' )
+			->andReturn( null )
+			->byDefault();
+		$this->prices   = Mockery::mock( PriceResolver::class );
+		$this->lookup   = Mockery::mock( PurchasableLookup::class );
+		$this->webinars = Mockery::mock( WebinarRegistrationService::class );
+		$this->provider = Mockery::mock( PaymentProvider::class );
+		$this->now      = new \DateTimeImmutable( '2026-05-01 12:00:00', new \DateTimeZone( 'UTC' ) );
 
 		$now           = $this->now;
 		$uuid_seq      = 0;
@@ -260,32 +267,25 @@ final class OrderServiceTest extends TestCase {
 		$post = $this->course_post( 100, 'web-design', 'Web Design' );
 		$this->lookup->shouldReceive( 'find' )->andReturn( $post );
 
-		$enrollment_id = $this->enrollments->seed(
-			[
-				'user_id'   => 7,
-				'course_id' => 100,
-				'status'    => EnrollmentStatus::ACTIVE->value,
-			]
-		);
+		$existing = $this->enrollment_row( 99, 7, 100, EnrollmentStatus::ACTIVE );
+		$this->enrollments->shouldReceive( 'find_for_user_and_course' )
+			->with( 7, 100 )
+			->andReturn( $existing );
 
 		try {
 			$this->service->create_for_purchase( 7, PurchasableEntityType::COURSE, 'web-design' );
 			self::fail( 'Expected AlreadyEnrolledException' );
 		} catch ( AlreadyEnrolledException $e ) {
-			self::assertSame( $enrollment_id, $e->existing_enrollment_id() );
+			self::assertSame( 99, $e->existing_enrollment_id() );
 		}
 	}
 
 	public function test_revoked_enrollment_does_not_block_repurchase(): void {
 		$post = $this->course_post( 100, 'web-design', 'Web Design' );
 		$this->lookup->shouldReceive( 'find' )->andReturn( $post );
-		$this->enrollments->seed(
-			[
-				'user_id'   => 7,
-				'course_id' => 100,
-				'status'    => EnrollmentStatus::REVOKED->value,
-			]
-		);
+		$this->enrollments->shouldReceive( 'find_for_user_and_course' )
+			->with( 7, 100 )
+			->andReturn( $this->enrollment_row( 50, 7, 100, EnrollmentStatus::REVOKED ) );
 		$this->prices->shouldReceive( 'resolve' )->andReturn( Money::from_major_decimal( '1500.00', 'UAH' ) );
 		$this->provider->shouldReceive( 'prepare_payment' )
 			->andReturn(
@@ -487,6 +487,28 @@ final class OrderServiceTest extends TestCase {
 		$page = $this->service->list_for_user( 7, null, 0, 9999 );
 
 		self::assertSame( 1, $page['total'] );
+	}
+
+	private function enrollment_row( int $id, int $user_id, int $course_id, EnrollmentStatus $status ): Enrollment {
+		return new Enrollment(
+			id: $id,
+			user_id: $user_id,
+			course_id: $course_id,
+			status: $status,
+			source: EnrollmentSource::MANUAL,
+			source_group_id: null,
+			source_order_id: null,
+			enrolled_at: '2026-01-01 00:00:00',
+			started_at: null,
+			completed_at: null,
+			expires_at: null,
+			revoked_at: null,
+			revoked_by: null,
+			revoke_reason: null,
+			progress_pct: 0,
+			created_at: '2026-01-01 00:00:00',
+			updated_at: '2026-01-01 00:00:00'
+		);
 	}
 
 	private function course_post( int $id, string $slug, string $title ): WP_Post {

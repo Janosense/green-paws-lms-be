@@ -18,9 +18,13 @@ use VL\LMS\Repositories\EnrollmentRepository;
  *
  * Stateless. Safe to construct per-request; no internal caching.
  *
+ * Concrete (not final) for DI / testability — Phase 8.2's
+ * `OrderEnrollmentFanout` listener and `OrderService` both depend on the
+ * service and need it Mockery-mockable in unit tests.
+ *
  * @author Tymofii Synianskyi
  */
-final class EnrollmentService {
+class EnrollmentService {
 
 	public function __construct( private readonly EnrollmentRepository $repository ) {
 	}
@@ -173,6 +177,18 @@ final class EnrollmentService {
 		);
 
 		return $this->require_by_id( $existing->id );
+	}
+
+	/**
+	 * Phase 8.1 — used by `OrderService::create_for_purchase` to detect a
+	 * pre-existing enrollment that should block a fresh course purchase.
+	 *
+	 * Thin pass-through to the repository; lives on the service so the
+	 * order-orchestration layer never has to depend on `EnrollmentRepository`
+	 * directly.
+	 */
+	public function find_for_user_and_course( int $user_id, int $course_id ): ?Enrollment {
+		return $this->repository->find_for_user_and_course( $user_id, $course_id );
 	}
 
 	/**

@@ -17,8 +17,8 @@ use VL\LMS\Orders\Exception\OrderNotFoundException;
 use VL\LMS\Orders\Exception\OrderNotOwnedException;
 use VL\LMS\Orders\Exception\WebinarFullException;
 use VL\LMS\Payments\PaymentProvider;
-use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\OrderRepository;
+use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Webinars\WebinarRegistrationService;
 
 /**
@@ -52,7 +52,7 @@ class OrderService {
 		private readonly OrderRepository $orders,
 		private readonly PriceResolver $prices,
 		private readonly PurchasableLookup $lookup,
-		private readonly EnrollmentRepository $enrollments,
+		private readonly EnrollmentService $enrollments,
 		private readonly WebinarRegistrationService $webinars,
 		private readonly PaymentProvider $payment_provider
 	) {

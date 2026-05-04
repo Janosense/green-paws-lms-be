@@ -178,6 +178,43 @@ class WebinarRegistrationService {
 	}
 
 	/**
+	 * Phase 8.2 — provisioning entry-point for the post-payment fan-out.
+	 *
+	 * Bypasses every gate the slug-based {@see register} runs (publish state,
+	 * registration window, free-tier price gate, capacity counter): payment
+	 * was already received, so a webinar that has since gone over capacity or
+	 * out of its registration window must still be honoured here. Refund-on-
+	 * race lands in Phase 8.3. Idempotent — a second call for the same
+	 * `(user_id, webinar_id)` pair returns the existing active registration
+	 * rather than re-INSERTing.
+	 *
+	 * `$source_order_id` is accepted for the audit-trail symmetry with
+	 * `EnrollmentService::enroll`. The `vl_webinar_registrations` schema has
+	 * no `source_order_id` column (Phase 7.3 / 8.0 — audit trail lives on
+	 * `vl_orders`), so the parameter is currently a forward-compatibility
+	 * placeholder; storage-side it goes nowhere.
+	 */
+	public function register_for_purchase(
+		int $user_id,
+		int $webinar_id,
+		int $source_order_id
+	): WebinarRegistration {
+		unset( $source_order_id ); // Reserved for the audit trail; stored on `vl_orders`.
+
+		$existing = $this->registrations->find_active( $webinar_id, $user_id );
+		if ( null !== $existing ) {
+			return $existing;
+		}
+		$now = ( $this->clock )();
+		return $this->registrations->register(
+			$webinar_id,
+			$user_id,
+			WebinarRegistrationSource::PURCHASE,
+			$now
+		);
+	}
+
+	/**
 	 * Phase 8.1 — capacity pre-validation for `OrderService::create_for_purchase`.
 	 *
 	 * Reads `_vl_webinar_max_attendees` (matching the meta key used by the

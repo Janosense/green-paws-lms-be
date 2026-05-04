@@ -21,6 +21,12 @@ final class PluginTest extends TestCase {
 		Monkey\setUp();
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'add_option' )->justReturn( true );
+		// Phase 8.2 — `OrderExpirationCron::register()` runs on every boot.
+		// Stub the WP-Cron seam so the unit boot smoke-tests don't reach
+		// for an uninitialized cron table.
+		Functions\when( 'wp_next_scheduled' )->justReturn( false );
+		Functions\when( 'wp_schedule_event' )->justReturn( true );
+		Functions\when( 'time' )->justReturn( 1714654800 );
 		$this->reset_plugin_state();
 	}
 
@@ -127,6 +133,33 @@ final class PluginTest extends TestCase {
 
 		$liqpay_settings = $container->get( \VL\LMS\Payments\LiqPay\Settings::class );
 		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\Settings::class, $liqpay_settings );
+	}
+
+	public function test_container_resolves_phase_8_2_payments_and_cron_bindings(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		Plugin::instance()->boot();
+
+		$container = Plugin::instance()->container();
+		self::assertNotNull( $container );
+
+		$payments_controller = $container->get( \VL\LMS\Api\PaymentsController::class );
+		self::assertInstanceOf( \VL\LMS\Api\PaymentsController::class, $payments_controller );
+
+		$callback_handler = $container->get( \VL\LMS\Payments\LiqPay\CallbackHandler::class );
+		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\CallbackHandler::class, $callback_handler );
+
+		$callback_parser = $container->get( \VL\LMS\Payments\LiqPay\CallbackParser::class );
+		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\CallbackParser::class, $callback_parser );
+
+		$signature_verifier = $container->get( \VL\LMS\Payments\LiqPay\SignatureVerifier::class );
+		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\SignatureVerifier::class, $signature_verifier );
+
+		$fanout = $container->get( \VL\LMS\Orders\OrderEnrollmentFanout::class );
+		self::assertInstanceOf( \VL\LMS\Orders\OrderEnrollmentFanout::class, $fanout );
+
+		$cron = $container->get( \VL\LMS\Orders\OrderExpirationCron::class );
+		self::assertInstanceOf( \VL\LMS\Orders\OrderExpirationCron::class, $cron );
 	}
 
 	public function test_default_dependency_check_uses_class_exists(): void {

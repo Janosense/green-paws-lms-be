@@ -313,4 +313,31 @@ final class WebinarRegistrationServiceTest extends TestCase {
 
 		self::assertFalse( $this->service->has_capacity( 100 ) );
 	}
+
+	public function test_register_for_purchase_inserts_when_no_active_row_exists(): void {
+		$this->repository->shouldReceive( 'find_active' )
+			->with( 200, 7 )
+			->andReturn( null );
+		$persisted = $this->registration( 1, 200, 7 );
+		$this->repository->shouldReceive( 'register' )
+			->once()
+			->with( 200, 7, WebinarRegistrationSource::PURCHASE, $this->now )
+			->andReturn( $persisted );
+
+		$result = $this->service->register_for_purchase( 7, 200, 42 );
+
+		self::assertSame( $persisted, $result );
+	}
+
+	public function test_register_for_purchase_is_idempotent_when_active_registration_exists(): void {
+		$existing = $this->registration( 5, 200, 7 );
+		$this->repository->shouldReceive( 'find_active' )
+			->with( 200, 7 )
+			->andReturn( $existing );
+		$this->repository->shouldNotReceive( 'register' );
+
+		$result = $this->service->register_for_purchase( 7, 200, 42 );
+
+		self::assertSame( $existing, $result );
+	}
 }
