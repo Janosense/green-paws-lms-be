@@ -16,9 +16,10 @@ namespace VL\LMS\Domain\Progress;
  */
 enum EntityType: string {
 
-	case LESSON = 'lesson';
-	case TOPIC  = 'topic';
-	case MODULE = 'module';
+	case LESSON  = 'lesson';
+	case TOPIC   = 'topic';
+	case MODULE  = 'module';
+	case SESSION = 'session';
 
 	/**
 	 * Strict parser. Rejects unknown values with a descriptive exception so
@@ -56,10 +57,11 @@ enum EntityType: string {
 	// phpcs:ignore WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Mirrors enum factory naming convention; see docblock.
 	public static function fromPostType( string $post_type ): self {
 		return match ( $post_type ) {
-			'vl_lesson' => self::LESSON,
-			'vl_topic'  => self::TOPIC,
-			'vl_module' => self::MODULE,
-			default     => throw new \ValueError(
+			'vl_lesson'  => self::LESSON,
+			'vl_topic'   => self::TOPIC,
+			'vl_module'  => self::MODULE,
+			'vl_session' => self::SESSION,
+			default      => throw new \ValueError(
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Developer-facing exception, message never surfaces to end users.
 				sprintf( 'Post type "%s" does not map to a progress entity type.', $post_type )
 			),

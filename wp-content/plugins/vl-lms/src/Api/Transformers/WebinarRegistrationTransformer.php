@@ -6,6 +6,7 @@ namespace VL\LMS\Api\Transformers;
 
 use VL\LMS\Catalog\Transformers\CoverImageTransformer;
 use VL\LMS\Domain\WebinarRegistration\WebinarRegistration;
+use VL\LMS\Services\JoinWindowPolicy;
 use VL\LMS\Services\Webinars\WebinarAccessGate;
 use VL\LMS\Services\Webinars\WebinarAccessReason;
 use WP_Post;
@@ -33,6 +34,7 @@ class WebinarRegistrationTransformer {
 	public function __construct(
 		private readonly WebinarAccessGate $gate,
 		private readonly CoverImageTransformer $cover,
+		private readonly JoinWindowPolicy $window_policy,
 	) {
 	}
 
@@ -53,8 +55,8 @@ class WebinarRegistrationTransformer {
 		$end_raw   = (string) get_post_meta( $webinar_id, '_vl_webinar_scheduled_end', true );
 		$end_dt    = $this->parse_iso8601( $end_raw );
 
-		$opens_at_iso  = $this->shift_iso( $start_raw, -WebinarAccessGate::JOIN_EARLY_GRACE_SECONDS );
-		$closes_at_iso = $this->shift_iso( $end_raw, WebinarAccessGate::JOIN_LATE_GRACE_SECONDS );
+		$opens_at_iso  = $this->shift_iso( $start_raw, -( $this->window_policy->early_grace_minutes * 60 ) );
+		$closes_at_iso = $this->shift_iso( $end_raw, $this->window_policy->late_grace_minutes * 60 );
 
 		$cover_id = (int) get_post_meta( $webinar_id, '_vl_webinar_cover_image_id', true );
 

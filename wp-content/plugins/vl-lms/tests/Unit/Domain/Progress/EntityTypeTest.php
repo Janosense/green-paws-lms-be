@@ -21,6 +21,10 @@ final class EntityTypeTest extends TestCase {
 		self::assertSame( EntityType::MODULE, EntityType::fromPostType( 'vl_module' ) );
 	}
 
+	public function test_from_post_type_maps_session(): void {
+		self::assertSame( EntityType::SESSION, EntityType::fromPostType( 'vl_session' ) );
+	}
+
 	public function test_from_post_type_throws_value_error_on_unknown(): void {
 		$this->expectException( \ValueError::class );
 		EntityType::fromPostType( 'vl_unknown' );
@@ -35,6 +39,14 @@ final class EntityTypeTest extends TestCase {
 		self::assertSame( EntityType::LESSON, EntityType::from_string( 'lesson' ) );
 		self::assertSame( EntityType::TOPIC, EntityType::from_string( 'topic' ) );
 		self::assertSame( EntityType::MODULE, EntityType::from_string( 'module' ) );
+		self::assertSame( EntityType::SESSION, EntityType::from_string( 'session' ) );
+	}
+
+	public function test_cases_are_exhaustively_listed(): void {
+		self::assertSame(
+			[ EntityType::LESSON, EntityType::TOPIC, EntityType::MODULE, EntityType::SESSION ],
+			EntityType::cases()
+		);
 	}
 
 	public function test_from_string_rejects_unknown(): void {

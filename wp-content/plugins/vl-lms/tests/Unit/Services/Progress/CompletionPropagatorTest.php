@@ -266,6 +266,15 @@ final class CompletionPropagatorTest extends TestCase {
 		self::assertSame( ProgressStatus::COMPLETED, $module_progress->status );
 	}
 
+	public function test_propagate_throws_logic_exception_when_invoked_with_session_post(): void {
+		// Phase 7.4: sessions are leaves with no fan-up chain. Attendance
+		// flows through SessionAttendanceProgressListener, not propagate().
+		$session = $this->post( 200, 'vl_session' );
+
+		$this->expectException( \LogicException::class );
+		$this->propagator()->propagate( 1, 100, $session );
+	}
+
 	public function test_course_direct_lesson_skips_module_step(): void {
 		$lesson = $this->post( 200, 'vl_lesson' );
 		$this->hierarchy->shouldReceive( 'resolveModule' )->with( $lesson )->andReturn( null );

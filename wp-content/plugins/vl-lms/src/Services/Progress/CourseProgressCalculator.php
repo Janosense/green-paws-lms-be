@@ -8,6 +8,7 @@ use VL\LMS\Domain\Progress\EntityType;
 use VL\LMS\Domain\Progress\ProgressStatus;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\ProgressRepository;
+use VL\LMS\Repositories\SessionAttendanceRepository;
 use WP_Post;
 use WP_Query;
 
@@ -36,7 +37,8 @@ class CourseProgressCalculator {
 
 	public function __construct(
 		private readonly ProgressRepository $progress,
-		private readonly EnrollmentRepository $enrollments
+		private readonly EnrollmentRepository $enrollments,
+		private readonly SessionAttendanceRepository $attendance
 	) {
 	}
 
@@ -65,6 +67,13 @@ class CourseProgressCalculator {
 		$completed_leaves = 0;
 		foreach ( $leaves as $leaf_key => $_ignored ) {
 			if ( isset( $completed_keys[ $leaf_key ] ) ) {
+				++$completed_leaves;
+				continue;
+			}
+			// Phase 7.4: a session leaf is "completed" iff at least one
+			// attendance row exists for the user — sessions don't write to
+			// vl_progress so the completed_keys lookup misses them.
+			if ( $this->is_completed_session_leaf( $leaf_key, $user_id ) ) {
 				++$completed_leaves;
 			}
 		}
@@ -128,7 +137,38 @@ class CourseProgressCalculator {
 			$leaves[ EntityType::LESSON->value . ':' . (int) $lesson->ID ] = true;
 		}
 
+		// Phase 7.4: cohort courses also count top-level sessions as
+		// per-leaf completion signals. Self-paced courses skip the walk.
+		if ( $this->is_cohort_course( $course_id ) ) {
+			foreach ( $this->query_sessions_in_course( $course_id ) as $session ) {
+				$leaves[ EntityType::SESSION->value . ':' . (int) $session->ID ] = true;
+			}
+		}
+
 		return $leaves;
+	}
+
+	/**
+	 * @return list<WP_Post>
+	 */
+	protected function query_sessions_in_course( int $course_id ): array {
+		return $this->query_published_children( $course_id, 'vl_session' );
+	}
+
+	protected function is_cohort_course( int $course_id ): bool {
+		return 'cohort' === (string) get_post_meta( $course_id, '_vl_course_type', true );
+	}
+
+	private function is_completed_session_leaf( string $leaf_key, int $user_id ): bool {
+		$prefix = EntityType::SESSION->value . ':';
+		if ( ! str_starts_with( $leaf_key, $prefix ) ) {
+			return false;
+		}
+		$session_id = (int) substr( $leaf_key, strlen( $prefix ) );
+		if ( $session_id <= 0 ) {
+			return false;
+		}
+		return count( $this->attendance->list_for_user( $user_id, $session_id ) ) > 0;
 	}
 
 	/**

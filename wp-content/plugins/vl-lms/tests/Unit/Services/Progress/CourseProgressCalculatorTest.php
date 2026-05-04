@@ -12,6 +12,7 @@ use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Domain\Progress\EntityType;
 use VL\LMS\Domain\Progress\ProgressStatus;
 use VL\LMS\Repositories\EnrollmentRepository;
+use VL\LMS\Repositories\SessionAttendanceRepository;
 use VL\LMS\Services\Progress\CourseProgressCalculator;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use VL\LMS\Tests\Fixtures\InMemoryProgressRepository;
@@ -23,6 +24,10 @@ final class CourseProgressCalculatorTest extends TestCase {
 
 	private InMemoryProgressRepository $progress;
 	private InMemoryEnrollmentRepository $enrollments;
+
+	/** @var Mockery\MockInterface&SessionAttendanceRepository */
+	private $attendance;
+
 	private \DateTimeImmutable $now;
 
 	/** @var array<int, list<WP_Post>> */
@@ -31,6 +36,12 @@ final class CourseProgressCalculatorTest extends TestCase {
 	/** @var array<int, list<WP_Post>> */
 	private array $topics_in_lesson = [];
 
+	/** @var array<int, list<WP_Post>> */
+	private array $sessions_in_course = [];
+
+	/** @var array<int, bool> */
+	private array $cohort_courses = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
@@ -38,9 +49,13 @@ final class CourseProgressCalculatorTest extends TestCase {
 		$this->now         = new \DateTimeImmutable( '2026-04-28 12:00:00', new \DateTimeZone( 'UTC' ) );
 		$this->progress    = new InMemoryProgressRepository( fn (): \DateTimeImmutable => $this->now );
 		$this->enrollments = new InMemoryEnrollmentRepository();
+		$this->attendance  = Mockery::mock( SessionAttendanceRepository::class );
+		$this->attendance->shouldReceive( 'list_for_user' )->andReturn( [] )->byDefault();
 
-		$this->lessons_in_course = [];
-		$this->topics_in_lesson  = [];
+		$this->lessons_in_course  = [];
+		$this->topics_in_lesson   = [];
+		$this->sessions_in_course = [];
+		$this->cohort_courses     = [];
 	}
 
 	protected function tearDown(): void {
@@ -49,20 +64,34 @@ final class CourseProgressCalculatorTest extends TestCase {
 	}
 
 	private function calculator(): CourseProgressCalculator {
-		return new class( $this->progress, $this->enrollments, $this->lessons_in_course, $this->topics_in_lesson, $this->now ) extends CourseProgressCalculator {
+		return new class(
+			$this->progress,
+			$this->enrollments,
+			$this->attendance,
+			$this->lessons_in_course,
+			$this->topics_in_lesson,
+			$this->sessions_in_course,
+			$this->cohort_courses,
+			$this->now
+		) extends CourseProgressCalculator {
 
 			/**
 			 * @param array<int, list<WP_Post>> $lessons_in_course
 			 * @param array<int, list<WP_Post>> $topics_in_lesson
+			 * @param array<int, list<WP_Post>> $sessions_in_course
+			 * @param array<int, bool>          $cohort_courses
 			 */
 			public function __construct(
 				InMemoryProgressRepository $progress,
 				EnrollmentRepository $enrollments,
+				SessionAttendanceRepository $attendance,
 				private array $lessons_in_course,
 				private array $topics_in_lesson,
+				private array $sessions_in_course,
+				private array $cohort_courses,
 				private \DateTimeImmutable $clock_now
 			) {
-				parent::__construct( $progress, $enrollments );
+				parent::__construct( $progress, $enrollments, $attendance );
 			}
 
 			protected function query_lessons_in_course( int $course_id ): array {
@@ -71,6 +100,14 @@ final class CourseProgressCalculatorTest extends TestCase {
 
 			protected function query_topics_under_lesson( int $lesson_id ): array {
 				return $this->topics_in_lesson[ $lesson_id ] ?? [];
+			}
+
+			protected function query_sessions_in_course( int $course_id ): array {
+				return $this->sessions_in_course[ $course_id ] ?? [];
+			}
+
+			protected function is_cohort_course( int $course_id ): bool {
+				return $this->cohort_courses[ $course_id ] ?? false;
 			}
 
 			protected function now(): \DateTimeImmutable {
@@ -239,6 +276,53 @@ final class CourseProgressCalculatorTest extends TestCase {
 		// Lesson-level completion does NOT count toward a topic-bearing
 		// lesson's leaf set; the only leaf (topic 300) is incomplete → 0%.
 		self::assertSame( 0, $pct );
+	}
+
+	public function test_cohort_course_counts_sessions_as_leaves_with_attendance_completion(): void {
+		$lesson                        = $this->post( 200, 'vl_lesson' );
+		$session_a                     = $this->post( 400, 'vl_session' );
+		$session_b                     = $this->post( 401, 'vl_session' );
+		$this->lessons_in_course[100]  = [ $lesson ];
+		$this->sessions_in_course[100] = [ $session_a, $session_b ];
+		$this->cohort_courses[100]     = true;
+
+		// Three leaves (1 lesson + 2 sessions). User completed the lesson and
+		// attended session A → 2/3 = 66%.
+		$this->seed_completed_progress( 1, 100, EntityType::LESSON, 200 );
+		$this->attendance->shouldReceive( 'list_for_user' )->with( 1, 400 )
+			->andReturn( [ Mockery::mock( 'VL\\LMS\\Domain\\SessionAttendance\\SessionAttendance' ) ] );
+		$this->attendance->shouldReceive( 'list_for_user' )->with( 1, 401 )
+			->andReturn( [] );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+			]
+		);
+
+		$pct = $this->calculator()->recompute( 1, 100 );
+
+		self::assertSame( 66, $pct );
+	}
+
+	public function test_self_paced_course_ignores_orphan_session_posts(): void {
+		$lesson                       = $this->post( 200, 'vl_lesson' );
+		$this->lessons_in_course[100] = [ $lesson ];
+		// Even if data has orphan sessions, self-paced courses don't enumerate them.
+		$this->sessions_in_course[100] = [ $this->post( 400, 'vl_session' ) ];
+		$this->cohort_courses[100]     = false;
+
+		$this->seed_completed_progress( 1, 100, EntityType::LESSON, 200 );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+			]
+		);
+
+		$pct = $this->calculator()->recompute( 1, 100 );
+
+		self::assertSame( 100, $pct );
 	}
 
 	private function seed_completed_progress(

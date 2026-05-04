@@ -14,6 +14,7 @@ use VL\LMS\Api\EnrollmentsController;
 use VL\LMS\Api\ProgressController;
 use VL\LMS\Api\QuizAttemptsController;
 use VL\LMS\Api\RestController;
+use VL\LMS\Api\SessionAccessController;
 use VL\LMS\Api\Transformers\WebinarRegistrationTransformer;
 use VL\LMS\Api\WebinarAccessController;
 use VL\LMS\Api\WebinarRegistrationsController;
@@ -81,8 +82,12 @@ use VL\LMS\Learn\CurriculumTransformer as LearnCurriculumTransformer;
 use VL\LMS\Learn\EntityHierarchy;
 use VL\LMS\Learn\LessonContentController;
 use VL\LMS\Learn\LessonContentTransformer;
+use VL\LMS\Learn\Access\SessionAccessGate;
 use VL\LMS\Learn\LessonNodeTransformer;
 use VL\LMS\Learn\ModuleNodeTransformer;
+use VL\LMS\Learn\SessionContentTransformer;
+use VL\LMS\Learn\SessionLookup;
+use VL\LMS\Learn\SessionNodeTransformer;
 use VL\LMS\Learn\NextEntityResolver;
 use VL\LMS\Learn\TopicContentTransformer;
 use VL\LMS\Learn\TopicNodeTransformer;
@@ -108,6 +113,7 @@ use VL\LMS\Repositories\WebinarRegistrationRepository;
 use VL\LMS\Repositories\ZoomWebhookEventRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
+use VL\LMS\Services\JoinWindowPolicy;
 use VL\LMS\Services\Progress\CompletionPropagator;
 use VL\LMS\Services\Webinars\WebinarAccessGate;
 use VL\LMS\Services\Webinars\WebinarLookup;
@@ -142,6 +148,7 @@ use VL\LMS\Services\Zoom\ZoomClient;
 use VL\LMS\Services\Progress\CourseProgressCalculator;
 use VL\LMS\Services\Progress\PositionWriteRule;
 use VL\LMS\Services\Progress\ProgressService;
+use VL\LMS\Services\Progress\SessionAttendanceProgressListener;
 use VL\LMS\Support\HeroImageSize;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\DifficultyTermsInstaller;
@@ -268,6 +275,14 @@ final class Plugin {
 			$certificate_revoker->register();
 		}
 
+		// Phase 7.4 — register the session-attendance → progress listener so
+		// attendance webhooks recompute progress_pct and re-evaluate the
+		// course-completion contract for the joining user.
+		$session_attendance_listener = $this->container->get( SessionAttendanceProgressListener::class );
+		if ( $session_attendance_listener instanceof SessionAttendanceProgressListener ) {
+			$session_attendance_listener->register();
+		}
+
 		// Phase 7.1 — register the Zoom meeting synchronizer's WP hooks.
 		// Wired unconditionally; if credentials are absent, each sync()
 		// returns SKIPPED/NOT_CONFIGURED instead of producing partial state.
@@ -376,6 +391,10 @@ final class Plugin {
 		$webinar_access_controller = $this->container->get( WebinarAccessController::class );
 		if ( $webinar_access_controller instanceof WebinarAccessController ) {
 			$webinar_access_controller->register_routes();
+		}
+		$session_access_controller = $this->container->get( SessionAccessController::class );
+		if ( $session_access_controller instanceof SessionAccessController ) {
+			$session_access_controller->register_routes();
 		}
 	}
 
@@ -1049,19 +1068,30 @@ final class Plugin {
 		);
 
 		$container->set(
+			SessionNodeTransformer::class,
+			static function ( Container $c ): SessionNodeTransformer {
+				$attendance = $c->get( SessionAttendanceRepository::class );
+				assert( $attendance instanceof SessionAttendanceRepository );
+				return new SessionNodeTransformer( $attendance );
+			}
+		);
+
+		$container->set(
 			LearnCurriculumTransformer::class,
 			static function ( Container $c ): LearnCurriculumTransformer {
 				$module = $c->get( ModuleNodeTransformer::class );
 				assert( $module instanceof ModuleNodeTransformer );
 				$lesson = $c->get( LessonNodeTransformer::class );
 				assert( $lesson instanceof LessonNodeTransformer );
+				$session = $c->get( SessionNodeTransformer::class );
+				assert( $session instanceof SessionNodeTransformer );
 				$next = $c->get( NextEntityResolver::class );
 				assert( $next instanceof NextEntityResolver );
 				$progress = $c->get( ProgressRepository::class );
 				assert( $progress instanceof ProgressRepository );
 				$enrollments = $c->get( EnrollmentRepository::class );
 				assert( $enrollments instanceof EnrollmentRepository );
-				return new LearnCurriculumTransformer( $module, $lesson, $next, $progress, $enrollments );
+				return new LearnCurriculumTransformer( $module, $lesson, $session, $next, $progress, $enrollments );
 			}
 		);
 
@@ -1106,7 +1136,9 @@ final class Plugin {
 				assert( $progress instanceof ProgressRepository );
 				$enrollments = $c->get( EnrollmentRepository::class );
 				assert( $enrollments instanceof EnrollmentRepository );
-				return new CourseProgressCalculator( $progress, $enrollments );
+				$attendance = $c->get( SessionAttendanceRepository::class );
+				assert( $attendance instanceof SessionAttendanceRepository );
+				return new CourseProgressCalculator( $progress, $enrollments, $attendance );
 			}
 		);
 
@@ -1129,6 +1161,17 @@ final class Plugin {
 				$quiz_attempts = $c->get( QuizAttemptRepository::class );
 				assert( $quiz_attempts instanceof QuizAttemptRepository );
 				return new CompletionPropagator( $progress, $hierarchy, $calculator, $enrollments, $quiz_attempts );
+			}
+		);
+
+		$container->set(
+			SessionAttendanceProgressListener::class,
+			static function ( Container $c ): SessionAttendanceProgressListener {
+				$calculator = $c->get( CourseProgressCalculator::class );
+				assert( $calculator instanceof CourseProgressCalculator );
+				$propagator = $c->get( CompletionPropagator::class );
+				assert( $propagator instanceof CompletionPropagator );
+				return new SessionAttendanceProgressListener( $calculator, $propagator );
 			}
 		);
 
@@ -1735,12 +1778,20 @@ final class Plugin {
 		);
 
 		$container->set(
+			JoinWindowPolicy::class,
+			static fn (): JoinWindowPolicy => new JoinWindowPolicy()
+		);
+
+		$container->set(
 			WebinarAccessGate::class,
 			static function ( Container $c ): WebinarAccessGate {
 				$registrations = $c->get( WebinarRegistrationRepository::class );
 				assert( $registrations instanceof WebinarRegistrationRepository );
+				$policy = $c->get( JoinWindowPolicy::class );
+				assert( $policy instanceof JoinWindowPolicy );
 				return new WebinarAccessGate(
 					$registrations,
+					$policy,
 					static fn (): \DateTimeImmutable => new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
 				);
 			}
@@ -1753,7 +1804,9 @@ final class Plugin {
 				assert( $gate instanceof WebinarAccessGate );
 				$cover = $c->get( CoverImageTransformer::class );
 				assert( $cover instanceof CoverImageTransformer );
-				return new WebinarRegistrationTransformer( $gate, $cover );
+				$policy = $c->get( JoinWindowPolicy::class );
+				assert( $policy instanceof JoinWindowPolicy );
+				return new WebinarRegistrationTransformer( $gate, $cover, $policy );
 			}
 		);
 
@@ -1796,6 +1849,68 @@ final class Plugin {
 					$authenticator,
 					$lookup,
 					$gate
+				);
+			}
+		);
+
+		$container->set(
+			SessionLookup::class,
+			static fn (): SessionLookup => new SessionLookup()
+		);
+
+		$container->set(
+			SessionAccessGate::class,
+			static function ( Container $c ): SessionAccessGate {
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
+				$policy = $c->get( JoinWindowPolicy::class );
+				assert( $policy instanceof JoinWindowPolicy );
+				return new SessionAccessGate(
+					$enrollments,
+					$policy,
+					static fn (): \DateTimeImmutable => new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			SessionContentTransformer::class,
+			static function ( Container $c ): SessionContentTransformer {
+				$gate = $c->get( SessionAccessGate::class );
+				assert( $gate instanceof SessionAccessGate );
+				$attendance = $c->get( SessionAttendanceRepository::class );
+				assert( $attendance instanceof SessionAttendanceRepository );
+				$policy = $c->get( JoinWindowPolicy::class );
+				assert( $policy instanceof JoinWindowPolicy );
+				return new SessionContentTransformer(
+					$gate,
+					$attendance,
+					$policy,
+					static fn (): \DateTimeImmutable => new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			SessionAccessController::class,
+			static function ( Container $c ): SessionAccessController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$lookup = $c->get( SessionLookup::class );
+				assert( $lookup instanceof SessionLookup );
+				$gate = $c->get( SessionAccessGate::class );
+				assert( $gate instanceof SessionAccessGate );
+				$transformer = $c->get( SessionContentTransformer::class );
+				assert( $transformer instanceof SessionContentTransformer );
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
+				return new SessionAccessController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$lookup,
+					$gate,
+					$transformer,
+					$enrollments
 				);
 			}
 		);

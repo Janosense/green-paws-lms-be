@@ -14,6 +14,7 @@ use VL\LMS\Catalog\Transformers\CoverImageTransformer;
 use VL\LMS\Domain\WebinarRegistration\WebinarRegistration;
 use VL\LMS\Domain\WebinarRegistration\WebinarRegistrationSource;
 use VL\LMS\Domain\WebinarRegistration\WebinarRegistrationStatus;
+use VL\LMS\Services\JoinWindowPolicy;
 use VL\LMS\Services\Webinars\WebinarAccessDecision;
 use VL\LMS\Services\Webinars\WebinarAccessGate;
 use VL\LMS\Services\Webinars\WebinarAccessReason;
@@ -51,7 +52,11 @@ final class WebinarRegistrationTransformerTest extends TestCase {
 		);
 
 		$this->gate        = Mockery::mock( WebinarAccessGate::class );
-		$this->transformer = new WebinarRegistrationTransformer( $this->gate, new CoverImageTransformer() );
+		$this->transformer = new WebinarRegistrationTransformer(
+			$this->gate,
+			new CoverImageTransformer(),
+			new JoinWindowPolicy()
+		);
 	}
 
 	protected function tearDown(): void {

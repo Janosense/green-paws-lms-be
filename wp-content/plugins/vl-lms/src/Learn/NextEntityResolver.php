@@ -17,6 +17,9 @@ namespace VL\LMS\Learn;
  *      - Otherwise the lesson itself is the candidate.
  *   2. Then walk orphan lessons (course-direct lessons with no module)
  *      in `menu_order`, applying the same lesson-or-topic rule.
+ *   3. (Phase 7.4, cohort courses only) Walk top-level session nodes in
+ *      `_vl_session_scheduled_start ASC`. A session is "completed" when
+ *      `is_completed` is true on the node (i.e. an attendance row exists).
  *
  * Returns `null` for an empty curriculum (no candidates) or a fully
  * completed curriculum (every candidate is `completed`). The frontend
@@ -29,10 +32,11 @@ final class NextEntityResolver {
 	/**
 	 * @param list<array<string, mixed>> $modules        Module nodes (already transformed).
 	 * @param list<array<string, mixed>> $orphan_lessons Lesson nodes (already transformed).
+	 * @param list<array<string, mixed>> $sessions       Session nodes for cohort courses (Phase 7.4).
 	 *
-	 * @return array{type: string, id: int, slug: string, lesson_slug: string}|null
+	 * @return array<string, mixed>|null
 	 */
-	public function resolve( array $modules, array $orphan_lessons ): ?array {
+	public function resolve( array $modules, array $orphan_lessons, array $sessions = [] ): ?array {
 		foreach ( $modules as $module ) {
 			$lessons = $module['lessons'] ?? [];
 			if ( ! is_array( $lessons ) ) {
@@ -44,13 +48,43 @@ final class NextEntityResolver {
 			}
 		}
 
-		return $this->pick_from_lessons( $orphan_lessons );
+		$lesson_candidate = $this->pick_from_lessons( $orphan_lessons );
+		if ( null !== $lesson_candidate ) {
+			return $lesson_candidate;
+		}
+
+		return $this->pick_from_sessions( $sessions );
+	}
+
+	/**
+	 * @param list<array<string, mixed>> $sessions
+	 *
+	 * @return array{type: string, id: int, slug: string, title: string, scheduled_start: ?string}|null
+	 */
+	private function pick_from_sessions( array $sessions ): ?array {
+		foreach ( $sessions as $session ) {
+			if ( ! is_array( $session ) ) {
+				continue;
+			}
+			if ( true === ( $session['is_completed'] ?? false ) ) {
+				continue;
+			}
+			$scheduled_start = $session['scheduled_start'] ?? null;
+			return [
+				'type'            => 'session',
+				'id'              => (int) ( $session['id'] ?? 0 ),
+				'slug'            => (string) ( $session['slug'] ?? '' ),
+				'title'           => (string) ( $session['title'] ?? '' ),
+				'scheduled_start' => is_string( $scheduled_start ) ? $scheduled_start : null,
+			];
+		}
+		return null;
 	}
 
 	/**
 	 * @param array<int, mixed> $lessons
 	 *
-	 * @return array{type: string, id: int, slug: string, lesson_slug: string}|null
+	 * @return array<string, mixed>|null
 	 */
 	private function pick_from_lessons( array $lessons ): ?array {
 		foreach ( $lessons as $lesson ) {
@@ -83,7 +117,7 @@ final class NextEntityResolver {
 	/**
 	 * @param array<int, mixed> $topics
 	 *
-	 * @return array{type: string, id: int, slug: string, lesson_slug: string}|null
+	 * @return array<string, mixed>|null
 	 */
 	private function pick_from_topics( array $topics, string $lesson_slug ): ?array {
 		foreach ( $topics as $topic ) {

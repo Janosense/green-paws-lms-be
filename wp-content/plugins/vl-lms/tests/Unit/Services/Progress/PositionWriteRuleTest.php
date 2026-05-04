@@ -141,4 +141,22 @@ final class PositionWriteRuleTest extends TestCase {
 		yield 'complete-cap-equals-duration'     => [ 'complete', 0, 600, 600, 600 ];
 		yield 'complete-zero-duration-no-cap'    => [ 'complete', 0, 1000, 0, 1000 ];
 	}
+
+	public function test_read_duration_throws_logic_exception_for_session_post(): void {
+		// Phase 7.4: sessions have no position semantics. Reaching the
+		// duration lookup with a vl_session post means upstream gating was
+		// bypassed.
+		$post            = Mockery::mock( 'WP_Post' );
+		$post->ID        = 1;
+		$post->post_type = 'vl_session';
+
+		$exposed = new class() extends PositionWriteRule {
+			public function call_read_duration( WP_Post $post ): ?int {
+				return $this->read_duration( $post );
+			}
+		};
+
+		$this->expectException( \LogicException::class );
+		$exposed->call_read_duration( $post );
+	}
 }

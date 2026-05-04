@@ -16,6 +16,8 @@ use VL\LMS\Learn\CurriculumTransformer;
 use VL\LMS\Learn\LessonNodeTransformer;
 use VL\LMS\Learn\ModuleNodeTransformer;
 use VL\LMS\Learn\NextEntityResolver;
+use VL\LMS\Learn\ProgressOverlay;
+use VL\LMS\Learn\SessionNodeTransformer;
 use VL\LMS\Learn\TopicNodeTransformer;
 use VL\LMS\Domain\Progress\Progress;
 use VL\LMS\Repositories\EnrollmentRepository;
@@ -39,6 +41,15 @@ final class CurriculumTransformerTest extends TestCase {
 	/** @var array<int, list<WP_Post>> Keyed by lesson ID. */
 	private array $topics_by_lesson = [];
 
+	/** @var array<int, list<WP_Post>> Keyed by course ID. */
+	private array $sessions_by_course = [];
+
+	/** @var array<int, bool> */
+	private array $cohort_courses = [];
+
+	/** @var array<int, int> session ID → attendance row count */
+	private array $session_attendance = [];
+
 	/** @var Mockery\MockInterface&ProgressRepository */
 	private $progress;
 
@@ -57,6 +68,9 @@ final class CurriculumTransformerTest extends TestCase {
 		$this->modules_by_course        = [];
 		$this->lessons_by_parent        = [];
 		$this->topics_by_lesson         = [];
+		$this->sessions_by_course       = [];
+		$this->cohort_courses           = [];
+		$this->session_attendance       = [];
 		$this->progress_rows            = [];
 		$this->progress_list_call_count = 0;
 
@@ -122,32 +136,69 @@ final class CurriculumTransformerTest extends TestCase {
 			}
 		};
 
+		$session_transformer = new class( $this->session_attendance ) extends SessionNodeTransformer {
+
+			/** @param array<int, int> $session_attendance */
+			public function __construct( private array $session_attendance ) {
+				// Skip parent constructor — the test seam doesn't use the
+				// repository or the clock.
+			}
+
+			public function transform( WP_Post $session, int $user_id, ProgressOverlay $overlay ): array {
+				unset( $overlay );
+				$session_id = (int) $session->ID;
+				$count      = $this->session_attendance[ $session_id ] ?? 0;
+				return [
+					'type'               => 'session',
+					'id'                 => $session_id,
+					'slug'               => (string) $session->post_name,
+					'title'              => (string) $session->post_title,
+					'session_number'     => 0,
+					'scheduled_start'    => null,
+					'scheduled_end'      => null,
+					'status'             => 'scheduled',
+					'is_completed'       => $count > 0,
+					'join_url_path'      => '/vl/v1/learn/sessions/' . $session->post_name . '/join',
+					'recording_url_path' => null,
+				];
+			}
+		};
+
 		return new class(
 			$module_transformer,
 			$lesson_transformer,
+			$session_transformer,
 			new NextEntityResolver(),
 			$this->progress,
 			$this->enrollments,
 			$this->modules_by_course,
-			$this->lessons_by_parent
+			$this->lessons_by_parent,
+			$this->sessions_by_course,
+			$this->cohort_courses
 		) extends CurriculumTransformer {
 
 			/**
 			 * @param array<int, list<WP_Post>> $modules_by_course
 			 * @param array<int, list<WP_Post>> $lessons_by_parent
+			 * @param array<int, list<WP_Post>> $sessions_by_course
+			 * @param array<int, bool>          $cohort_courses
 			 */
 			public function __construct(
 				ModuleNodeTransformer $module_transformer,
 				LessonNodeTransformer $lesson_transformer,
+				SessionNodeTransformer $session_transformer,
 				NextEntityResolver $next_resolver,
 				ProgressRepository $progress,
 				EnrollmentRepository $enrollments,
 				private array $modules_by_course,
-				private array $lessons_by_parent
+				private array $lessons_by_parent,
+				private array $sessions_by_course,
+				private array $cohort_courses
 			) {
 				parent::__construct(
 					$module_transformer,
 					$lesson_transformer,
+					$session_transformer,
 					$next_resolver,
 					$progress,
 					$enrollments
@@ -160,6 +211,14 @@ final class CurriculumTransformerTest extends TestCase {
 
 			protected function query_orphan_lessons( int $course_id ): array {
 				return $this->lessons_by_parent[ $course_id ] ?? [];
+			}
+
+			protected function query_child_sessions( int $course_id ): array {
+				return $this->sessions_by_course[ $course_id ] ?? [];
+			}
+
+			protected function is_cohort_course( int $course_id ): bool {
+				return $this->cohort_courses[ $course_id ] ?? false;
 			}
 		};
 	}
@@ -368,5 +427,51 @@ final class CurriculumTransformerTest extends TestCase {
 		self::assertNotNull( $payload['next_entity'] );
 		self::assertSame( 'orphan', $payload['next_entity']['slug'] );
 		self::assertSame( 'lesson', $payload['next_entity']['type'] );
+	}
+
+	public function test_cohort_course_renders_sessions_as_top_level_leaves(): void {
+		$course    = $this->post( 100, 'vl_course', 'c', 'Course' );
+		$session_a = $this->post( 400, 'vl_session', 'session-1', 'Session 1' );
+		$session_b = $this->post( 401, 'vl_session', 'session-2', 'Session 2' );
+
+		$this->cohort_courses[100]     = true;
+		$this->sessions_by_course[100] = [ $session_a, $session_b ];
+
+		$payload = $this->makeTransformer()->transform( $course, 5 );
+
+		self::assertCount( 2, $payload['sessions'] );
+		self::assertSame( 'session', $payload['sessions'][0]['type'] );
+		self::assertSame( 'session-1', $payload['sessions'][0]['slug'] );
+	}
+
+	public function test_self_paced_course_omits_sessions_even_if_data_anomaly_exists(): void {
+		$course         = $this->post( 100, 'vl_course', 'c', 'Course' );
+		$orphan_session = $this->post( 400, 'vl_session', 'orphan', 'Orphan' );
+
+		$this->cohort_courses[100]     = false;
+		$this->sessions_by_course[100] = [ $orphan_session ];
+
+		$payload = $this->makeTransformer()->transform( $course, 5 );
+
+		self::assertSame( [], $payload['sessions'] );
+	}
+
+	public function test_next_entity_picks_session_when_modules_complete_and_session_unattended(): void {
+		$course  = $this->post( 100, 'vl_course', 'c', 'Course' );
+		$lesson  = $this->post( 200, 'vl_lesson', 'lesson-1', 'Lesson 1' );
+		$session = $this->post( 400, 'vl_session', 'session-1', 'Session 1' );
+
+		$this->lessons_by_parent[100]  = [ $lesson ];
+		$this->cohort_courses[100]     = true;
+		$this->sessions_by_course[100] = [ $session ];
+
+		$completed_at          = new \DateTimeImmutable( '2026-04-01 10:00:00', new \DateTimeZone( 'UTC' ) );
+		$this->progress_rows[] = $this->row( EntityType::LESSON, 200, ProgressStatus::COMPLETED, null, $completed_at );
+
+		$payload = $this->makeTransformer()->transform( $course, 5 );
+
+		self::assertNotNull( $payload['next_entity'] );
+		self::assertSame( 'session', $payload['next_entity']['type'] );
+		self::assertSame( 'session-1', $payload['next_entity']['slug'] );
 	}
 }

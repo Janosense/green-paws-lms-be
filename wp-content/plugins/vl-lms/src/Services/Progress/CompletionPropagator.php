@@ -62,6 +62,14 @@ class CompletionPropagator {
 		$lesson_completed = false;
 		$module_completed = false;
 
+		if ( 'vl_session' === $completed_entity->post_type ) {
+			// Phase 7.4: sessions are leaves with no fan-up chain. Attendance
+			// flows through SessionAttendanceProgressListener, which calls
+			// CourseProgressCalculator::recompute and reevaluate_course_completion
+			// directly — propagate() must not be invoked for session posts.
+			throw new \LogicException( 'CompletionPropagator::propagate is not applicable to vl_session posts.' );
+		}
+
 		$lesson_post = match ( $completed_entity->post_type ) {
 			'vl_topic'  => $this->maybe_promote_lesson( $user_id, $course_id, $completed_entity, $lesson_completed ),
 			'vl_lesson' => $completed_entity,

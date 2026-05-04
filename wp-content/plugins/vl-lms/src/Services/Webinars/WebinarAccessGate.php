@@ -6,6 +6,7 @@ namespace VL\LMS\Services\Webinars;
 
 use Closure;
 use VL\LMS\Repositories\WebinarRegistrationRepository;
+use VL\LMS\Services\JoinWindowPolicy;
 use WP_Post;
 
 /**
@@ -28,9 +29,6 @@ use WP_Post;
  */
 class WebinarAccessGate {
 
-	public const int JOIN_EARLY_GRACE_SECONDS = 15 * 60;
-	public const int JOIN_LATE_GRACE_SECONDS  = 60 * 60;
-
 	/** @var Closure(): \DateTimeImmutable */
 	private readonly Closure $clock;
 
@@ -39,10 +37,12 @@ class WebinarAccessGate {
 	 */
 	public function __construct(
 		private readonly WebinarRegistrationRepository $registrations,
+		private readonly JoinWindowPolicy $window_policy,
 		Closure $clock
 	) {
 		$this->clock = $clock;
 	}
+
 
 	public function can_join( WP_Post $webinar, int $user_id ): WebinarAccessDecision {
 		$registration = $this->registrations->find_active( (int) $webinar->ID, $user_id );
@@ -63,9 +63,8 @@ class WebinarAccessGate {
 			return WebinarAccessDecision::deny( WebinarAccessReason::MEETING_NOT_PROVISIONED );
 		}
 
-		$opens_at  = $start->modify( '-' . self::JOIN_EARLY_GRACE_SECONDS . ' seconds' );
-		$closes_at = $end->modify( '+' . self::JOIN_LATE_GRACE_SECONDS . ' seconds' );
-		$now       = ( $this->clock )();
+		[ $opens_at, $closes_at ] = $this->window_policy->compute_window( $start, $end );
+		$now                       = ( $this->clock )();
 
 		if ( $now < $opens_at ) {
 			return WebinarAccessDecision::deny(

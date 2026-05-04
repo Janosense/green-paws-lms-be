@@ -13,6 +13,7 @@ use VL\LMS\Domain\WebinarRegistration\WebinarRegistration;
 use VL\LMS\Domain\WebinarRegistration\WebinarRegistrationSource;
 use VL\LMS\Domain\WebinarRegistration\WebinarRegistrationStatus;
 use VL\LMS\Repositories\WebinarRegistrationRepository;
+use VL\LMS\Services\JoinWindowPolicy;
 use VL\LMS\Services\Webinars\WebinarAccessGate;
 use VL\LMS\Services\Webinars\WebinarAccessReason;
 use WP_Post;
@@ -49,6 +50,7 @@ final class WebinarAccessGateTest extends TestCase {
 	private function gate(): WebinarAccessGate {
 		return new WebinarAccessGate(
 			$this->repository,
+			new JoinWindowPolicy(),
 			fn (): \DateTimeImmutable => $this->now
 		);
 	}

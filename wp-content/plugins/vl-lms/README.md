@@ -116,6 +116,23 @@ Notes:
 - **Capacity-check race.** The `_vl_webinar_max_attendees` check reads `count_active_for_webinar` and is racy under concurrent registration. The unique key on `(webinar_id, user_id)` still prevents the same user double-booking, and marginal over-capacity (1–2 seats over a cap of N) is acceptable.
 - **Bad-meta resilience.** Unparseable `_vl_webinar_*_at` strings are treated as missing (the field is silently ignored) rather than producing a 500.
 
+### Phase 7.4 — Cohort sessions: access endpoints + curriculum extension
+
+Three endpoints expose `vl_session` posts under cohort courses to the Nuxt frontend. The Phase 5.2 `Learn\CurriculumTransformer` is extended so sessions appear as top-level leaves in `GET /vl/v1/learn/courses/{slug}/curriculum` for cohort-type courses.
+
+| Method | Route | Cap | Notes |
+|--------|-------|-----|-------|
+| GET | `/vl/v1/learn/sessions/{slug}` | `vl_view_lesson` | Detail payload (`session.*` summary + `computed.*` block: `join_window_open`, `join_opens_at`, `join_closes_at`, `recording_available`, `is_past`, `user_attended`). Course enrollment enforced via `EnrollmentService::has_active_access`. |
+| GET | `/vl/v1/learn/sessions/{slug}/join` | `vl_view_lesson` | 302 to `_vl_session_zoom_join_url` when `SessionAccessGate::can_join` allows. Otherwise 403 / 410 / 503 with reason codes (`not_enrolled`, `session_cancelled`, `meeting_not_provisioned` with `retry_after: 60`, `join_window_not_open` with `opens_at`, `join_window_closed`). |
+| GET | `/vl/v1/learn/sessions/{slug}/recording` | `vl_view_session_recording` | 302 to `_vl_session_recording_url` when the gate allows. Otherwise 403 `not_enrolled`, 404 `recording_not_available`, 410 `recording_window_expired` (with `expired_at`). |
+
+Notes:
+
+- **Session recording window is instructor-controlled.** Unlike webinars (where Phase 7.2 `RecordingCompletedHandler` auto-stamps `_vl_webinar_recording_available_until = now + recording_access_days`), the session handler only writes the URL — `_vl_session_recording_available_until` stays at whatever the instructor entered. An empty until-date is treated as "no expiry" (recording available indefinitely while course access lasts), matching how cohort courses typically work.
+- **Session attendance feeds the progress fan-up.** When `ParticipantJoinedHandler` (Phase 7.2) records a session join, it now fires the `vl_lms_session_attendance_recorded` action. `Services\Progress\SessionAttendanceProgressListener` reacts by recomputing `progress_pct` (which now treats sessions as leaves for cohort courses via `CourseProgressCalculator`) and re-evaluating the E2 course-completion contract — so a session that closes out the leaf set can flip a cohort enrollment to `COMPLETED` directly from the webhook path.
+- **Curriculum tree.** The cohort variant of `GET /vl/v1/learn/courses/{slug}/curriculum` includes a top-level `sessions` array; nodes carry a `type: "session"` discriminant, an `is_completed` field (true iff at least one attendance row exists), and `join_url_path` / `recording_url_path`. `next_entity` walks modules → orphan lessons → sessions in `scheduled_start ASC` and surfaces a session-shaped payload (`type: "session"`, plus `scheduled_start`) when the next incomplete leaf is a session.
+- **Recording-view tracking is not implemented.** Only live attendance contributes to `progress_pct`. A "session viewed" event for recordings is deferred to a future phase; until then, a user who only watches recordings will not flip the enrollment to completed via the session arm.
+
 ## REST surface
 
 All routes live under `vl/v1`. Success responses use `{ success: true, data: {...} }`; errors come back as WordPress's default `WP_Error` shape (`{ code, message, data: { status } }`). This is distinct from `vl-jwt-auth`'s `{ success: false, error: {...} }` envelope on its own routes.

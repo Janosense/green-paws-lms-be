@@ -38,6 +38,7 @@ class CurriculumTransformer {
 	public function __construct(
 		private readonly ModuleNodeTransformer $module_transformer,
 		private readonly LessonNodeTransformer $lesson_transformer,
+		private readonly SessionNodeTransformer $session_transformer,
 		private readonly NextEntityResolver $next_resolver,
 		private readonly ProgressRepository $progress,
 		private readonly EnrollmentRepository $enrollments
@@ -64,8 +65,19 @@ class CurriculumTransformer {
 			$orphan_lessons[] = $this->lesson_transformer->transform( $lesson, $overlay );
 		}
 
+		// Phase 7.4: cohort courses surface their top-level sessions as
+		// curriculum-tree leaves. Self-paced courses skip the walk even when
+		// orphan vl_session posts exist (a data anomaly that should not
+		// affect the response shape).
+		$sessions = [];
+		if ( $this->is_cohort_course( $course_id ) ) {
+			foreach ( $this->query_child_sessions( $course_id ) as $session ) {
+				$sessions[] = $this->session_transformer->transform( $session, $user_id, $overlay );
+			}
+		}
+
 		$total_duration = $this->sum_duration( $modules, $orphan_lessons );
-		$next_entity    = $this->next_resolver->resolve( $modules, $orphan_lessons );
+		$next_entity    = $this->next_resolver->resolve( $modules, $orphan_lessons, $sessions );
 
 		$enrollment = $this->enrollments->find_for_user_and_course( $user_id, $course_id );
 
@@ -79,8 +91,50 @@ class CurriculumTransformer {
 			],
 			'modules'        => $modules,
 			'orphan_lessons' => $orphan_lessons,
+			'sessions'       => $sessions,
 			'next_entity'    => $next_entity,
 		];
+	}
+
+	/**
+	 * Cohort courses are identified by `_vl_course_type = cohort`. Default
+	 * (missing meta) is treated as self-paced.
+	 */
+	protected function is_cohort_course( int $course_id ): bool {
+		return 'cohort' === (string) get_post_meta( $course_id, '_vl_course_type', true );
+	}
+
+	/**
+	 * Top-level cohort sessions, sorted by `_vl_session_scheduled_start ASC`.
+	 *
+	 * Editorial choice: modules-first, sessions-appended-after — modules
+	 * typically host prereq material, live sessions follow.
+	 *
+	 * @return list<WP_Post>
+	 */
+	protected function query_child_sessions( int $course_id ): array {
+		$query = new WP_Query(
+			[
+				'post_type'              => 'vl_session',
+				'post_parent'            => $course_id,
+				'post_status'            => 'publish',
+				'meta_key'               => '_vl_session_scheduled_start',
+				'orderby'                => 'meta_value',
+				'order'                  => 'ASC',
+				'posts_per_page'         => -1,
+				'no_found_rows'          => true,
+				'update_post_meta_cache' => true,
+				'update_post_term_cache' => false,
+			]
+		);
+
+		$out = [];
+		foreach ( $query->posts as $session ) {
+			if ( $session instanceof WP_Post ) {
+				$out[] = $session;
+			}
+		}
+		return $out;
 	}
 
 	/**

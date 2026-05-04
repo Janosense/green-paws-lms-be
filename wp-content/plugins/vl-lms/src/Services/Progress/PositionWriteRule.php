@@ -84,6 +84,13 @@ class PositionWriteRule {
 	 * supply a fixture without invoking `get_post_meta`.
 	 */
 	protected function read_duration( WP_Post $post ): ?int {
+		// Phase 7.4: sessions have no position semantics. Reaching this path
+		// for a vl_session post means the upstream ProgressService rejection
+		// was bypassed — defensive throw to make the contract explicit.
+		if ( 'vl_session' === $post->post_type ) {
+			throw new \LogicException( 'PositionWriteRule cannot read a duration for vl_session posts.' );
+		}
+
 		$key = match ( $post->post_type ) {
 			'vl_lesson' => '_vl_lesson_duration_seconds',
 			'vl_topic'  => '_vl_topic_duration_seconds',

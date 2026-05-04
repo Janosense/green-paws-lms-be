@@ -89,6 +89,18 @@ final class ParticipantJoinedHandler implements EventHandler {
 				'' === $name ? null : $name,
 				$joined_at
 			);
+
+			// Phase 7.4: notify the progress fan-in. The course id is the
+			// session's `post_parent`. Listeners (SessionAttendanceProgressListener)
+			// short-circuit when `$user_id` is null.
+			$course_id = (int) $found->post->post_parent;
+			do_action(
+				'vl_lms_session_attendance_recorded',
+				$post_id,
+				$user_id,
+				$course_id
+			);
+
 			return HandlerOutcome::applied(
 				'session_join_recorded',
 				sprintf( 'Recorded join for session %d, participant %s.', $post_id, $uuid )

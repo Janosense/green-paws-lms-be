@@ -262,6 +262,19 @@ final class ProgressControllerTest extends TestCase {
 		self::assertSame( 'invalid_payload', $response->get_error_code() );
 	}
 
+	public function test_invalid_payload_when_entity_type_is_session(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user() );
+
+		// Sessions go through the Zoom attendance pipeline (Phase 7.4),
+		// not the lesson-player progress endpoint.
+		$response = $this->controller->handle(
+			$this->request( self::valid_body( [ 'entity_type' => 'session' ] ) )
+		);
+
+		self::assertInstanceOf( WP_Error::class, $response );
+		self::assertSame( 'invalid_payload', $response->get_error_code() );
+	}
+
 	public function test_invalid_payload_when_entity_id_negative(): void {
 		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user() );
 

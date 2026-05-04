@@ -34,10 +34,11 @@ final class ParticipantJoinedHandlerTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function post( int $id, string $type ): WP_Post {
-		$p            = Mockery::mock( 'WP_Post' );
-		$p->ID        = $id;
-		$p->post_type = $type;
+	private function post( int $id, string $type, int $parent = 0 ): WP_Post {
+		$p              = Mockery::mock( 'WP_Post' );
+		$p->ID          = $id;
+		$p->post_type   = $type;
+		$p->post_parent = $parent;
 		return $p;
 	}
 
@@ -221,6 +222,107 @@ final class ParticipantJoinedHandlerTest extends TestCase {
 
 		self::assertFalse( $outcome->was_no_op );
 		self::assertArrayHasKey( 'vl_lms_zoom_webinar_join_22_uuid-1', $tracker->store );
+	}
+
+	public function test_session_join_fires_attendance_recorded_action_with_resolved_args(): void {
+		Functions\when( 'get_user_by' )->alias(
+			static function ( string $field, string $value ) {
+				if ( 'email' === $field && 'a@b.test' === $value ) {
+					$u     = new \stdClass();
+					$u->ID = 77;
+					return $u;
+				}
+				return false;
+			}
+		);
+
+		$captured = [];
+		Functions\when( 'do_action' )->alias(
+			static function ( string $hook, ...$args ) use ( &$captured ): void {
+				$captured[] = [
+					'hook' => $hook,
+					'args' => $args,
+				];
+			}
+		);
+
+		$post                         = $this->post( 11, 'vl_session', 555 ); // post_parent = course 555
+		$lookup                       = new StubPostLookup();
+		$lookup->by_meeting_id['m-1'] = new LookupResult( $post, PostKind::SESSION );
+
+		$handler = new ParticipantJoinedHandler(
+			$lookup,
+			new InMemorySessionAttendanceRepository(),
+			new InMemoryWebinarJoinTracker(),
+			Mockery::mock( Logger::class )->shouldIgnoreMissing()
+		);
+
+		$handler->handle(
+			$this->request(
+				'm-1',
+				[
+					'participant_uuid' => 'uuid-1',
+					'user_name'        => 'Alice',
+					'email'            => 'a@b.test',
+					'join_time'        => '2026-05-01T09:00:00Z',
+				]
+			)
+		);
+
+		$attendance_actions = array_values(
+			array_filter(
+				$captured,
+				static fn ( array $entry ): bool => 'vl_lms_session_attendance_recorded' === $entry['hook']
+			)
+		);
+		self::assertCount( 1, $attendance_actions );
+		self::assertSame( [ 11, 77, 555 ], $attendance_actions[0]['args'] );
+	}
+
+	public function test_session_join_fires_attendance_action_with_null_user_id_when_email_does_not_match(): void {
+		Functions\when( 'get_user_by' )->justReturn( false );
+
+		$captured = [];
+		Functions\when( 'do_action' )->alias(
+			static function ( string $hook, ...$args ) use ( &$captured ): void {
+				$captured[] = [
+					'hook' => $hook,
+					'args' => $args,
+				];
+			}
+		);
+
+		$post                         = $this->post( 11, 'vl_session', 555 );
+		$lookup                       = new StubPostLookup();
+		$lookup->by_meeting_id['m-1'] = new LookupResult( $post, PostKind::SESSION );
+
+		$handler = new ParticipantJoinedHandler(
+			$lookup,
+			new InMemorySessionAttendanceRepository(),
+			new InMemoryWebinarJoinTracker(),
+			Mockery::mock( Logger::class )->shouldIgnoreMissing()
+		);
+
+		$handler->handle(
+			$this->request(
+				'm-1',
+				[
+					'participant_uuid' => 'uuid-2',
+					'user_name'        => 'Anon',
+					'email'            => 'unknown@x.test',
+					'join_time'        => '2026-05-01T09:00:00Z',
+				]
+			)
+		);
+
+		$attendance_actions = array_values(
+			array_filter(
+				$captured,
+				static fn ( array $entry ): bool => 'vl_lms_session_attendance_recorded' === $entry['hook']
+			)
+		);
+		self::assertCount( 1, $attendance_actions );
+		self::assertSame( [ 11, null, 555 ], $attendance_actions[0]['args'] );
 	}
 
 	public function test_missing_participant_uuid_throws_handler_exception(): void {
