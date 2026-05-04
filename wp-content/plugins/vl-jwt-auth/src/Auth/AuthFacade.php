@@ -24,7 +24,8 @@ use WP_User;
  */
 final class AuthFacade {
 
-	private static ?TokenService $token_service = null;
+	private static ?TokenService $token_service          = null;
+	private static ?QueryTokenAllowlist $query_allowlist = null;
 
 	/**
 	 * Resolve the user from the current HTTP request, looking at the
@@ -45,6 +46,10 @@ final class AuthFacade {
 
 		if ( null === $token ) {
 			$token = self::bearer_from_body( $request );
+		}
+
+		if ( null === $token ) {
+			$token = self::bearer_from_query( $request );
 		}
 
 		if ( null === $token ) {
@@ -136,6 +141,44 @@ final class AuthFacade {
 		}
 
 		return $token;
+	}
+
+	/**
+	 * Fall back to a `token` query parameter on GET requests for a small set
+	 * of redirect-style routes (see {@see QueryTokenAllowlist}). Frontend
+	 * invokes those routes via top-level browser navigation
+	 * (`window.location.assign`), which cannot attach an Authorization header
+	 * — the query token is the narrowest workable carrier.
+	 *
+	 * Header always wins; the body `__bearer` path runs first; this only
+	 * fires when both are absent. After consumption the parameter is
+	 * pruned via `set_param('token', null)` so downstream controllers
+	 * never see the token leak through `WP_REST_Request::get_param()`.
+	 */
+	private static function bearer_from_query( WP_REST_Request $request ): ?string {
+		if ( 'GET' !== strtoupper( (string) $request->get_method() ) ) {
+			return null;
+		}
+
+		$path = (string) $request->get_route();
+		if ( ! self::query_allowlist()->matches( $path ) ) {
+			return null;
+		}
+
+		$raw = $request->get_param( 'token' );
+		// Always prune so the token never leaks downstream, even when the
+		// value is malformed or empty.
+		$request->set_param( 'token', null );
+
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			return null;
+		}
+
+		return $raw;
+	}
+
+	private static function query_allowlist(): QueryTokenAllowlist {
+		return self::$query_allowlist ??= QueryTokenAllowlist::default();
 	}
 
 	private static function parse_bearer( string $header ): ?string {
