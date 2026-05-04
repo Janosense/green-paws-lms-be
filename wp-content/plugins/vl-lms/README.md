@@ -91,6 +91,31 @@ Troubleshooting:
 4. **Events processed but no state change** — the event's meeting_id doesn't match any post. Confirm `wp post meta get <id> _vl_{kind}_zoom_meeting_id` matches the Zoom-side meeting that actually fired.
 5. **Webinar `attended_duration_seconds` not incrementing** — under heavy traffic an object-cache backend (Redis / Memcached) may evict `WebinarJoinTracker` transients before TTL, in which case the matching `participant_left` becomes a no-op. Check the cache configuration.
 
+### Phase 7.3 — Webinar registration & access
+
+Five JWT-authenticated endpoints expose the webinar lifecycle to the Nuxt frontend.
+
+| Method | Route | Cap | Notes |
+|--------|-------|-----|-------|
+| POST | `/vl/v1/webinars/{slug}/registrations` | `vl_register_for_webinar` | Self-register the caller. 201 on first register, 200 on re-register / already-active (`idempotent: true`). 402 `payment_required` for paid webinars (with `price.amount` / `price.currency` in the body) is the explicit Phase 8 hand-off. |
+| GET | `/vl/v1/webinars/me` | authenticated | Lists the caller's registrations. Query params: `status` (`active` (default) / `cancelled` / `all`), `time_filter` (`upcoming` (default) / `past` / `all`). Each row carries `webinar.*` summary plus a `computed.*` block (`join_window_open`, `join_opens_at`, `join_closes_at`, `recording_available`, `is_past`) so the frontend doesn't re-implement window math. |
+| DELETE | `/vl/v1/webinars/{slug}/registrations` | `vl_register_for_webinar` | Cancels the caller's registration. 200 on cancel and on already-cancelled (`idempotent: true`); 409 `not_registered` when no row. |
+| GET | `/vl/v1/webinars/{slug}/join` | `vl_register_for_webinar` | 302 to `_vl_webinar_zoom_join_url` when `WebinarAccessGate::can_join` allows. 403 `not_registered`, 409 `join_window_not_open` (with `opens_at`), 410 `join_window_closed`, 503 `meeting_not_provisioned` (with `retry_after: 60`) otherwise. |
+| GET | `/vl/v1/webinars/{slug}/recording` | `vl_view_webinar_recording` | 302 to `_vl_webinar_recording_url` when the gate allows. 403 / 404 `recording_not_available` / 410 `recording_window_expired` (with `expired_at`) otherwise. |
+
+Worked example (free webinar happy path):
+
+1. `POST /vl/v1/webinars/vet-may/registrations` → `201 { success: true, registration: {...} }`
+2. `GET /vl/v1/webinars/me?time_filter=upcoming` → row appears with `computed.join_window_open: false` until 15 min before start.
+3. From 15 min before scheduled start through 60 min after scheduled end, `GET /vl/v1/webinars/vet-may/join` redirects to Zoom.
+4. After the recording webhook fires (Phase 7.2), `GET /vl/v1/webinars/vet-may/recording` redirects until `_vl_webinar_recording_available_until`.
+
+Notes:
+
+- **Best-effort gating.** The 302 redirects expose the canonical Zoom URL; a registered user can theoretically capture and share it. We accept this for Phase 7 — Zoom-side per-registrant join URLs are explicitly out of scope.
+- **Capacity-check race.** The `_vl_webinar_max_attendees` check reads `count_active_for_webinar` and is racy under concurrent registration. The unique key on `(webinar_id, user_id)` still prevents the same user double-booking, and marginal over-capacity (1–2 seats over a cap of N) is acceptable.
+- **Bad-meta resilience.** Unparseable `_vl_webinar_*_at` strings are treated as missing (the field is silently ignored) rather than producing a 500.
+
 ## REST surface
 
 All routes live under `vl/v1`. Success responses use `{ success: true, data: {...} }`; errors come back as WordPress's default `WP_Error` shape (`{ code, message, data: { status } }`). This is distinct from `vl-jwt-auth`'s `{ success: false, error: {...} }` envelope on its own routes.

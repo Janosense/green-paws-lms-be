@@ -14,6 +14,9 @@ use VL\LMS\Api\EnrollmentsController;
 use VL\LMS\Api\ProgressController;
 use VL\LMS\Api\QuizAttemptsController;
 use VL\LMS\Api\RestController;
+use VL\LMS\Api\Transformers\WebinarRegistrationTransformer;
+use VL\LMS\Api\WebinarAccessController;
+use VL\LMS\Api\WebinarRegistrationsController;
 use VL\LMS\Api\ZoomWebhookController;
 use VL\LMS\Certificate\CertificateAutoIssuer;
 use VL\LMS\Certificate\CertificateRevoker;
@@ -106,6 +109,9 @@ use VL\LMS\Repositories\ZoomWebhookEventRepository;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Progress\CompletionPropagator;
+use VL\LMS\Services\Webinars\WebinarAccessGate;
+use VL\LMS\Services\Webinars\WebinarLookup;
+use VL\LMS\Services\Webinars\WebinarRegistrationService;
 use VL\LMS\Services\Zoom\HttpZoomClient;
 use VL\LMS\Services\Zoom\PostLookup;
 use VL\LMS\Services\Zoom\Settings\ZoomSettingsProvider;
@@ -362,6 +368,14 @@ final class Plugin {
 		$zoom_webhook_controller = $this->container->get( ZoomWebhookController::class );
 		if ( $zoom_webhook_controller instanceof ZoomWebhookController ) {
 			$zoom_webhook_controller->register_routes();
+		}
+		$webinar_registrations_controller = $this->container->get( WebinarRegistrationsController::class );
+		if ( $webinar_registrations_controller instanceof WebinarRegistrationsController ) {
+			$webinar_registrations_controller->register_routes();
+		}
+		$webinar_access_controller = $this->container->get( WebinarAccessController::class );
+		if ( $webinar_access_controller instanceof WebinarAccessController ) {
+			$webinar_access_controller->register_routes();
 		}
 	}
 
@@ -1696,6 +1710,92 @@ final class Plugin {
 					$logger,
 					static fn (): \DateTimeImmutable
 						=> new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			WebinarLookup::class,
+			static fn (): WebinarLookup => new WebinarLookup()
+		);
+
+		$container->set(
+			WebinarRegistrationService::class,
+			static function ( Container $c ): WebinarRegistrationService {
+				$lookup = $c->get( WebinarLookup::class );
+				assert( $lookup instanceof WebinarLookup );
+				$registrations = $c->get( WebinarRegistrationRepository::class );
+				assert( $registrations instanceof WebinarRegistrationRepository );
+				return new WebinarRegistrationService(
+					$lookup,
+					$registrations,
+					static fn (): \DateTimeImmutable => new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			WebinarAccessGate::class,
+			static function ( Container $c ): WebinarAccessGate {
+				$registrations = $c->get( WebinarRegistrationRepository::class );
+				assert( $registrations instanceof WebinarRegistrationRepository );
+				return new WebinarAccessGate(
+					$registrations,
+					static fn (): \DateTimeImmutable => new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			WebinarRegistrationTransformer::class,
+			static function ( Container $c ): WebinarRegistrationTransformer {
+				$gate = $c->get( WebinarAccessGate::class );
+				assert( $gate instanceof WebinarAccessGate );
+				$cover = $c->get( CoverImageTransformer::class );
+				assert( $cover instanceof CoverImageTransformer );
+				return new WebinarRegistrationTransformer( $gate, $cover );
+			}
+		);
+
+		$container->set(
+			WebinarRegistrationsController::class,
+			static function ( Container $c ): WebinarRegistrationsController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$service = $c->get( WebinarRegistrationService::class );
+				assert( $service instanceof WebinarRegistrationService );
+				$lookup = $c->get( WebinarLookup::class );
+				assert( $lookup instanceof WebinarLookup );
+				$repository = $c->get( WebinarRegistrationRepository::class );
+				assert( $repository instanceof WebinarRegistrationRepository );
+				$transformer = $c->get( WebinarRegistrationTransformer::class );
+				assert( $transformer instanceof WebinarRegistrationTransformer );
+				return new WebinarRegistrationsController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$service,
+					$lookup,
+					$repository,
+					$transformer,
+					static fn (): \DateTimeImmutable => new \DateTimeImmutable( 'now', new \DateTimeZone( 'UTC' ) )
+				);
+			}
+		);
+
+		$container->set(
+			WebinarAccessController::class,
+			static function ( Container $c ): WebinarAccessController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$lookup = $c->get( WebinarLookup::class );
+				assert( $lookup instanceof WebinarLookup );
+				$gate = $c->get( WebinarAccessGate::class );
+				assert( $gate instanceof WebinarAccessGate );
+				return new WebinarAccessController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$lookup,
+					$gate
 				);
 			}
 		);
