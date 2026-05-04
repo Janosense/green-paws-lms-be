@@ -60,7 +60,7 @@ class PositionWriteRule {
 	}
 
 	private function apply_complete( ?Progress $current, ProgressEventRequest $request, ?WP_Post $post ): int {
-		$current_pos = $current?->position_seconds ?? 0;
+		$current_pos = null !== $current ? ( $current->position_seconds ?? 0 ) : 0;
 		$new_pos     = $request->position_seconds ?? 0;
 		$best        = max( $current_pos, $new_pos );
 

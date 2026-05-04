@@ -57,7 +57,7 @@ final class DifficultyTaxonomy extends AbstractTaxonomyRegistrar {
 		return false;
 	}
 
-	protected function capabilities(): ?array {
+	protected function capabilities(): array {
 		return [
 			'manage_terms' => 'manage_options',
 			'edit_terms'   => 'manage_options',

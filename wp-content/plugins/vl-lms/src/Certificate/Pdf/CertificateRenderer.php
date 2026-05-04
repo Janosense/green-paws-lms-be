@@ -40,7 +40,7 @@ class CertificateRenderer {
 		$learner_full_name   = isset( $snapshot['learner_full_name'] ) ? (string) $snapshot['learner_full_name'] : '';
 		$instructor_names    = $this->normalise_string_list( $snapshot['instructor_names'] ?? [] );
 		$issuer_name         = isset( $snapshot['issuer_name'] ) ? (string) $snapshot['issuer_name'] : 'Green Paws LMS';
-		$final_score_pct     = isset( $snapshot['final_score_pct'] ) && null !== $snapshot['final_score_pct']
+		$final_score_pct     = isset( $snapshot['final_score_pct'] )
 			? (int) $snapshot['final_score_pct']
 			: null;
 		$template_version    = isset( $snapshot['template_version'] ) ? (string) $snapshot['template_version'] : 'v1';

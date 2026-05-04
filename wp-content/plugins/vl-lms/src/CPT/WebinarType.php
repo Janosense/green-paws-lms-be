@@ -48,7 +48,7 @@ final class WebinarType extends AbstractCptRegistrar {
 		return [ 'title', 'editor', 'excerpt', 'thumbnail', 'author', 'custom-fields' ];
 	}
 
-	protected function menu_icon(): ?string {
+	protected function menu_icon(): string {
 		return 'dashicons-video-alt3';
 	}
 
@@ -278,7 +278,7 @@ final class WebinarType extends AbstractCptRegistrar {
 			];
 		}
 
-		return array_values( $out );
+		return $out;
 	}
 
 	/**

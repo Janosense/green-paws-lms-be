@@ -48,7 +48,7 @@ final class SessionType extends AbstractCptRegistrar {
 		return [ 'title', 'editor', 'custom-fields', 'page-attributes' ];
 	}
 
-	protected function menu_icon(): ?string {
+	protected function menu_icon(): string {
 		return 'dashicons-calendar-alt';
 	}
 
@@ -241,6 +241,6 @@ final class SessionType extends AbstractCptRegistrar {
 			];
 		}
 
-		return array_values( $out );
+		return $out;
 	}
 }

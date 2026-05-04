@@ -48,7 +48,7 @@ final class CatalogQuery {
 	}
 
 	/**
-	 * @return list<array<string, mixed>>
+	 * @return array<int|string, mixed>
 	 */
 	private function build_tax_query( FilterRequest $request ): array {
 		$clauses = [];

@@ -415,8 +415,6 @@ final class CoursesSeeder {
 			$quiz_out     = null;
 			$course_type  = $spec['type'];
 
-			// phpstan disagrees on the inferred const-literal type; the runtime values are 'self_paced' and 'cohort'.
-			// @phpstan-ignore-next-line
 			if ( 'self_paced' === $course_type ) {
 				$preview_lesson_index = $course_index % 4;
 				$module_index         = 0;

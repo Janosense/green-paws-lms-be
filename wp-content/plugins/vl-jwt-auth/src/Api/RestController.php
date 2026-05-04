@@ -465,9 +465,7 @@ final class RestController {
 			'roles'        => array_values( (array) $user->roles ),
 		];
 		if ( $include_caps ) {
-			$payload['capabilities'] = array_values(
-				array_keys( array_filter( (array) $user->allcaps ) )
-			);
+			$payload['capabilities'] = array_keys( array_filter( (array) $user->allcaps ) );
 		}
 		return $payload;
 	}

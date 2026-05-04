@@ -61,7 +61,7 @@ final class AssignmentType extends AbstractCptRegistrar {
 		return [ 'title', 'editor', 'custom-fields', 'page-attributes' ];
 	}
 
-	protected function menu_icon(): ?string {
+	protected function menu_icon(): string {
 		return 'dashicons-clipboard';
 	}
 

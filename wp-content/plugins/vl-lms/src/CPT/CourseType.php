@@ -41,7 +41,7 @@ final class CourseType extends AbstractCptRegistrar {
 		return [ 'title', 'editor', 'excerpt', 'thumbnail', 'author', 'custom-fields' ];
 	}
 
-	protected function menu_icon(): ?string {
+	protected function menu_icon(): string {
 		return 'dashicons-welcome-learn-more';
 	}
 

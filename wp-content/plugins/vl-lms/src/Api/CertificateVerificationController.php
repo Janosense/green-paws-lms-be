@@ -119,7 +119,7 @@ class CertificateVerificationController {
 			'revoked_at'           => null === $cert->revoked_at
 				? null
 				: $cert->revoked_at->format( \DateTimeInterface::ATOM ),
-			'final_score_pct'      => isset( $snapshot['final_score_pct'] ) && null !== $snapshot['final_score_pct']
+			'final_score_pct'      => isset( $snapshot['final_score_pct'] )
 				? (int) $snapshot['final_score_pct']
 				: null,
 		];

@@ -206,6 +206,6 @@ final class QuizQuestionType extends AbstractCptRegistrar {
 			];
 		}
 
-		return array_values( $out );
+		return $out;
 	}
 }

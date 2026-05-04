@@ -43,7 +43,7 @@ final class LessonType extends AbstractCptRegistrar {
 		return [ 'title', 'editor', 'thumbnail', 'custom-fields', 'page-attributes' ];
 	}
 
-	protected function menu_icon(): ?string {
+	protected function menu_icon(): string {
 		return 'dashicons-video-alt3';
 	}
 
@@ -169,6 +169,6 @@ final class LessonType extends AbstractCptRegistrar {
 			];
 		}
 
-		return array_values( $out );
+		return $out;
 	}
 }

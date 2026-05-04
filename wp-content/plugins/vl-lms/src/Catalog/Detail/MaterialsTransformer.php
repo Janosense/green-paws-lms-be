@@ -51,6 +51,6 @@ final class MaterialsTransformer {
 			];
 		}
 
-		return array_values( $out );
+		return $out;
 	}
 }

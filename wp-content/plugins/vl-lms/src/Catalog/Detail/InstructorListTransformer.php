@@ -59,7 +59,7 @@ final class InstructorListTransformer {
 				),
 			];
 		}
-		return array_values( $out );
+		return $out;
 	}
 
 	/**

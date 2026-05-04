@@ -42,7 +42,7 @@ final class ModuleType extends AbstractCptRegistrar {
 		return [ 'title', 'editor', 'thumbnail', 'custom-fields', 'page-attributes' ];
 	}
 
-	protected function menu_icon(): ?string {
+	protected function menu_icon(): string {
 		return 'dashicons-portfolio';
 	}
 

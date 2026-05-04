@@ -84,7 +84,7 @@ class MultipleChoiceScorer {
 		}
 		$out = array_keys( $seen );
 		sort( $out );
-		return array_values( $out );
+		return $out;
 	}
 
 	private function read_points( int $question_id ): int {

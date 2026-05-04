@@ -200,7 +200,7 @@ class CertificatesController {
 				? null
 				: $cert->revoked_at->format( \DateTimeInterface::ATOM ),
 			'status'          => $cert->status()->value,
-			'final_score_pct' => isset( $snapshot['final_score_pct'] ) && null !== $snapshot['final_score_pct']
+			'final_score_pct' => isset( $snapshot['final_score_pct'] )
 				? (int) $snapshot['final_score_pct']
 				: null,
 		];

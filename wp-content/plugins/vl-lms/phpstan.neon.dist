@@ -17,3 +17,9 @@ parameters:
         - ../vl-jwt-auth/src
     excludePaths:
         - vendor
+    # apply_filters / get_post_meta / get_user_meta runtime can legitimately
+    # diverge from their docblocked return types — third-party filters and
+    # mismatched stored meta both return values outside the declared shape.
+    # Keep PHPStan 2.x's pre-2.0 behaviour so defensive is_array() / instanceof
+    # guards are not reported as dead code.
+    treatPhpDocTypesAsCertain: false
