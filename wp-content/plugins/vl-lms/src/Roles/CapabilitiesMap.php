@@ -86,6 +86,12 @@ final class CapabilitiesMap {
 	 *
 	 * `vl_manage_groups` is intentionally listed for both moderator and
 	 * administrator — moderators own group management.
+	 *
+	 * Phase 8.0 introduces `vl_purchase_course`, `vl_view_own_orders`, and
+	 * `vl_refund_orders`. Despite its name, `vl_purchase_course` covers
+	 * webinar purchase too — it gates `POST /vl/v1/orders` regardless of
+	 * the order's `entity_type`. `vl_refund_orders` is administrator-only
+	 * by design; refunds run through staff workflow, not self-service.
 	 */
 	public const array DOMAIN_CAPS_BY_ROLE = [
 		'student'       => [
@@ -101,6 +107,8 @@ final class CapabilitiesMap {
 			'vl_view_webinar_recording',
 			'vl_download_certificate',
 			'vl_view_certificate',
+			'vl_purchase_course',
+			'vl_view_own_orders',
 		],
 		'instructor'    => [
 			'vl_enroll_in_course',
@@ -117,6 +125,8 @@ final class CapabilitiesMap {
 			'vl_view_certificate',
 			'vl_view_own_stats',
 			'vl_grade_submissions',
+			'vl_purchase_course',
+			'vl_view_own_orders',
 		],
 		'moderator'     => [
 			'vl_enroll_in_course',
@@ -138,6 +148,8 @@ final class CapabilitiesMap {
 			'vl_manage_group_members',
 			'vl_view_user_activity',
 			'vl_manage_groups',
+			'vl_purchase_course',
+			'vl_view_own_orders',
 		],
 		'administrator' => [
 			'vl_enroll_in_course',
@@ -167,6 +179,9 @@ final class CapabilitiesMap {
 			'vl_issue_certificates',
 			'vl_revoke_certificates',
 			'vl_manage_finances',
+			'vl_purchase_course',
+			'vl_view_own_orders',
+			'vl_refund_orders',
 		],
 	];
 

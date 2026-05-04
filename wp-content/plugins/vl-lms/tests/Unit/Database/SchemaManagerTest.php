@@ -91,8 +91,16 @@ final class SchemaManagerTest extends TestCase {
 		self::assertSame( 'wp_vl_zoom_webhook_events', SchemaManager::zoom_webhook_events_table() );
 	}
 
-	public function test_current_db_version_is_six(): void {
-		self::assertSame( '6', SchemaManager::CURRENT_DB_VERSION );
+	public function test_orders_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_orders', SchemaManager::orders_table() );
+	}
+
+	public function test_payments_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_payments', SchemaManager::payments_table() );
+	}
+
+	public function test_current_db_version_is_seven(): void {
+		self::assertSame( '7', SchemaManager::CURRENT_DB_VERSION );
 	}
 
 	public function test_install_short_circuits_when_version_matches(): void {
@@ -108,7 +116,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 13 )
+			->times( 15 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -185,7 +193,7 @@ final class SchemaManagerTest extends TestCase {
 	public function test_install_runs_migration_path_when_stored_version_is_behind(): void {
 		Functions\when( 'get_option' )->justReturn( '2' );
 		Functions\when( 'update_option' )->justReturn( true );
-		Functions\expect( 'dbDelta' )->times( 13 )->andReturn( [] );
+		Functions\expect( 'dbDelta' )->times( 15 )->andReturn( [] );
 
 		SchemaManager::install();
 	}
@@ -195,7 +203,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( '5' );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 13 )
+			->times( 15 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -212,7 +220,7 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_zoom_webhook_events', $combined );
 	}
 
-	public function test_install_upgrade_path_from_five_writes_version_six(): void {
+	public function test_install_upgrade_path_from_five_writes_current_version(): void {
 		$saved_value = null;
 		Functions\when( 'get_option' )->justReturn( '5' );
 		Functions\when( 'dbDelta' )->justReturn( [] );
@@ -229,7 +237,61 @@ final class SchemaManagerTest extends TestCase {
 
 		SchemaManager::install();
 
-		self::assertSame( '6', $saved_value );
+		self::assertSame( SchemaManager::CURRENT_DB_VERSION, $saved_value );
+	}
+
+	public function test_install_creates_orders_and_payments_tables(): void {
+		$captured_sql = [];
+		Functions\when( 'get_option' )->justReturn( false );
+		Functions\when( 'update_option' )->justReturn( true );
+		Functions\expect( 'dbDelta' )
+			->times( 15 )
+			->andReturnUsing(
+				static function ( $sql ) use ( &$captured_sql ): array {
+					$captured_sql[] = $sql;
+					return [];
+				}
+			);
+
+		SchemaManager::install();
+
+		$combined = implode( "\n", $captured_sql );
+
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_orders', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_payments', $combined );
+
+		// Order columns and indexes.
+		self::assertStringContainsString( 'liqpay_order_id VARCHAR(64)', $combined );
+		self::assertStringContainsString( 'amount DECIMAL(12,2) NOT NULL', $combined );
+		self::assertStringContainsString( 'currency CHAR(3) NOT NULL', $combined );
+		self::assertStringContainsString( 'KEY status_expires (status, expires_at)', $combined );
+		self::assertStringContainsString( 'KEY user_entity_status (user_id, entity_type, entity_id, status)', $combined );
+
+		// Payment indexes.
+		self::assertStringContainsString( 'UNIQUE KEY idempotency_key (idempotency_key)', $combined );
+		self::assertStringContainsString( 'KEY order_received (order_id, received_at)', $combined );
+		self::assertStringContainsString( 'KEY provider_payment (provider, provider_payment_id)', $combined );
+	}
+
+	public function test_install_adds_source_order_id_column_to_enrollments(): void {
+		$captured_sql = [];
+		Functions\when( 'get_option' )->justReturn( false );
+		Functions\when( 'update_option' )->justReturn( true );
+		Functions\expect( 'dbDelta' )
+			->times( 15 )
+			->andReturnUsing(
+				static function ( $sql ) use ( &$captured_sql ): array {
+					$captured_sql[] = $sql;
+					return [];
+				}
+			);
+
+		SchemaManager::install();
+
+		$combined = implode( "\n", $captured_sql );
+
+		self::assertStringContainsString( 'source_order_id BIGINT UNSIGNED', $combined );
+		self::assertStringContainsString( 'KEY idx_source_order (source_order_id)', $combined );
 	}
 
 	public function test_uninstall_drops_all_tables_and_deletes_version_option(): void {
@@ -263,5 +325,7 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_session_attendance', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_webinar_registrations', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_zoom_webhook_events', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_orders', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_payments', $combined );
 	}
 }

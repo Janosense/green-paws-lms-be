@@ -377,4 +377,44 @@ final class EnrollmentRepositoryTest extends TestCase {
 			$this->repo->update_progress_state( 7, 100, 50, EnrollmentStatus::ACTIVE, null, $now )
 		);
 	}
+
+	public function test_find_by_id_hydrates_non_null_source_order_id(): void {
+		$row                    = self::row();
+		$row['source_order_id'] = '99';
+
+		$this->wpdb->shouldReceive( 'prepare' )->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_row' )->andReturn( $row );
+
+		$result = $this->repo->find_by_id( 42 );
+
+		self::assertInstanceOf( Enrollment::class, $result );
+		self::assertSame( 99, $result->source_order_id );
+	}
+
+	public function test_insert_persists_source_order_id_when_supplied(): void {
+		$captured = null;
+		$this->wpdb->shouldReceive( 'insert' )
+			->once()
+			->andReturnUsing(
+				function ( string $table, array $data ) use ( &$captured ): int {
+					$captured = $data;
+					return 1;
+				}
+			);
+		$this->wpdb->insert_id = 7;
+
+		$id = $this->repo->insert(
+			[
+				'user_id'         => 1,
+				'course_id'       => 7,
+				'status'          => 'active',
+				'source'          => 'order',
+				'source_order_id' => 99,
+				'enrolled_at'     => '2026-05-01 12:00:00',
+			]
+		);
+
+		self::assertSame( 7, $id );
+		self::assertSame( 99, $captured['source_order_id'] );
+	}
 }

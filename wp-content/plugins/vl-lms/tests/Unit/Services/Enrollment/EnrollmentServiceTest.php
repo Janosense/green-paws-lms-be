@@ -44,6 +44,47 @@ final class EnrollmentServiceTest extends TestCase {
 		self::assertSame( $before, $this->repo->update_call_count() );
 	}
 
+	public function test_enroll_persists_non_null_source_order_id(): void {
+		$enrollment = $this->service->enroll(
+			1,
+			7,
+			EnrollmentSource::PURCHASE,
+			source_order_id: 99
+		);
+
+		self::assertSame( 99, $enrollment->source_order_id );
+		self::assertSame( EnrollmentSource::PURCHASE, $enrollment->source );
+	}
+
+	public function test_enroll_persists_null_source_order_id_when_omitted(): void {
+		$enrollment = $this->service->enroll( 1, 7 );
+
+		self::assertNull( $enrollment->source_order_id );
+	}
+
+	public function test_enroll_on_active_row_is_noop_and_preserves_original_source_order_id(): void {
+		$id = $this->repo->seed(
+			[
+				'user_id'         => 1,
+				'course_id'       => 7,
+				'status'          => EnrollmentStatus::ACTIVE->value,
+				'source_order_id' => 42,
+			]
+		);
+		$before = $this->repo->update_call_count();
+
+		$enrollment = $this->service->enroll(
+			1,
+			7,
+			EnrollmentSource::PURCHASE,
+			source_order_id: 99
+		);
+
+		self::assertSame( $id, $enrollment->id );
+		self::assertSame( 42, $enrollment->source_order_id, 'original order reference must be preserved' );
+		self::assertSame( $before, $this->repo->update_call_count(), 're-enroll must not write' );
+	}
+
 	public function test_enroll_is_idempotent_for_active_existing_row(): void {
 		$id     = $this->repo->seed(
 			[
