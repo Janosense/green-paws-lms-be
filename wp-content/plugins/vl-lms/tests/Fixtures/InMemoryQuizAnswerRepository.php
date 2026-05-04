@@ -74,7 +74,7 @@ final class InMemoryQuizAnswerRepository extends QuizAnswerRepository {
 			return $id;
 		}
 
-		$existing                  = $this->rows[ $existing_id ];
+		$existing                   = $this->rows[ $existing_id ];
 		$this->rows[ $existing_id ] = new QuizAnswer(
 			$existing->id,
 			$existing->attempt_id,

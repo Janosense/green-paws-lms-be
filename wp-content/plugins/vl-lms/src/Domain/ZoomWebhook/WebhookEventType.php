@@ -14,12 +14,12 @@ namespace VL\LMS\Domain\ZoomWebhook;
  */
 enum WebhookEventType: string {
 
-	case MEETING_STARTED             = 'meeting.started';
-	case MEETING_ENDED               = 'meeting.ended';
-	case MEETING_PARTICIPANT_JOINED  = 'meeting.participant_joined';
-	case MEETING_PARTICIPANT_LEFT    = 'meeting.participant_left';
-	case RECORDING_COMPLETED         = 'recording.completed';
-	case ENDPOINT_URL_VALIDATION     = 'endpoint.url_validation';
+	case MEETING_STARTED            = 'meeting.started';
+	case MEETING_ENDED              = 'meeting.ended';
+	case MEETING_PARTICIPANT_JOINED = 'meeting.participant_joined';
+	case MEETING_PARTICIPANT_LEFT   = 'meeting.participant_left';
+	case RECORDING_COMPLETED        = 'recording.completed';
+	case ENDPOINT_URL_VALIDATION    = 'endpoint.url_validation';
 
 	/**
 	 * Lenient parser — returns `null` for any value not in

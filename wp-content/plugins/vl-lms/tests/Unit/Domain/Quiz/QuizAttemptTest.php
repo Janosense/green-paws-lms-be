@@ -83,11 +83,11 @@ final class QuizAttemptTest extends TestCase {
 	}
 
 	public function test_from_array_decodes_passed_when_set(): void {
-		$row                 = self::sample_row();
-		$row['status']       = 'submitted';
-		$row['submitted_at'] = '2026-04-28 10:30:00';
-		$row['score']        = '85';
-		$row['passed']       = '1';
+		$row                       = self::sample_row();
+		$row['status']             = 'submitted';
+		$row['submitted_at']       = '2026-04-28 10:30:00';
+		$row['score']              = '85';
+		$row['passed']             = '1';
 		$row['time_taken_seconds'] = '1800';
 
 		$attempt = QuizAttempt::from_array( $row );
@@ -100,7 +100,7 @@ final class QuizAttemptTest extends TestCase {
 	}
 
 	public function test_from_array_to_array_round_trip_preserves_payload(): void {
-		$attempt   = QuizAttempt::from_array( self::sample_row() );
+		$attempt    = QuizAttempt::from_array( self::sample_row() );
 		$rehydrated = QuizAttempt::from_array( $attempt->to_array() );
 
 		self::assertSame( $attempt->id, $rehydrated->id );

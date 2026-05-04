@@ -2,12 +2,11 @@
 
 declare(strict_types=1);
 
-namespace VL\LMS\Mail;
-
-use VL\LMS\Support\Logger;
+namespace VL\LMS\Support;
 
 /**
- * Shared frontend-base-URL resolver for Phase 7.6 transactional mailers.
+ * Shared frontend-base-URL resolver used by transactional mailers and the
+ * Phase 8.1 LiqPay payload builder.
  *
  * Mirrors `Auth\Mail\VerificationMailer::app_url()` semantics — the
  * `VL_LMS_APP_URL` PHP constant points at the frontend's deployed origin,

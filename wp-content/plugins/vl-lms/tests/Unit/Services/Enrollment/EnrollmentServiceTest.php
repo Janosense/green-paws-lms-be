@@ -63,7 +63,7 @@ final class EnrollmentServiceTest extends TestCase {
 	}
 
 	public function test_enroll_on_active_row_is_noop_and_preserves_original_source_order_id(): void {
-		$id = $this->repo->seed(
+		$id     = $this->repo->seed(
 			[
 				'user_id'         => 1,
 				'course_id'       => 7,

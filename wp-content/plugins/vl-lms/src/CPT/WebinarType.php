@@ -68,7 +68,7 @@ final class WebinarType extends AbstractCptRegistrar {
 			current_user_can( 'edit_post', $object_id );
 
 		return [
-			'_vl_webinar_scheduled_start'        => [
+			'_vl_webinar_scheduled_start'           => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -77,7 +77,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'ISO 8601 UTC timestamp when the webinar starts.',
 			],
-			'_vl_webinar_scheduled_end'          => [
+			'_vl_webinar_scheduled_end'             => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -86,7 +86,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'ISO 8601 UTC timestamp when the webinar ends.',
 			],
-			'_vl_webinar_status'                 => [
+			'_vl_webinar_status'                    => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => 'scheduled',
@@ -95,7 +95,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Lifecycle state — "scheduled", "live", "completed", or "cancelled".',
 			],
-			'_vl_webinar_price'                  => [
+			'_vl_webinar_price'                     => [
 				'type'              => 'number',
 				'single'            => true,
 				'default'           => 0,
@@ -104,7 +104,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Price in UAH (decimal, 2 places). 0 = free.',
 			],
-			'_vl_webinar_cover_image_id'         => [
+			'_vl_webinar_cover_image_id'            => [
 				'type'              => 'integer',
 				'single'            => true,
 				'default'           => 0,
@@ -113,7 +113,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'WP attachment ID for the webinar cover image. 0 = no cover.',
 			],
-			'_vl_webinar_currency'               => [
+			'_vl_webinar_currency'                  => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => 'UAH',
@@ -122,7 +122,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'ISO 4217 currency code.',
 			],
-			'_vl_webinar_max_attendees'          => [
+			'_vl_webinar_max_attendees'             => [
 				'type'              => 'integer',
 				'single'            => true,
 				'default'           => 0,
@@ -131,7 +131,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Maximum registered attendees (0 = unlimited).',
 			],
-			'_vl_webinar_registration_opens_at'  => [
+			'_vl_webinar_registration_opens_at'     => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -140,7 +140,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'ISO 8601 UTC timestamp when registration opens.',
 			],
-			'_vl_webinar_registration_closes_at' => [
+			'_vl_webinar_registration_closes_at'    => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -149,7 +149,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'ISO 8601 UTC timestamp when registration closes.',
 			],
-			'_vl_webinar_zoom_meeting_id'        => [
+			'_vl_webinar_zoom_meeting_id'           => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -158,7 +158,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Zoom meeting ID.',
 			],
-			'_vl_webinar_zoom_join_url'          => [
+			'_vl_webinar_zoom_join_url'             => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -167,7 +167,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Zoom participant join URL.',
 			],
-			'_vl_webinar_zoom_start_url'         => [
+			'_vl_webinar_zoom_start_url'            => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -176,7 +176,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Zoom host start URL.',
 			],
-			'_vl_webinar_zoom_password'          => [
+			'_vl_webinar_zoom_password'             => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -185,7 +185,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Zoom meeting password.',
 			],
-			'_vl_webinar_recording_url'          => [
+			'_vl_webinar_recording_url'             => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -194,7 +194,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Recording URL, populated after the event.',
 			],
-			'_vl_webinar_recording_access_days'  => [
+			'_vl_webinar_recording_access_days'     => [
 				'type'              => 'integer',
 				'single'            => true,
 				'default'           => 0,
@@ -216,7 +216,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => static fn (): bool => false,
 				'description'       => 'ISO 8601 UTC end of the recording access window. Auto-managed by the recording webhook handler.',
 			],
-			'_vl_webinar_preview_video_url'      => [
+			'_vl_webinar_preview_video_url'         => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => '',
@@ -225,7 +225,7 @@ final class WebinarType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Promotional preview video URL for the catalog.',
 			],
-			'_vl_webinar_materials'              => [
+			'_vl_webinar_materials'                 => [
 				'type'              => 'array',
 				'single'            => true,
 				'default'           => [],

@@ -108,6 +108,27 @@ final class PluginTest extends TestCase {
 		self::assertInstanceOf( \VL\LMS\Catalog\Search\SearchController::class, $search );
 	}
 
+	public function test_container_resolves_phase_8_1_order_bindings(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		Plugin::instance()->boot();
+
+		$container = Plugin::instance()->container();
+		self::assertNotNull( $container );
+
+		$orders_controller = $container->get( \VL\LMS\Api\OrdersController::class );
+		self::assertInstanceOf( \VL\LMS\Api\OrdersController::class, $orders_controller );
+
+		$order_service = $container->get( \VL\LMS\Orders\OrderService::class );
+		self::assertInstanceOf( \VL\LMS\Orders\OrderService::class, $order_service );
+
+		$provider = $container->get( \VL\LMS\Payments\PaymentProvider::class );
+		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\LiqPayClient::class, $provider );
+
+		$liqpay_settings = $container->get( \VL\LMS\Payments\LiqPay\Settings::class );
+		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\Settings::class, $liqpay_settings );
+	}
+
 	public function test_default_dependency_check_uses_class_exists(): void {
 		// Override cleared in setUp; the default path relies on the real
 		// facade class, which is not loaded in the unit suite.

@@ -271,4 +271,46 @@ final class WebinarRegistrationServiceTest extends TestCase {
 		self::assertSame( WebinarRegistrationDecisionType::CANCELLED, $decision->decision );
 		self::assertSame( $cancelled, $decision->registration );
 	}
+
+	public function test_has_active_registration_returns_true_when_active_row_exists(): void {
+		$prior = $this->registration( 9, 100, 5 );
+		$this->repository->shouldReceive( 'find_active' )
+			->with( 100, 5 )
+			->andReturn( $prior );
+
+		self::assertTrue( $this->service->has_active_registration( 5, 100 ) );
+	}
+
+	public function test_has_active_registration_returns_false_when_no_active_row(): void {
+		$this->repository->shouldReceive( 'find_active' )
+			->with( 100, 5 )
+			->andReturn( null );
+
+		self::assertFalse( $this->service->has_active_registration( 5, 100 ) );
+	}
+
+	public function test_has_capacity_returns_true_for_unlimited_capacity(): void {
+		$this->meta = [];
+		$this->repository->shouldNotReceive( 'count_active_for_webinar' );
+
+		self::assertTrue( $this->service->has_capacity( 100 ) );
+	}
+
+	public function test_has_capacity_returns_true_when_under_limit(): void {
+		$this->meta['_vl_webinar_max_attendees'] = [ 100 => '50' ];
+		$this->repository->shouldReceive( 'count_active_for_webinar' )
+			->with( 100 )
+			->andReturn( 49 );
+
+		self::assertTrue( $this->service->has_capacity( 100 ) );
+	}
+
+	public function test_has_capacity_returns_false_when_at_limit(): void {
+		$this->meta['_vl_webinar_max_attendees'] = [ 100 => '50' ];
+		$this->repository->shouldReceive( 'count_active_for_webinar' )
+			->with( 100 )
+			->andReturn( 50 );
+
+		self::assertFalse( $this->service->has_capacity( 100 ) );
+	}
 }

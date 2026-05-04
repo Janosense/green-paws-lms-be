@@ -74,10 +74,10 @@ class SessionContentTransformer {
 
 		$attendance_rows = $this->attendance->list_for_user( $user_id, $session_id );
 
-		$status                     = (string) get_post_meta( $session_id, '_vl_session_status', true );
-		$session_number             = (int) get_post_meta( $session_id, '_vl_session_number', true );
-		$materials_raw              = get_post_meta( $session_id, '_vl_session_materials', true );
-		$recording_available_until  = (string) get_post_meta( $session_id, '_vl_session_recording_available_until', true );
+		$status                    = (string) get_post_meta( $session_id, '_vl_session_status', true );
+		$session_number            = (int) get_post_meta( $session_id, '_vl_session_number', true );
+		$materials_raw             = get_post_meta( $session_id, '_vl_session_materials', true );
+		$recording_available_until = (string) get_post_meta( $session_id, '_vl_session_recording_available_until', true );
 
 		return [
 			'session'  => [

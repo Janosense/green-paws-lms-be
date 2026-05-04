@@ -182,9 +182,9 @@ class QuizAttemptRepository {
 		$wpdb = $this->wpdb();
 		$now  = $this->now()->format( self::DATETIME_FORMAT );
 
-		$data                = $attempt->to_array();
-		$data['created_at']  = $now;
-		$data['updated_at']  = $now;
+		$data               = $attempt->to_array();
+		$data['created_at'] = $now;
+		$data['updated_at'] = $now;
 		unset( $data['id'] );
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery

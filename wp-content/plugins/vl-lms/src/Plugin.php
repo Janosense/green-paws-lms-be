@@ -17,8 +17,20 @@ use VL\LMS\Api\RestController;
 use VL\LMS\Api\SessionAccessController;
 use VL\LMS\Api\Transformers\WebinarRegistrationTransformer;
 use VL\LMS\Api\WebinarAccessController;
+use VL\LMS\Api\OrdersController;
+use VL\LMS\Api\OrderTransformer;
+use VL\LMS\Api\PreparedPaymentTransformer;
 use VL\LMS\Api\WebinarRegistrationsController;
 use VL\LMS\Api\ZoomWebhookController;
+use VL\LMS\Orders\OrderService;
+use VL\LMS\Orders\PriceResolver;
+use VL\LMS\Orders\PurchasableLookup;
+use VL\LMS\Payments\LiqPay\LiqPayClient;
+use VL\LMS\Payments\LiqPay\PayloadBuilder as LiqPayPayloadBuilder;
+use VL\LMS\Payments\LiqPay\Settings as LiqPaySettings;
+use VL\LMS\Payments\LiqPay\SignatureBuilder as LiqPaySignatureBuilder;
+use VL\LMS\Payments\PaymentProvider;
+use VL\LMS\Repositories\OrderRepository;
 use VL\LMS\Certificate\CertificateAutoIssuer;
 use VL\LMS\Certificate\CertificateRevoker;
 use VL\LMS\Certificate\CertificateService;
@@ -149,7 +161,6 @@ use VL\LMS\Services\Progress\CourseProgressCalculator;
 use VL\LMS\Services\Progress\PositionWriteRule;
 use VL\LMS\Services\Progress\ProgressService;
 use VL\LMS\Services\Progress\SessionAttendanceProgressListener;
-use VL\LMS\Mail\AppUrlResolver;
 use VL\LMS\Mail\CertificateIssuedMailer;
 use VL\LMS\Mail\HtmlMailSender;
 use VL\LMS\Mail\RecordingReadyMailer;
@@ -159,6 +170,7 @@ use VL\LMS\Services\Notifications\CertificateIssuedListener;
 use VL\LMS\Services\Notifications\RecordingReadyListener;
 use VL\LMS\Services\Notifications\ReminderDispatcher;
 use VL\LMS\Services\Notifications\ReminderScheduler;
+use VL\LMS\Support\AppUrlResolver;
 use VL\LMS\Support\HeroImageSize;
 use VL\LMS\Support\Logger;
 use VL\LMS\Taxonomy\DifficultyTermsInstaller;
@@ -432,6 +444,10 @@ final class Plugin {
 		$session_access_controller = $this->container->get( SessionAccessController::class );
 		if ( $session_access_controller instanceof SessionAccessController ) {
 			$session_access_controller->register_routes();
+		}
+		$orders_controller = $this->container->get( OrdersController::class );
+		if ( $orders_controller instanceof OrdersController ) {
+			$orders_controller->register_routes();
 		}
 	}
 
@@ -2108,6 +2124,113 @@ final class Plugin {
 					$dispatcher,
 					$settings,
 					$logger
+				);
+			}
+		);
+
+		// Phase 8.1 — order service + LiqPay outbound + REST.
+		$container->set(
+			OrderRepository::class,
+			static fn (): OrderRepository => new OrderRepository()
+		);
+
+		$container->set(
+			LiqPaySettings::class,
+			static fn (): LiqPaySettings => new LiqPaySettings()
+		);
+
+		$container->set(
+			LiqPaySignatureBuilder::class,
+			static fn (): LiqPaySignatureBuilder => new LiqPaySignatureBuilder()
+		);
+
+		$container->set(
+			LiqPayPayloadBuilder::class,
+			static function ( Container $c ): LiqPayPayloadBuilder {
+				$settings = $c->get( LiqPaySettings::class );
+				assert( $settings instanceof LiqPaySettings );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				return new LiqPayPayloadBuilder( $settings, $resolver );
+			}
+		);
+
+		$container->set(
+			PaymentProvider::class,
+			static function ( Container $c ): PaymentProvider {
+				$settings = $c->get( LiqPaySettings::class );
+				assert( $settings instanceof LiqPaySettings );
+				$payload = $c->get( LiqPayPayloadBuilder::class );
+				assert( $payload instanceof LiqPayPayloadBuilder );
+				$signature = $c->get( LiqPaySignatureBuilder::class );
+				assert( $signature instanceof LiqPaySignatureBuilder );
+				return new LiqPayClient( $settings, $payload, $signature );
+			}
+		);
+
+		$container->set(
+			PriceResolver::class,
+			static fn (): PriceResolver => new PriceResolver()
+		);
+
+		$container->set(
+			PurchasableLookup::class,
+			static fn (): PurchasableLookup => new PurchasableLookup()
+		);
+
+		$container->set(
+			OrderService::class,
+			static function ( Container $c ): OrderService {
+				$orders = $c->get( OrderRepository::class );
+				assert( $orders instanceof OrderRepository );
+				$prices = $c->get( PriceResolver::class );
+				assert( $prices instanceof PriceResolver );
+				$lookup = $c->get( PurchasableLookup::class );
+				assert( $lookup instanceof PurchasableLookup );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				$webinars = $c->get( WebinarRegistrationService::class );
+				assert( $webinars instanceof WebinarRegistrationService );
+				$provider = $c->get( PaymentProvider::class );
+				assert( $provider instanceof PaymentProvider );
+				return new OrderService(
+					$orders,
+					$prices,
+					$lookup,
+					$enrollments,
+					$webinars,
+					$provider
+				);
+			}
+		);
+
+		$container->set(
+			OrderTransformer::class,
+			static fn (): OrderTransformer => new OrderTransformer()
+		);
+
+		$container->set(
+			PreparedPaymentTransformer::class,
+			static fn (): PreparedPaymentTransformer => new PreparedPaymentTransformer()
+		);
+
+		$container->set(
+			OrdersController::class,
+			static function ( Container $c ): OrdersController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$service = $c->get( OrderService::class );
+				assert( $service instanceof OrderService );
+				$order_transformer = $c->get( OrderTransformer::class );
+				assert( $order_transformer instanceof OrderTransformer );
+				$payment_transformer = $c->get( PreparedPaymentTransformer::class );
+				assert( $payment_transformer instanceof PreparedPaymentTransformer );
+				return new OrdersController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$service,
+					$order_transformer,
+					$payment_transformer
 				);
 			}
 		);

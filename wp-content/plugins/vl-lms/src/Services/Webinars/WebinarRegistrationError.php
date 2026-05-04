@@ -14,11 +14,11 @@ namespace VL\LMS\Services\Webinars;
  */
 enum WebinarRegistrationError: string {
 
-	case WEBINAR_NOT_FOUND          = 'webinar_not_found';
-	case NOT_PUBLISHED              = 'not_published';
-	case REGISTRATION_NOT_OPEN_YET  = 'registration_not_open_yet';
-	case REGISTRATION_CLOSED        = 'registration_closed';
-	case PAYMENT_REQUIRED           = 'payment_required';
-	case CAPACITY_REACHED           = 'capacity_reached';
-	case NOT_REGISTERED             = 'not_registered';
+	case WEBINAR_NOT_FOUND         = 'webinar_not_found';
+	case NOT_PUBLISHED             = 'not_published';
+	case REGISTRATION_NOT_OPEN_YET = 'registration_not_open_yet';
+	case REGISTRATION_CLOSED       = 'registration_closed';
+	case PAYMENT_REQUIRED          = 'payment_required';
+	case CAPACITY_REACHED          = 'capacity_reached';
+	case NOT_REGISTERED            = 'not_registered';
 }

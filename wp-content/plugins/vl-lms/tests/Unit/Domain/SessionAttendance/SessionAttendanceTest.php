@@ -51,8 +51,8 @@ final class SessionAttendanceTest extends TestCase {
 	}
 
 	public function test_from_row_preserves_null_in_nullable_fields(): void {
-		$row              = self::sample_row();
-		$row['user_id']   = null;
+		$row                      = self::sample_row();
+		$row['user_id']           = null;
 		$row['participant_email'] = null;
 		$row['participant_name']  = null;
 

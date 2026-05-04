@@ -54,9 +54,9 @@ final class WebhookEventTest extends TestCase {
 	}
 
 	public function test_from_row_preserves_processed_state(): void {
-		$row                       = self::sample_row();
-		$row['processing_status']  = 'processed';
-		$row['processed_at']       = '2026-04-23 10:00:05';
+		$row                      = self::sample_row();
+		$row['processing_status'] = 'processed';
+		$row['processed_at']      = '2026-04-23 10:00:05';
 
 		$event = WebhookEvent::from_row( $row );
 

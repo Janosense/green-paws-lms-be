@@ -70,7 +70,7 @@ class SessionAccessGate {
 		}
 
 		[ $opens_at, $closes_at ] = $this->window_policy->compute_window( $start, $end );
-		$now                       = ( $this->clock )();
+		$now                      = ( $this->clock )();
 
 		if ( $now < $opens_at ) {
 			return SessionAccessDecision::deny(

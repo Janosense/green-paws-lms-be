@@ -168,4 +168,28 @@ class WebinarRegistrationService {
 	public function find_active( int $webinar_id, int $user_id ): ?WebinarRegistration {
 		return $this->registrations->find_active( $webinar_id, $user_id );
 	}
+
+	/**
+	 * Phase 8.1 — used by `OrderService::create_for_purchase` to short-circuit
+	 * a webinar purchase when the learner already holds an active registration.
+	 */
+	public function has_active_registration( int $user_id, int $webinar_id ): bool {
+		return null !== $this->registrations->find_active( $webinar_id, $user_id );
+	}
+
+	/**
+	 * Phase 8.1 — capacity pre-validation for `OrderService::create_for_purchase`.
+	 *
+	 * Reads `_vl_webinar_max_attendees` (matching the meta key used by the
+	 * registration pipeline above). Zero / missing capacity means unlimited.
+	 * The residual TOCTOU window between this check and the post-payment
+	 * registration in 8.2 is handled by 8.3's refund flow if it ever fires.
+	 */
+	public function has_capacity( int $webinar_id ): bool {
+		$capacity = (int) get_post_meta( $webinar_id, '_vl_webinar_max_attendees', true );
+		if ( $capacity <= 0 ) {
+			return true;
+		}
+		return $this->registrations->count_active_for_webinar( $webinar_id ) < $capacity;
+	}
 }

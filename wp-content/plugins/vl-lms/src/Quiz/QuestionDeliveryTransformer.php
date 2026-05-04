@@ -81,9 +81,9 @@ class QuestionDeliveryTransformer {
 	 * @return array<string, mixed>
 	 */
 	private function transform_one( WP_Post $question, bool $reveal ): array {
-		$id    = (int) $question->ID;
-		$type  = QuestionType::from_meta_value( $this->meta_string( $id, '_vl_question_type' ) );
-		$out   = [
+		$id   = (int) $question->ID;
+		$type = QuestionType::from_meta_value( $this->meta_string( $id, '_vl_question_type' ) );
+		$out  = [
 			'id'        => $id,
 			'type'      => $type->value,
 			'title'     => (string) $question->post_title,

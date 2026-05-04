@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Mail;
 
+use VL\LMS\Support\AppUrlResolver;
 use VL\LMS\Support\Logger;
 use WP_Post;
 use WP_User;

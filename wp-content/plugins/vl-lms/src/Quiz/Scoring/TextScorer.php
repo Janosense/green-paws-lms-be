@@ -75,8 +75,8 @@ class TextScorer {
 	 * "incorrect" plus a logged warning.
 	 */
 	private function regex_match( string $pattern, string $subject, int $question_id ): bool {
-		$wrapped       = '/' . str_replace( '/', '\\/', $pattern ) . '/u';
-		$prev_limit    = ini_get( 'pcre.backtrack_limit' );
+		$wrapped        = '/' . str_replace( '/', '\\/', $pattern ) . '/u';
+		$prev_limit     = ini_get( 'pcre.backtrack_limit' );
 		$prev_limit_str = false === $prev_limit ? '1000000' : (string) $prev_limit;
 		ini_set( 'pcre.backtrack_limit', (string) self::PCRE_BACKTRACK_LIMIT );
 

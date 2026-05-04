@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Mail;
 
 use VL\LMS\Repositories\CertificateRepository;
+use VL\LMS\Support\AppUrlResolver;
 use VL\LMS\Support\Logger;
 use WP_User;
 
