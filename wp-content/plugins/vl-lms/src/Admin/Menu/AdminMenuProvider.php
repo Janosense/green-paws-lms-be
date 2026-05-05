@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin\Menu;
 
+use VL\LMS\Admin\Analytics\AnalyticsPage;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
 
@@ -24,6 +25,7 @@ class AdminMenuProvider {
 
 	public const string PARENT_SLUG    = 'vl-lms';
 	public const string ORDERS_SLUG    = 'vl-lms-orders';
+	public const string ANALYTICS_SLUG = 'vl-lms-analytics';
 	public const string CAP            = 'edit_posts';
 	public const string ORDERS_CAP     = 'vl_refund_orders';
 	public const string MENU_ICON      = 'dashicons-welcome-learn-more';
@@ -31,7 +33,8 @@ class AdminMenuProvider {
 
 	public function __construct(
 		private readonly InstructorDashboardPage $dashboard,
-		private readonly OrdersListPage $orders_page
+		private readonly OrdersListPage $orders_page,
+		private readonly ?AnalyticsPage $analytics_page = null
 	) {
 	}
 
@@ -69,5 +72,16 @@ class AdminMenuProvider {
 			self::ORDERS_SLUG,
 			[ $this->orders_page, 'render' ]
 		);
+
+		if ( null !== $this->analytics_page ) {
+			add_submenu_page(
+				self::PARENT_SLUG,
+				'Аналітика',
+				'Аналітика',
+				self::CAP,
+				self::ANALYTICS_SLUG,
+				[ $this->analytics_page, 'render' ]
+			);
+		}
 	}
 }

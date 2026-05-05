@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS;
 
+use VL\LMS\Admin\Analytics\AnalyticsCron;
 use VL\LMS\Orders\OrderExpirationCron;
 
 /**
@@ -25,5 +26,9 @@ final class Deactivator {
 		// deactivated plugin doesn't keep firing ghost ticks against an
 		// uninstalled handler.
 		wp_clear_scheduled_hook( OrderExpirationCron::HOOK_NAME );
+
+		// Phase 9.3 — clear the nightly analytics rollup hook for the
+		// same reason.
+		wp_clear_scheduled_hook( AnalyticsCron::HOOK_NAME );
 	}
 }

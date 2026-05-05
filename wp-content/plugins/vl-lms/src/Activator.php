@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VL\LMS;
 
+use VL\LMS\Admin\Analytics\AnalyticsCron;
+use VL\LMS\Admin\Analytics\AnalyticsRollupService;
 use VL\LMS\Database\SchemaManager;
 use VL\LMS\Roles\RolesInstaller;
 
@@ -41,12 +43,16 @@ final class Activator {
 		// 2. Custom tables.
 		SchemaManager::install();
 
-		// 3. Record the current plugin version. Distinct from
+		// 3. Phase 9.3 — schedule the nightly analytics rollup. Idempotent
+		// (wp_next_scheduled gate), safe under reactivation.
+		( new AnalyticsCron( new AnalyticsRollupService() ) )->schedule();
+
+		// 4. Record the current plugin version. Distinct from
 		// `vl_lms_db_version` (schema generation) so code-only releases
 		// can bump one without touching the other.
 		update_option( self::PLUGIN_VERSION_OPTION, VL_LMS_VERSION );
 
-		// 4. Queue the tasks that require CPTs / taxonomies to be
+		// 5. Queue the tasks that require CPTs / taxonomies to be
 		// registered. Picked up on the next request's `init` hook, at
 		// priority 20 — after the CPT / taxonomy registrars (priority
 		// 10) have done their work.

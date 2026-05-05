@@ -7,6 +7,9 @@ namespace VL\LMS;
 use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
 use VL\LMS\Admin\AdminProvider;
+use VL\LMS\Admin\Analytics\AnalyticsCron;
+use VL\LMS\Admin\Analytics\AnalyticsPage;
+use VL\LMS\Admin\Analytics\AnalyticsRollupService;
 use VL\LMS\Admin\Api\AdminPreviewController;
 use VL\LMS\Admin\Dashboard\CourseStatsQuery;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
@@ -398,6 +401,19 @@ final class Plugin {
 		if ( $order_expiration_cron instanceof OrderExpirationCron ) {
 			$order_expiration_cron->register();
 			add_action( OrderExpirationCron::HOOK_NAME, [ $order_expiration_cron, 'on_tick' ] );
+		}
+
+		// Phase 9.3 — wire the nightly analytics rollup tick. Scheduling
+		// itself happens in Activator::activate() (and Deactivator clears
+		// the hook); this only attaches the tick callback so the cron has
+		// somewhere to land.
+		$analytics_cron = $this->container->get( AnalyticsCron::class );
+		if ( $analytics_cron instanceof AnalyticsCron ) {
+			add_action( AnalyticsCron::HOOK_NAME, [ $analytics_cron, 'handle' ] );
+		}
+		$analytics_page = $this->container->get( AnalyticsPage::class );
+		if ( $analytics_page instanceof AnalyticsPage ) {
+			add_action( 'admin_enqueue_scripts', [ $analytics_page, 'enqueue_assets' ] );
 		}
 
 		// Phase 8.3 — wire the order-refund revocation listener. Subscribes
@@ -2727,13 +2743,36 @@ final class Plugin {
 				assert( $dashboard instanceof InstructorDashboardPage );
 				$orders_page = $c->get( OrdersListPage::class );
 				assert( $orders_page instanceof OrdersListPage );
-				return new AdminMenuProvider( $dashboard, $orders_page );
+				$analytics_page = $c->get( AnalyticsPage::class );
+				assert( $analytics_page instanceof AnalyticsPage );
+				return new AdminMenuProvider( $dashboard, $orders_page, $analytics_page );
 			}
 		);
 
 		$container->set(
 			AdminPreviewController::class,
 			static fn (): AdminPreviewController => new AdminPreviewController( VL_LMS_API_NAMESPACE )
+		);
+
+		// --- Phase 9.3 — daily analytics rollup + admin page ---
+
+		$container->set(
+			AnalyticsRollupService::class,
+			static fn (): AnalyticsRollupService => new AnalyticsRollupService()
+		);
+
+		$container->set(
+			AnalyticsCron::class,
+			static function ( Container $c ): AnalyticsCron {
+				$rollup = $c->get( AnalyticsRollupService::class );
+				assert( $rollup instanceof AnalyticsRollupService );
+				return new AnalyticsCron( $rollup );
+			}
+		);
+
+		$container->set(
+			AnalyticsPage::class,
+			static fn (): AnalyticsPage => new AnalyticsPage()
 		);
 
 		return $container;
