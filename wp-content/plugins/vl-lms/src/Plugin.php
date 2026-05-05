@@ -6,6 +6,7 @@ namespace VL\LMS;
 
 use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
+use VL\LMS\Api\AdminOrdersController;
 use VL\LMS\Api\AuthController;
 use VL\LMS\Api\CertificatesController;
 use VL\LMS\Api\CertificateVerificationController;
@@ -28,14 +29,19 @@ use VL\LMS\Orders\OrderExpirationCron;
 use VL\LMS\Orders\OrderService;
 use VL\LMS\Orders\PriceResolver;
 use VL\LMS\Orders\PurchasableLookup;
+use VL\LMS\Refunds\OrderRefundEnrollmentRevoker;
+use VL\LMS\Refunds\RefundService;
 use VL\LMS\Payments\LiqPay\CallbackHandler as LiqPayCallbackHandler;
 use VL\LMS\Payments\LiqPay\CallbackParser as LiqPayCallbackParser;
+use VL\LMS\Payments\LiqPay\HttpClient as LiqPayHttpClient;
 use VL\LMS\Payments\LiqPay\LiqPayClient;
 use VL\LMS\Payments\LiqPay\PayloadBuilder as LiqPayPayloadBuilder;
+use VL\LMS\Payments\LiqPay\RefundResponseParser as LiqPayRefundResponseParser;
 use VL\LMS\Payments\LiqPay\Settings as LiqPaySettings;
 use VL\LMS\Payments\LiqPay\SignatureBuilder as LiqPaySignatureBuilder;
 use VL\LMS\Payments\LiqPay\SignatureVerifier as LiqPaySignatureVerifier;
 use VL\LMS\Payments\PaymentProvider;
+use VL\LMS\Payments\RefundCapableProvider;
 use VL\LMS\Repositories\OrderRepository;
 use VL\LMS\Repositories\PaymentRepository;
 use VL\LMS\Certificate\CertificateAutoIssuer;
@@ -366,6 +372,15 @@ final class Plugin {
 			add_action( OrderExpirationCron::HOOK_NAME, [ $order_expiration_cron, 'on_tick' ] );
 		}
 
+		// Phase 8.3 — wire the order-refund revocation listener. Subscribes
+		// to vl_lms_order_refunded at priority 10. The certificate-revocation
+		// chain (Phase 6.3) cascades automatically when EnrollmentService::revoke
+		// fires vl_lms_enrollment_revoked.
+		$refund_revoker = $this->container->get( OrderRefundEnrollmentRevoker::class );
+		if ( $refund_revoker instanceof OrderRefundEnrollmentRevoker ) {
+			add_action( 'vl_lms_order_refunded', [ $refund_revoker, 'on_order_refunded' ], 10, 2 );
+		}
+
 		/**
 		 * Fires once the plugin has finished booting.
 		 *
@@ -478,6 +493,10 @@ final class Plugin {
 		$payments_controller = $this->container->get( PaymentsController::class );
 		if ( $payments_controller instanceof PaymentsController ) {
 			$payments_controller->register_routes();
+		}
+		$admin_orders_controller = $this->container->get( AdminOrdersController::class );
+		if ( $admin_orders_controller instanceof AdminOrdersController ) {
+			$admin_orders_controller->register_routes();
 		}
 	}
 
@@ -2186,15 +2205,47 @@ final class Plugin {
 		);
 
 		$container->set(
-			PaymentProvider::class,
-			static function ( Container $c ): PaymentProvider {
+			LiqPayHttpClient::class,
+			static fn (): LiqPayHttpClient => new LiqPayHttpClient()
+		);
+
+		$container->set(
+			LiqPayRefundResponseParser::class,
+			static fn (): LiqPayRefundResponseParser => new LiqPayRefundResponseParser()
+		);
+
+		$container->set(
+			LiqPayClient::class,
+			static function ( Container $c ): LiqPayClient {
 				$settings = $c->get( LiqPaySettings::class );
 				assert( $settings instanceof LiqPaySettings );
 				$payload = $c->get( LiqPayPayloadBuilder::class );
 				assert( $payload instanceof LiqPayPayloadBuilder );
 				$signature = $c->get( LiqPaySignatureBuilder::class );
 				assert( $signature instanceof LiqPaySignatureBuilder );
-				return new LiqPayClient( $settings, $payload, $signature );
+				$http_client = $c->get( LiqPayHttpClient::class );
+				assert( $http_client instanceof LiqPayHttpClient );
+				$refund_parser = $c->get( LiqPayRefundResponseParser::class );
+				assert( $refund_parser instanceof LiqPayRefundResponseParser );
+				return new LiqPayClient( $settings, $payload, $signature, $http_client, $refund_parser );
+			}
+		);
+
+		$container->set(
+			PaymentProvider::class,
+			static function ( Container $c ): PaymentProvider {
+				$client = $c->get( LiqPayClient::class );
+				assert( $client instanceof LiqPayClient );
+				return $client;
+			}
+		);
+
+		$container->set(
+			RefundCapableProvider::class,
+			static function ( Container $c ): RefundCapableProvider {
+				$client = $c->get( LiqPayClient::class );
+				assert( $client instanceof LiqPayClient );
+				return $client;
 			}
 		);
 
@@ -2344,6 +2395,54 @@ final class Plugin {
 				$logger = $c->get( Logger::class );
 				assert( $logger instanceof Logger );
 				return new OrderExpirationCron( $orders, $logger );
+			}
+		);
+
+		// --- Phase 8.3 — refund flow + admin REST + reversed callback ---
+
+		$container->set(
+			RefundService::class,
+			static function ( Container $c ): RefundService {
+				$orders = $c->get( OrderRepository::class );
+				assert( $orders instanceof OrderRepository );
+				$payments = $c->get( PaymentRepository::class );
+				assert( $payments instanceof PaymentRepository );
+				$provider = $c->get( RefundCapableProvider::class );
+				assert( $provider instanceof RefundCapableProvider );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new RefundService( $orders, $payments, $provider, $logger );
+			}
+		);
+
+		$container->set(
+			OrderRefundEnrollmentRevoker::class,
+			static function ( Container $c ): OrderRefundEnrollmentRevoker {
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
+				$webinars = $c->get( WebinarRegistrationService::class );
+				assert( $webinars instanceof WebinarRegistrationService );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new OrderRefundEnrollmentRevoker( $enrollments, $webinars, $logger );
+			}
+		);
+
+		$container->set(
+			AdminOrdersController::class,
+			static function ( Container $c ): AdminOrdersController {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$refunds = $c->get( RefundService::class );
+				assert( $refunds instanceof RefundService );
+				$transformer = $c->get( OrderTransformer::class );
+				assert( $transformer instanceof OrderTransformer );
+				return new AdminOrdersController(
+					VL_LMS_API_NAMESPACE,
+					$authenticator,
+					$refunds,
+					$transformer
+				);
 			}
 		);
 

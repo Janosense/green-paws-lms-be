@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Api;
 
 use VL\LMS\Auth\RestAuthenticator;
+use VL\LMS\Domain\Enrollment\Enrollment;
 use VL\LMS\Domain\Enrollment\EnrollmentSource;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Repositories\EnrollmentRepository;
@@ -37,10 +38,12 @@ use WP_User;
  */
 final class EnrollmentsController {
 
-	public const string ENROLLMENTS_ROUTE    = '/enrollments';
-	public const string ENROLLMENTS_ME_ROUTE = '/enrollments/me';
+	public const string ENROLLMENTS_ROUTE         = '/enrollments';
+	public const string ENROLLMENTS_ME_ROUTE      = '/enrollments/me';
+	public const string ENROLLMENTS_ME_ITEM_ROUTE = '/enrollments/me/(?P<course_slug>[a-z0-9][a-z0-9-]*)';
 
-	public const string ENROLL_CAPABILITY = 'vl_enroll_in_course';
+	public const string ENROLL_CAPABILITY  = 'vl_enroll_in_course';
+	public const string SELF_REVOKE_REASON = 'user_self_revoke';
 
 	public function __construct(
 		private readonly string $rest_namespace,
@@ -75,6 +78,23 @@ final class EnrollmentsController {
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'list_mine' ],
 				'permission_callback' => [ $this, 'permission_list_mine' ],
+			]
+		);
+
+		register_rest_route(
+			$this->rest_namespace,
+			self::ENROLLMENTS_ME_ITEM_ROUTE,
+			[
+				'methods'             => 'DELETE',
+				'callback'            => [ $this, 'self_revoke' ],
+				'permission_callback' => [ $this, 'permission_list_mine' ],
+				'args'                => [
+					'course_slug' => [
+						'type'              => 'string',
+						'required'          => true,
+						'sanitize_callback' => 'sanitize_title',
+					],
+				],
 			]
 		);
 	}
@@ -212,6 +232,71 @@ final class EnrollmentsController {
 					'items' => $items,
 				],
 			]
+		);
+	}
+
+	/**
+	 * Phase 8.3 — `DELETE /vl/v1/enrollments/me/{course_slug}`.
+	 *
+	 * Self-revoke for free-tier (non-PURCHASE) enrollments. PURCHASE-source
+	 * enrollments require admin refund-flow; the user is told to contact
+	 * support.
+	 *
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function self_revoke( WP_REST_Request $request ) {
+		$user = $this->authenticator->user_from_request( $request );
+		if ( ! $user instanceof WP_User ) {
+			return $this->not_logged_in();
+		}
+		$user_id = (int) $user->ID;
+
+		$slug = (string) $request->get_param( 'course_slug' );
+		if ( '' === $slug ) {
+			return $this->course_not_found();
+		}
+
+		$course = get_page_by_path( $slug, OBJECT, 'vl_course' );
+		if ( ! $course instanceof WP_Post ) {
+			return $this->course_not_found();
+		}
+
+		$enrollment = $this->service->find_for_user_and_course( $user_id, (int) $course->ID );
+		if ( ! $enrollment instanceof Enrollment ) {
+			return $this->enrollment_not_found();
+		}
+		if ( $enrollment->user_id !== $user_id ) {
+			// Defensive — find_for_user_and_course is keyed on user_id, so
+			// reaching this branch is unreachable in practice. Mirrors the
+			// "mask other-user's enrollment as 404" instruction in the spec.
+			return $this->enrollment_not_found();
+		}
+		if ( EnrollmentStatus::ACTIVE !== $enrollment->status && EnrollmentStatus::COMPLETED !== $enrollment->status ) {
+			return $this->enrollment_not_found();
+		}
+		if ( EnrollmentSource::PURCHASE === $enrollment->source ) {
+			return new WP_Error(
+				'purchase_enrollment_requires_refund',
+				__( 'Платні записи можна відкликати лише через процедуру повернення коштів.', 'vl-lms' ),
+				[ 'status' => 403 ]
+			);
+		}
+
+		$revoked = $this->service->revoke( $enrollment->id, $user_id, self::SELF_REVOKE_REASON );
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'data'    => $this->transformer->transform( $revoked, $course ),
+			]
+		);
+	}
+
+	private function enrollment_not_found(): WP_Error {
+		return new WP_Error(
+			'enrollment_not_found',
+			__( 'Запис на курс не знайдено.', 'vl-lms' ),
+			[ 'status' => 404 ]
 		);
 	}
 

@@ -162,6 +162,33 @@ final class PluginTest extends TestCase {
 		self::assertInstanceOf( \VL\LMS\Orders\OrderExpirationCron::class, $cron );
 	}
 
+	public function test_container_resolves_phase_8_3_refund_bindings(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		Plugin::instance()->boot();
+
+		$container = Plugin::instance()->container();
+		self::assertNotNull( $container );
+
+		$refund_service = $container->get( \VL\LMS\Refunds\RefundService::class );
+		self::assertInstanceOf( \VL\LMS\Refunds\RefundService::class, $refund_service );
+
+		$revoker = $container->get( \VL\LMS\Refunds\OrderRefundEnrollmentRevoker::class );
+		self::assertInstanceOf( \VL\LMS\Refunds\OrderRefundEnrollmentRevoker::class, $revoker );
+
+		$admin_controller = $container->get( \VL\LMS\Api\AdminOrdersController::class );
+		self::assertInstanceOf( \VL\LMS\Api\AdminOrdersController::class, $admin_controller );
+
+		$refund_provider = $container->get( \VL\LMS\Payments\RefundCapableProvider::class );
+		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\LiqPayClient::class, $refund_provider );
+
+		$http_client = $container->get( \VL\LMS\Payments\LiqPay\HttpClient::class );
+		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\HttpClient::class, $http_client );
+
+		$refund_parser = $container->get( \VL\LMS\Payments\LiqPay\RefundResponseParser::class );
+		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\RefundResponseParser::class, $refund_parser );
+	}
+
 	public function test_default_dependency_check_uses_class_exists(): void {
 		// Override cleared in setUp; the default path relies on the real
 		// facade class, which is not loaded in the unit suite.

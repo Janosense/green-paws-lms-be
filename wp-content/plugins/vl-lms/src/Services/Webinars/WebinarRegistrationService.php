@@ -215,6 +215,43 @@ class WebinarRegistrationService {
 	}
 
 	/**
+	 * Phase 8.3 — gate-bypassing revocation entry-point for the order-refund
+	 * fan-out. Symmetric inverse of {@see register_for_purchase}.
+	 *
+	 * Bypasses every gate the user-driven {@see cancel} runs (timing /
+	 * lifecycle rules, etc.): payment was reversed, so the registration must
+	 * be terminated regardless of whether the webinar already started, has
+	 * already been attended, or sits inside a "no-cancellation" window.
+	 *
+	 * Idempotent — if no active registration exists, returns `false`. The
+	 * `$source_order_id` parameter is currently accepted but not stored
+	 * (per Phase 8.0's locked decision: no `source_order_id` column on
+	 * `vl_webinar_registrations`); reserved for forward-compatibility and
+	 * for inclusion in future event payloads.
+	 *
+	 * @return bool true if a registration was revoked, false on no-op.
+	 */
+	public function revoke_for_refund(
+		int $user_id,
+		int $webinar_id,
+		int $source_order_id
+	): bool {
+		unset( $source_order_id ); // Reserved for the audit trail; stored on `vl_orders`.
+
+		$existing = $this->registrations->find( $webinar_id, $user_id );
+		if ( null === $existing ) {
+			return false;
+		}
+		if ( WebinarRegistrationStatus::ACTIVE !== $existing->status ) {
+			return false;
+		}
+
+		$now       = ( $this->clock )();
+		$cancelled = $this->registrations->cancel( $webinar_id, $user_id, $now );
+		return null !== $cancelled;
+	}
+
+	/**
 	 * Phase 8.1 — capacity pre-validation for `OrderService::create_for_purchase`.
 	 *
 	 * Reads `_vl_webinar_max_attendees` (matching the meta key used by the

@@ -9,9 +9,13 @@ use Brain\Monkey\Actions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
+use VL\LMS\Domain\Money\Money;
 use VL\LMS\Domain\Order\OrderStatus;
 use VL\LMS\Domain\Order\PurchasableEntityType;
+use VL\LMS\Domain\Payment\Payment;
+use VL\LMS\Domain\Payment\PaymentProvider as DomainPaymentProvider;
 use VL\LMS\Domain\Payment\PaymentStatus;
+use VL\LMS\Domain\Payment\PaymentTransactionType;
 use VL\LMS\Payments\LiqPay\CallbackHandler;
 use VL\LMS\Payments\LiqPay\CallbackOutcome;
 use VL\LMS\Payments\LiqPay\CallbackPayload;
@@ -147,17 +151,53 @@ final class CallbackHandlerTest extends TestCase {
 		);
 	}
 
-	public function test_reversed_status_short_circuits_no_op(): void {
-		$order_id = $this->seed_pending_order( 'uuid-reversed', '1500.00' );
-		$payload  = $this->payload( order_id: 'uuid-reversed', status: 'reversed', payment_id: '401' );
+	public function test_reversed_callback_after_sync_refund_returns_duplicate(): void {
+		// Phase 8.3 — the sync refund flow has already recorded a REFUND row
+		// with idempotency key `liqpay:{payment_id}:refund:reversed`. The
+		// callback's identical key collides on insert, which the handler
+		// interprets as confirmation.
+		$order_id = $this->seed_refunded_order( 'uuid-reversed', '1500.00' );
+		$this->seed_prior_refund_row( $order_id, payment_id: '401' );
+
+		$payload = $this->payload(
+			order_id: 'uuid-reversed',
+			status: 'reversed',
+			payment_id: '401',
+			action: 'refund'
+		);
 
 		Actions\expectDone( 'vl_lms_order_paid' )->never();
+		Actions\expectDone( 'vl_lms_order_refunded' )->never();
+
+		$outcome = $this->handler->handle( $payload );
+
+		self::assertSame( CallbackOutcome::OK_DUPLICATE, $outcome );
+		self::assertSame(
+			OrderStatus::REFUNDED,
+			( $this->orders->find_by_id( $order_id ) ?? throw new \RuntimeException( 'order missing' ) )->status
+		);
+		// Only the seeded prior row exists; no duplicate insert succeeded.
+		self::assertCount( 1, $this->payments->list_for_order( $order_id ) );
+	}
+
+	public function test_orphan_reversed_callback_returns_no_op_without_writing_row(): void {
+		// Phase 8.3 — no prior REFUND row in DB. LiqPay reversed a charge
+		// we did not initiate; we log a warning and short-circuit.
+		$order_id = $this->seed_paid_order( 'uuid-orphan', '1500.00' );
+
+		$payload = $this->payload(
+			order_id: 'uuid-orphan',
+			status: 'reversed',
+			payment_id: '402',
+			action: 'refund'
+		);
 
 		$outcome = $this->handler->handle( $payload );
 
 		self::assertSame( CallbackOutcome::OK_NO_OP, $outcome );
+		// Order remains PAID — operator must investigate.
 		self::assertSame(
-			OrderStatus::PENDING,
+			OrderStatus::PAID,
 			( $this->orders->find_by_id( $order_id ) ?? throw new \RuntimeException( 'order missing' ) )->status
 		);
 		self::assertSame( [], $this->payments->list_for_order( $order_id ) );
@@ -309,6 +349,39 @@ final class CallbackHandlerTest extends TestCase {
 				'entity_type'     => PurchasableEntityType::COURSE->value,
 			]
 		);
+	}
+
+	private function seed_refunded_order( string $uuid, string $amount, string $currency = 'UAH' ): int {
+		return $this->orders->seed(
+			[
+				'uuid'            => $uuid,
+				'liqpay_order_id' => $uuid,
+				'status'          => OrderStatus::REFUNDED->value,
+				'amount'          => $amount,
+				'currency'        => $currency,
+				'entity_type'     => PurchasableEntityType::COURSE->value,
+				'paid_at'         => '2026-05-01 11:00:00',
+				'refunded_at'     => '2026-05-04 11:00:00',
+			]
+		);
+	}
+
+	private function seed_prior_refund_row( int $order_id, string $payment_id ): void {
+		$row = new Payment(
+			id: null,
+			order_id: $order_id,
+			provider: DomainPaymentProvider::LIQPAY,
+			provider_payment_id: $payment_id,
+			provider_action: 'refund',
+			status: PaymentStatus::REVERSED,
+			raw_provider_status: 'reversed',
+			transaction_type: PaymentTransactionType::REFUND,
+			amount: Money::from_major_decimal( '1500.00', 'UAH' ),
+			raw_payload: '{"status":"reversed"}',
+			received_at: $this->now,
+			idempotency_key: sprintf( 'liqpay:%s:refund:reversed', $payment_id )
+		);
+		$this->payments->insert( $row );
 	}
 
 	private function seed_paid_order( string $uuid, string $amount, string $currency = 'UAH' ): int {

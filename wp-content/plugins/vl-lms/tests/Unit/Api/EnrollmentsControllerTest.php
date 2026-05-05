@@ -44,6 +44,9 @@ final class EnrollmentsControllerTest extends TestCase {
 	/** @var array<string, array<int, mixed>> */
 	private array $meta = [];
 
+	/** @var array<string, WP_Post|null> */
+	private array $page_by_slug = [];
+
 	private int $now_utc = 1_730_000_000;
 
 	protected function setUp(): void {
@@ -84,6 +87,10 @@ final class EnrollmentsControllerTest extends TestCase {
 			fn (): int => $this->now_utc
 		);
 		Functions\when( 'wp_get_attachment_image_src' )->justReturn( false );
+		Functions\when( 'sanitize_title' )->returnArg();
+		Functions\when( 'get_page_by_path' )->alias(
+			fn ( string $slug, string $output, string $post_type ): ?WP_Post => $this->page_by_slug[ $slug ] ?? null
+		);
 
 		$this->authenticator = Mockery::mock( RestAuthenticator::class );
 		$this->repository    = Mockery::mock( EnrollmentRepository::class );
@@ -120,13 +127,16 @@ final class EnrollmentsControllerTest extends TestCase {
 
 		$this->controller->register_routes();
 
-		self::assertCount( 2, $calls );
+		self::assertCount( 3, $calls );
 		self::assertSame( 'vl/v1', $calls[0]['namespace'] );
 		self::assertSame( '/enrollments', $calls[0]['route'] );
 		self::assertSame( 'POST', $calls[0]['args']['methods'] );
 		self::assertTrue( $calls[0]['args']['args']['course_id']['required'] );
 		self::assertSame( '/enrollments/me', $calls[1]['route'] );
 		self::assertSame( 'GET', $calls[1]['args']['methods'] );
+		// Phase 8.3 — DELETE self-revoke endpoint.
+		self::assertSame( '/enrollments/me/(?P<course_slug>[a-z0-9][a-z0-9-]*)', $calls[2]['route'] );
+		self::assertSame( 'DELETE', $calls[2]['args']['methods'] );
 	}
 
 	// ---------------------------------------------------------------------
@@ -564,6 +574,136 @@ final class EnrollmentsControllerTest extends TestCase {
 		$item     = $response->get_data()['data']['items'][0];
 
 		self::assertNull( $item['course']['cover'] );
+	}
+
+	// ---------------------------------------------------------------------
+	// DELETE /enrollments/me/{course_slug} — Phase 8.3 self-revoke
+	// ---------------------------------------------------------------------
+
+	public function test_self_revoke_returns_401_when_not_authenticated(): void {
+		$this->stage_user( null );
+
+		$result = $this->controller->self_revoke( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'rest_not_logged_in', $result->get_error_code() );
+		self::assertSame( 401, $result->get_error_data()['status'] );
+	}
+
+	public function test_self_revoke_returns_404_when_course_not_found(): void {
+		$this->stage_user( $this->user( 5 ) );
+
+		$result = $this->controller->self_revoke( $this->request( [ 'course_slug' => 'no-such' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'course_not_found', $result->get_error_code() );
+	}
+
+	public function test_self_revoke_returns_404_when_no_active_enrollment(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$course                            = $this->course_post( 10 );
+		$this->page_by_slug['free-course'] = $course;
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( null );
+
+		$result = $this->controller->self_revoke( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'enrollment_not_found', $result->get_error_code() );
+		self::assertSame( 404, $result->get_error_data()['status'] );
+	}
+
+	public function test_self_revoke_returns_403_for_purchase_source(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$course                            = $this->course_post( 10 );
+		$this->page_by_slug['free-course'] = $course;
+
+		$enrollment = new Enrollment(
+			id: 100,
+			user_id: 5,
+			course_id: 10,
+			status: EnrollmentStatus::ACTIVE,
+			source: EnrollmentSource::PURCHASE,
+			source_group_id: null,
+			source_order_id: 42,
+			enrolled_at: '2026-04-15 12:00:00',
+			started_at: null,
+			completed_at: null,
+			expires_at: null,
+			revoked_at: null,
+			revoked_by: null,
+			revoke_reason: null,
+			progress_pct: 0,
+			created_at: '2026-04-15 12:00:00',
+			updated_at: '2026-04-15 12:00:00'
+		);
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( $enrollment );
+
+		$result = $this->controller->self_revoke( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'purchase_enrollment_requires_refund', $result->get_error_code() );
+		self::assertSame( 403, $result->get_error_data()['status'] );
+	}
+
+	public function test_self_revoke_succeeds_for_self_signup_source(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$course                            = $this->course_post( 10 );
+		$this->page_by_slug['free-course'] = $course;
+
+		$enrollment = $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE );
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( $enrollment );
+
+		// EnrollmentService::revoke runs find_by_id → update → fire action → reload.
+		$this->repository->shouldReceive( 'find_by_id' )
+			->with( 100 )
+			->andReturn( $enrollment, $this->enrollment( 100, 5, 10, EnrollmentStatus::REVOKED ) );
+		$captured_update_data = null;
+		$this->repository->shouldReceive( 'update' )
+			->once()
+			->andReturnUsing(
+				static function ( int $id, array $data ) use ( &$captured_update_data ): bool {
+					$captured_update_data = $data;
+					return true;
+				}
+			);
+
+		$this->transformer->shouldReceive( 'transform' )->andReturn(
+			[
+				'id'     => 100,
+				'status' => 'revoked',
+			]
+		);
+
+		\Brain\Monkey\Actions\expectDone( 'vl_lms_enrollment_revoked' )->once();
+
+		$response = $this->controller->self_revoke( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		self::assertSame( EnrollmentStatus::REVOKED->value, $captured_update_data['status'] );
+		self::assertSame( 5, $captured_update_data['revoked_by'] );
+		self::assertSame( EnrollmentsController::SELF_REVOKE_REASON, $captured_update_data['revoke_reason'] );
+	}
+
+	public function test_self_revoke_returns_404_for_already_revoked_enrollment(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$course                            = $this->course_post( 10 );
+		$this->page_by_slug['free-course'] = $course;
+
+		$revoked_row = $this->enrollment( 100, 5, 10, EnrollmentStatus::REVOKED );
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( $revoked_row );
+
+		$result = $this->controller->self_revoke( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'enrollment_not_found', $result->get_error_code() );
 	}
 
 	// ---------------------------------------------------------------------

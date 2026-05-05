@@ -38,6 +38,22 @@ if ( ! defined( 'VL_LMS_API_NAMESPACE' ) ) {
 	define( 'VL_LMS_API_NAMESPACE', 'vl/v1' );
 }
 
+// WordPress core's row-format constants used by `$wpdb` and `get_page_by_path()`.
+// In production these come from `wp-includes/wp-db.php`; in unit tests neither
+// the function nor the constant is loaded by default. Brain Monkey intercepts
+// the function call, but PHP still needs the constant to evaluate at the call site.
+// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- WordPress core constants.
+if ( ! defined( 'OBJECT' ) ) {
+	define( 'OBJECT', 'OBJECT' );
+}
+if ( ! defined( 'ARRAY_A' ) ) {
+	define( 'ARRAY_A', 'ARRAY_A' );
+}
+if ( ! defined( 'ARRAY_N' ) ) {
+	define( 'ARRAY_N', 'ARRAY_N' );
+}
+// phpcs:enable
+
 // vl-jwt-auth's secret key constant is defined in `wp-config.php` at runtime.
 // Tests and static analysis never need a real value; this placeholder is
 // enough to make `defined(...)` / `(string) VL_JWT_AUTH_SECRET_KEY` type-check.

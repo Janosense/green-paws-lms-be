@@ -49,6 +49,26 @@ class PayloadBuilder {
 		];
 	}
 
+	/**
+	 * Phase 8.3 — refund payload, symmetric to {@see self::build()}.
+	 *
+	 * Identifies the original order by its uuid (we send `uuid` as
+	 * `order_id` to LiqPay on the prepare-side, so refunds round-trip on
+	 * the same key). Amount is the full order amount — partial refunds are
+	 * out of scope (locked since 8.0).
+	 *
+	 * @return array<string, scalar>
+	 */
+	public function build_refund( Order $order ): array {
+		return [
+			'version'    => 3,
+			'public_key' => $this->settings->public_key(),
+			'action'     => 'refund',
+			'order_id'   => $order->uuid,
+			'amount'     => $order->amount->to_major_decimal(),
+		];
+	}
+
 	private function build_description( Order $order ): string {
 		$prefix = match ( $order->entity_type ) {
 			PurchasableEntityType::COURSE  => 'Курс',

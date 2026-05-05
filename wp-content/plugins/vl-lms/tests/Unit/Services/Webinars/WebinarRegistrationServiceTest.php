@@ -340,4 +340,43 @@ final class WebinarRegistrationServiceTest extends TestCase {
 
 		self::assertSame( $existing, $result );
 	}
+
+	public function test_revoke_for_refund_cancels_active_registration(): void {
+		$existing = $this->registration( 5, 200, 7 );
+		$this->repository->shouldReceive( 'find' )
+			->with( 200, 7 )
+			->andReturn( $existing );
+		$cancelled = $this->registration( 5, 200, 7, WebinarRegistrationStatus::CANCELLED );
+		$this->repository->shouldReceive( 'cancel' )
+			->once()
+			->with( 200, 7, $this->now )
+			->andReturn( $cancelled );
+
+		$result = $this->service->revoke_for_refund( 7, 200, 42 );
+
+		self::assertTrue( $result );
+	}
+
+	public function test_revoke_for_refund_returns_false_when_no_registration(): void {
+		$this->repository->shouldReceive( 'find' )
+			->with( 200, 7 )
+			->andReturn( null );
+		$this->repository->shouldNotReceive( 'cancel' );
+
+		$result = $this->service->revoke_for_refund( 7, 200, 42 );
+
+		self::assertFalse( $result );
+	}
+
+	public function test_revoke_for_refund_returns_false_when_already_cancelled(): void {
+		$existing = $this->registration( 5, 200, 7, WebinarRegistrationStatus::CANCELLED );
+		$this->repository->shouldReceive( 'find' )
+			->with( 200, 7 )
+			->andReturn( $existing );
+		$this->repository->shouldNotReceive( 'cancel' );
+
+		$result = $this->service->revoke_for_refund( 7, 200, 42 );
+
+		self::assertFalse( $result );
+	}
 }

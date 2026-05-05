@@ -16,7 +16,8 @@ use VL\LMS\Repositories\PaymentRepository;
 use VL\LMS\Support\Logger;
 
 /**
- * Phase 8.2 — runs the LiqPay callback state machine.
+ * Phase 8.2 — runs the LiqPay callback state machine. Phase 8.3 matures the
+ * `reversed` branch from short-circuit to confirmation.
  *
  * Decision table (per the spec's locked decisions):
  *
@@ -25,7 +26,8 @@ use VL\LMS\Support\Logger;
  *   | `success`, `sandbox`                                | yes | → PAID                 | fires               |
  *   | `failure`, `error`                                  | yes | → FAILED               | does not fire       |
  *   | `wait_*`, `processing`                              | yes | none                   | does not fire       |
- *   | `reversed`                                          | no  | none (deferred to 8.3) | does not fire       |
+ *   | `reversed` (matching prior REFUND row)              | dup | none (already REFUNDED) | does not fire       |
+ *   | `reversed` (orphan; no prior REFUND row)            | no  | none                   | does not fire       |
  *   | `other` (unknown)                                   | yes | none                   | does not fire       |
  *
  * Currency or amount mismatch short-circuits the table: no row, no transition.
@@ -86,11 +88,7 @@ class CallbackHandler {
 		}
 
 		if ( 'reversed' === $payload->status() ) {
-			$this->logger->info(
-				'LiqPay callback `reversed` short-circuited (deferred to Phase 8.3)',
-				[ 'order_uuid' => $order->uuid ]
-			);
-			return CallbackOutcome::OK_NO_OP;
+			return $this->handle_reversed( $order, $payload );
 		}
 
 		if ( null === $payload->payment_id() ) {
@@ -161,6 +159,88 @@ class CallbackHandler {
 		}
 
 		return CallbackOutcome::OK_PROCESSED;
+	}
+
+	/**
+	 * Phase 8.3 — handle a `reversed` callback.
+	 *
+	 * The sync refund flow ({@see \VL\LMS\Refunds\RefundService}) records a
+	 * REFUND row with idempotency key `liqpay:{payment_id}:refund:reversed`
+	 * BEFORE LiqPay's matching `reversed` callback arrives. The callback
+	 * tries to insert the same row, hits the UNIQUE constraint, and surfaces
+	 * as {@see PaymentAlreadyRecordedException} — which is the expected
+	 * confirmation case here, returning {@see CallbackOutcome::OK_DUPLICATE}.
+	 *
+	 * If no prior REFUND row exists at all, this is an "orphan reversed":
+	 * LiqPay reversed a charge we did not initiate. We log a warning and
+	 * return `OK_NO_OP` (no row, no transition — the order may still be in
+	 * PAID, and the operator must investigate manually).
+	 */
+	private function handle_reversed( Order $order, CallbackPayload $payload ): CallbackOutcome {
+		if ( null === $payload->payment_id() ) {
+			$this->logger->warning(
+				'LiqPay `reversed` callback missing payment_id',
+				[ 'order_uuid' => $order->uuid ]
+			);
+			return CallbackOutcome::OK_NO_OP;
+		}
+
+		$prior_refund = $this->find_prior_refund( $payload->payment_id() );
+		if ( null === $prior_refund ) {
+			$this->logger->warning(
+				'Orphan LiqPay `reversed` callback — no matching refund row in DB',
+				[
+					'order_uuid' => $order->uuid,
+					'payment_id' => $payload->payment_id(),
+				]
+			);
+			return CallbackOutcome::OK_NO_OP;
+		}
+
+		$confirmation = new Payment(
+			id: null,
+			order_id: (int) $order->id,
+			provider: PaymentProvider::LIQPAY,
+			provider_payment_id: $payload->payment_id(),
+			provider_action: $payload->action(),
+			status: PaymentStatus::REVERSED,
+			raw_provider_status: $payload->status(),
+			transaction_type: PaymentTransactionType::REFUND,
+			amount: $order->amount,
+			raw_payload: $payload->raw_payload_json(),
+			received_at: $this->now(),
+			idempotency_key: $payload->to_idempotency_key()
+		);
+
+		try {
+			$this->payments->insert( $confirmation );
+		} catch ( PaymentAlreadyRecordedException ) {
+			$this->logger->info(
+				'LiqPay `reversed` callback confirmed prior sync refund (idempotency-key collision)',
+				[
+					'order_uuid'      => $order->uuid,
+					'idempotency_key' => $confirmation->idempotency_key,
+				]
+			);
+			return CallbackOutcome::OK_DUPLICATE;
+		}
+
+		// Reached only if the prior REFUND row carried a different idempotency
+		// key (e.g. a future code path that diverges them). Defensive — we
+		// still record the confirmation but do not transition.
+		return CallbackOutcome::OK_PROCESSED;
+	}
+
+	private function find_prior_refund( string $provider_payment_id ): ?Payment {
+		$matches = $this->payments->list_by_provider_payment_id( 'liqpay', $provider_payment_id );
+		foreach ( $matches as $row ) {
+			if ( PaymentTransactionType::REFUND === $row->transaction_type
+				&& PaymentStatus::REVERSED === $row->status
+			) {
+				return $row;
+			}
+		}
+		return null;
 	}
 
 	private function find_order( CallbackPayload $payload ): ?Order {

@@ -95,6 +95,41 @@ final class PayloadBuilderTest extends TestCase {
 		self::assertSame( '99.50', $payload['amount'] );
 	}
 
+	public function test_build_refund_emits_action_refund_with_full_amount(): void {
+		$order = $this->course_order( 'web-design', 'Web Design', '1500.00' );
+
+		$builder = new PayloadBuilder(
+			new TestLiqPaySettings(
+				constants: [
+					'VL_LMS_LIQPAY_PUBLIC_KEY'  => 'pk_live',
+					'VL_LMS_LIQPAY_PRIVATE_KEY' => 'sk_live',
+				]
+			),
+			$this->resolver()
+		);
+
+		$payload = $builder->build_refund( $order );
+
+		self::assertSame( 3, $payload['version'] );
+		self::assertSame( 'pk_live', $payload['public_key'] );
+		self::assertSame( 'refund', $payload['action'] );
+		self::assertSame( $order->uuid, $payload['order_id'] );
+		self::assertSame( '1500.00', $payload['amount'] );
+		self::assertArrayNotHasKey( 'description', $payload );
+		self::assertArrayNotHasKey( 'server_url', $payload );
+	}
+
+	public function test_build_refund_uses_order_uuid_as_order_id(): void {
+		$order = $this->webinar_order( 'AMA' );
+
+		$builder = new PayloadBuilder( new TestLiqPaySettings(), $this->resolver() );
+
+		$payload = $builder->build_refund( $order );
+
+		self::assertSame( $order->uuid, $payload['order_id'] );
+		self::assertSame( '500.00', $payload['amount'] );
+	}
+
 	public function test_long_title_is_truncated(): void {
 		$title = str_repeat( 'А', 250 );
 		$order = $this->course_order( 'long', $title, '100.00' );
