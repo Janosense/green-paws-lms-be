@@ -8,6 +8,10 @@ use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
 use VL\LMS\Admin\AdminProvider;
 use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
+use VL\LMS\Admin\MetaBoxes\ChildList\LessonListMetaBox;
+use VL\LMS\Admin\MetaBoxes\ChildList\ModuleListMetaBox;
+use VL\LMS\Admin\MetaBoxes\ChildList\QuestionListMetaBox;
+use VL\LMS\Admin\MetaBoxes\ChildList\TopicListMetaBox;
 use VL\LMS\Admin\MetaBoxes\CourseInstructorsMetaBox;
 use VL\LMS\Admin\MetaBoxes\CourseMetaBox;
 use VL\LMS\Admin\MetaBoxes\LessonMetaBox;
@@ -19,6 +23,7 @@ use VL\LMS\Admin\MetaBoxes\TopicMetaBox;
 use VL\LMS\Admin\MetaBoxes\WebinarMetaBox;
 use VL\LMS\Admin\Orders\OrderDetailPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
+use VL\LMS\Admin\Reorder\ReorderAjaxHandler;
 use VL\LMS\Api\AdminOrdersController;
 use VL\LMS\Api\AuthController;
 use VL\LMS\Api\CertificatesController;
@@ -2650,6 +2655,14 @@ final class Plugin {
 			}
 		);
 
+		// --- Phase 9.1 — drag-drop reorder ---
+
+		$container->set( ModuleListMetaBox::class, static fn (): ModuleListMetaBox => new ModuleListMetaBox() );
+		$container->set( LessonListMetaBox::class, static fn (): LessonListMetaBox => new LessonListMetaBox() );
+		$container->set( TopicListMetaBox::class, static fn (): TopicListMetaBox => new TopicListMetaBox() );
+		$container->set( QuestionListMetaBox::class, static fn (): QuestionListMetaBox => new QuestionListMetaBox() );
+		$container->set( ReorderAjaxHandler::class, static fn (): ReorderAjaxHandler => new ReorderAjaxHandler() );
+
 		$container->set(
 			AdminProvider::class,
 			static function ( Container $c ): AdminProvider {
@@ -2665,8 +2678,17 @@ final class Plugin {
 					$c->get( QuizQuestionMetaBox::class ),
 					$c->get( AssignmentMetaBox::class ),
 				];
+				$child_list_boxes = [
+					$c->get( ModuleListMetaBox::class ),
+					$c->get( LessonListMetaBox::class ),
+					$c->get( TopicListMetaBox::class ),
+					$c->get( QuestionListMetaBox::class ),
+				];
+				$reorder_handler = $c->get( ReorderAjaxHandler::class );
+				assert( $reorder_handler instanceof ReorderAjaxHandler );
 				/** @var list<\VL\LMS\Admin\MetaBoxes\AbstractMetaBox> $boxes */
-				return new AdminProvider( $boxes );
+				/** @var list<\VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox> $child_list_boxes */
+				return new AdminProvider( $boxes, $child_list_boxes, $reorder_handler );
 			}
 		);
 

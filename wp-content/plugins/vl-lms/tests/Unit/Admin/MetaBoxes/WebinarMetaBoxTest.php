@@ -1,0 +1,81 @@
+<?php
+
+declare(strict_types=1);
+
+namespace VL\LMS\Tests\Unit\Admin\MetaBoxes;
+
+use Brain\Monkey;
+use Brain\Monkey\Functions;
+use Mockery;
+use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\TestCase;
+use VL\LMS\Admin\MetaBoxes\WebinarMetaBox;
+use WP_Post;
+
+final class WebinarMetaBoxTest extends TestCase {
+
+	use MockeryPHPUnitIntegration;
+
+	private const string NONCE_FIELD = 'vl_lms_vl_lms_webinar_nonce';
+
+	/** @var list<array{0: int, 1: string, 2: mixed}> */
+	private array $writes = [];
+
+	protected function setUp(): void {
+		parent::setUp();
+		Monkey\setUp();
+		Functions\when( 'sanitize_text_field' )->returnArg();
+		Functions\when( 'wp_unslash' )->returnArg();
+		Functions\when( 'esc_url_raw' )->returnArg();
+		Functions\when( 'wp_verify_nonce' )->justReturn( 1 );
+		Functions\when( 'current_user_can' )->justReturn( true );
+		Functions\when( 'get_post_type' )->justReturn( 'vl_webinar' );
+
+		$this->writes = [];
+		$writes       = &$this->writes;
+		Functions\when( 'update_post_meta' )->alias(
+			static function ( int $id, string $key, mixed $value ) use ( &$writes ): bool {
+				$writes[] = [ $id, $key, $value ];
+				return true;
+			}
+		);
+
+		$_POST = [];
+	}
+
+	protected function tearDown(): void {
+		$_POST = [];
+		Monkey\tearDown();
+		parent::tearDown();
+	}
+
+	public function test_save_does_not_write_recording_url(): void {
+		$_POST = [
+			self::NONCE_FIELD                       => 'nonce-x',
+			'_vl_webinar_recording_url'             => 'https://hacked.example.com',
+			'_vl_webinar_zoom_meeting_id'           => 'hacked',
+			'_vl_webinar_recording_available_until' => '2030-01-01T00:00',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new WebinarMetaBox() )->save( 77, $post );
+
+		$forbidden_keys = [
+			'_vl_webinar_recording_url',
+			'_vl_webinar_zoom_meeting_id',
+			'_vl_webinar_zoom_join_url',
+			'_vl_webinar_zoom_start_url',
+			'_vl_webinar_zoom_password',
+			'_vl_webinar_recording_available_until',
+			'_vl_webinar_zoom_synced_payload_hash',
+		];
+		foreach ( $forbidden_keys as $key ) {
+			$matches = array_filter(
+				$this->writes,
+				static fn ( array $row ): bool => $row[1] === $key
+			);
+			self::assertSame( [], $matches, "Read-only key {$key} must not be saved" );
+		}
+	}
+}

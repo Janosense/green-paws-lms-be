@@ -1,0 +1,216 @@
+/* VL LMS — admin meta-boxes */
+
+.vl-lms-meta-box {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 4px 0;
+}
+
+.vl-lms-section-heading {
+	margin: 16px 0 4px;
+	padding-bottom: 4px;
+	border-bottom: 1px solid #dcdcde;
+	font-size: 14px;
+	font-weight: 600;
+	color: #1d2327;
+}
+
+.vl-lms-row {
+	display: grid;
+	grid-template-columns: 220px 1fr;
+	align-items: center;
+	gap: 12px;
+}
+
+.vl-lms-row label {
+	font-weight: 600;
+	color: #1d2327;
+}
+
+.vl-lms-row input[type="text"],
+.vl-lms-row input[type="url"],
+.vl-lms-row input[type="number"],
+.vl-lms-row input[type="datetime-local"],
+.vl-lms-row select {
+	width: 100%;
+	max-width: 420px;
+}
+
+.vl-lms-row--full {
+	grid-template-columns: 1fr;
+}
+
+.vl-lms-row--checkbox {
+	grid-template-columns: 1fr;
+}
+
+.vl-lms-row--checkbox label {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-weight: 400;
+}
+
+.vl-lms-row--readonly .vl-lms-readonly-value {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	background: #f6f7f7;
+	padding: 6px 10px;
+	border-radius: 4px;
+	color: #50575e;
+	font-family: Menlo, Consolas, monospace;
+}
+
+.vl-lms-readonly-empty {
+	color: #8c8f94;
+	font-style: italic;
+}
+
+.vl-lms-readonly-hint {
+	margin-left: auto;
+	color: #8c8f94;
+	font-style: italic;
+	font-size: 11px;
+	font-family: inherit;
+}
+
+.vl-lms-media-control {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.vl-lms-media-thumb img {
+	max-width: 80px;
+	height: auto;
+	border-radius: 4px;
+}
+
+.vl-lms-attachment-list,
+.vl-lms-answers-list,
+.vl-lms-co-list {
+	list-style: none;
+	margin: 0 0 8px;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.vl-lms-attachment-item,
+.vl-lms-answer-item,
+.vl-lms-co-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	background: #f6f7f7;
+	border-radius: 4px;
+}
+
+.vl-lms-attachment-item .vl-lms-attachment-name,
+.vl-lms-co-item .vl-lms-co-name {
+	flex: 1;
+}
+
+.vl-lms-attachment-size {
+	color: #50575e;
+	font-size: 12px;
+}
+
+.vl-lms-co-badge {
+	font-size: 11px;
+	padding: 2px 6px;
+	border-radius: 999px;
+	background: #2271b1;
+	color: #fff;
+}
+
+.vl-lms-co-search {
+	position: relative;
+	margin-top: 8px;
+}
+
+.vl-lms-co-search input[type="text"] {
+	width: 100%;
+}
+
+.vl-lms-co-search-results {
+	position: absolute;
+	z-index: 10;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-top: none;
+	width: 100%;
+	max-height: 220px;
+	overflow-y: auto;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.vl-lms-co-search-results li {
+	padding: 6px 10px;
+	cursor: pointer;
+}
+
+.vl-lms-co-search-results li:hover,
+.vl-lms-co-search-results li.is-active {
+	background: #f0f6fc;
+}
+
+.vl-lms-answer-item input[type="text"] {
+	flex: 1;
+}
+
+.vl-lms-answers[data-question-type="single_choice"] .vl-lms-answer-correct,
+.vl-lms-answers[data-question-type="multiple_choice"] .vl-lms-answer-correct,
+.vl-lms-answers[data-question-type="true_false"] .vl-lms-answer-correct {
+	display: inline-flex;
+}
+
+.vl-lms-answers[data-question-type="text"] .vl-lms-answers-list,
+.vl-lms-answers[data-question-type="text"] .vl-lms-answer-add {
+	display: none;
+}
+
+/* Phase 9.1 — sortable child lists */
+.vl-sortable-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.vl-sortable-list li {
+	cursor: grab;
+	padding: 6px 8px;
+	background: #fff;
+	border: 1px solid #ddd;
+	margin-bottom: 4px;
+	border-radius: 3px;
+}
+
+.vl-sortable-list li:active {
+	cursor: grabbing;
+}
+
+.vl-sortable-handle {
+	color: #8c8f94;
+	margin-right: 6px;
+	user-select: none;
+}
+
+.vl-sortable-placeholder {
+	height: 34px;
+	background: #f0f6fc;
+	border: 1px dashed #2271b1;
+	margin-bottom: 4px;
+	border-radius: 3px;
+}
+
+.vl-lms-empty {
+	color: #8c8f94;
+	font-style: italic;
+}
