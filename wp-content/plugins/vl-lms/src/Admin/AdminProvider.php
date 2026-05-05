@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin;
 
+use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\MetaBoxes\AbstractMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox;
 use VL\LMS\Admin\Reorder\ReorderAjaxHandler;
@@ -58,6 +59,8 @@ class AdminProvider {
 
 	private ReorderAjaxHandler $reorder_handler;
 
+	private ?AdminMenuProvider $menu_provider;
+
 	/**
 	 * @param list<AbstractMetaBox>          $meta_boxes
 	 * @param list<AbstractChildListMetaBox> $child_list_boxes
@@ -65,11 +68,13 @@ class AdminProvider {
 	public function __construct(
 		array $meta_boxes,
 		array $child_list_boxes = [],
-		?ReorderAjaxHandler $reorder_handler = null
+		?ReorderAjaxHandler $reorder_handler = null,
+		?AdminMenuProvider $menu_provider = null
 	) {
 		$this->meta_boxes       = $meta_boxes;
 		$this->child_list_boxes = $child_list_boxes;
 		$this->reorder_handler  = $reorder_handler ?? new ReorderAjaxHandler();
+		$this->menu_provider    = $menu_provider;
 	}
 
 	public function boot(): void {
@@ -79,6 +84,9 @@ class AdminProvider {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		add_action( 'wp_ajax_' . self::AJAX_ACTION, [ $this, 'handle_instructor_search' ] );
 		add_action( 'wp_ajax_vl_lms_reorder', [ $this->reorder_handler, 'handle' ] );
+		if ( null !== $this->menu_provider ) {
+			add_action( 'admin_menu', [ $this->menu_provider, 'register' ], 20 );
+		}
 	}
 
 	public function register_meta_boxes( string $post_type ): void {

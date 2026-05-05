@@ -7,6 +7,10 @@ namespace VL\LMS;
 use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
 use VL\LMS\Admin\AdminProvider;
+use VL\LMS\Admin\Api\AdminPreviewController;
+use VL\LMS\Admin\Dashboard\CourseStatsQuery;
+use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
+use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\LessonListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\ModuleListMetaBox;
@@ -587,6 +591,10 @@ final class Plugin {
 		$admin_orders_controller = $this->container->get( AdminOrdersController::class );
 		if ( $admin_orders_controller instanceof AdminOrdersController ) {
 			$admin_orders_controller->register_routes();
+		}
+		$admin_preview_controller = $this->container->get( AdminPreviewController::class );
+		if ( $admin_preview_controller instanceof AdminPreviewController ) {
+			$admin_preview_controller->register_routes();
 		}
 	}
 
@@ -2686,10 +2694,46 @@ final class Plugin {
 				];
 				$reorder_handler = $c->get( ReorderAjaxHandler::class );
 				assert( $reorder_handler instanceof ReorderAjaxHandler );
+				$menu_provider = $c->get( AdminMenuProvider::class );
+				assert( $menu_provider instanceof AdminMenuProvider );
 				/** @var list<\VL\LMS\Admin\MetaBoxes\AbstractMetaBox> $boxes */
 				/** @var list<\VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox> $child_list_boxes */
-				return new AdminProvider( $boxes, $child_list_boxes, $reorder_handler );
+				return new AdminProvider( $boxes, $child_list_boxes, $reorder_handler, $menu_provider );
 			}
+		);
+
+		// --- Phase 9.2 — top-level wp-admin menu, instructor dashboard, preview API ---
+
+		$container->set(
+			CourseStatsQuery::class,
+			static fn (): CourseStatsQuery => new CourseStatsQuery()
+		);
+
+		$container->set(
+			InstructorDashboardPage::class,
+			static function ( Container $c ): InstructorDashboardPage {
+				$instructors = $c->get( CourseInstructorRepository::class );
+				assert( $instructors instanceof CourseInstructorRepository );
+				$stats = $c->get( CourseStatsQuery::class );
+				assert( $stats instanceof CourseStatsQuery );
+				return new InstructorDashboardPage( $instructors, $stats );
+			}
+		);
+
+		$container->set(
+			AdminMenuProvider::class,
+			static function ( Container $c ): AdminMenuProvider {
+				$dashboard = $c->get( InstructorDashboardPage::class );
+				assert( $dashboard instanceof InstructorDashboardPage );
+				$orders_page = $c->get( OrdersListPage::class );
+				assert( $orders_page instanceof OrdersListPage );
+				return new AdminMenuProvider( $dashboard, $orders_page );
+			}
+		);
+
+		$container->set(
+			AdminPreviewController::class,
+			static fn (): AdminPreviewController => new AdminPreviewController( VL_LMS_API_NAMESPACE )
 		);
 
 		return $container;

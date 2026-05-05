@@ -79,6 +79,40 @@ class CourseInstructorRepository {
 	}
 
 	/**
+	 * Returns the distinct list of course IDs the given user is assigned to
+	 * via {@see InstructorEntityType::COURSE} rows. Used by the Phase 9.2
+	 * Instructor Dashboard to scope the table to courses the user can edit.
+	 *
+	 * @return list<int>
+	 */
+	public function get_course_ids_for_user( int $user_id ): array {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT DISTINCT entity_id FROM {$table} WHERE entity_type = %s AND user_id = %d",
+			InstructorEntityType::COURSE->value,
+			$user_id
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_col( $sql );
+
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $rows as $row ) {
+			$id = (int) $row;
+			if ( $id > 0 ) {
+				$out[] = $id;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * @return list<CourseInstructor>
 	 */
 	public function list_for_user( int $user_id ): array {
