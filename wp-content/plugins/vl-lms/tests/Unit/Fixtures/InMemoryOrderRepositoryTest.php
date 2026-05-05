@@ -376,6 +376,69 @@ final class InMemoryOrderRepositoryTest extends TestCase {
 		self::assertSame( $expired_awaiting, $result[1]->id );
 	}
 
+	public function test_list_for_admin_no_filters_returns_paginated_desc(): void {
+		$this->repo->seed( [ 'created_at' => '2026-05-01 10:00:00' ] );
+		$this->repo->seed( [ 'created_at' => '2026-05-03 10:00:00' ] );
+		$this->repo->seed( [ 'created_at' => '2026-05-02 10:00:00' ] );
+
+		$result = $this->repo->list_for_admin( [], 1, 20, 'created_at', 'DESC' );
+
+		self::assertSame( 3, $result['total'] );
+		self::assertCount( 3, $result['items'] );
+	}
+
+	public function test_list_for_admin_status_filter(): void {
+		$this->repo->seed( [ 'status' => OrderStatus::PAID->value ] );
+		$this->repo->seed( [ 'status' => OrderStatus::PENDING->value ] );
+
+		$result = $this->repo->list_for_admin( [ 'status' => 'paid' ], 1, 20, 'created_at', 'DESC' );
+
+		self::assertSame( 1, $result['total'] );
+	}
+
+	public function test_list_for_admin_search_by_uuid_exact(): void {
+		$this->repo->seed( [ 'uuid' => '11111111-1111-1111-1111-111111111111' ] );
+		$this->repo->seed( [ 'uuid' => '22222222-2222-2222-2222-222222222222' ] );
+
+		$result = $this->repo->list_for_admin(
+			[ 'search' => '11111111-1111-1111-1111-111111111111' ],
+			1,
+			20,
+			'created_at',
+			'DESC'
+		);
+
+		self::assertSame( 1, $result['total'] );
+	}
+
+	public function test_list_for_admin_search_by_email(): void {
+		$this->repo->seed( [ 'user_id' => 7 ] );
+		$this->repo->seed( [ 'user_id' => 8 ] );
+		$this->repo->set_user_email( 7, 'alice@example.com' );
+		$this->repo->set_user_email( 8, 'bob@example.com' );
+
+		$result = $this->repo->list_for_admin(
+			[ 'search' => 'alice@example.com' ],
+			1,
+			20,
+			'created_at',
+			'DESC'
+		);
+
+		self::assertSame( 1, $result['total'] );
+	}
+
+	public function test_list_for_admin_per_page_clamped(): void {
+		for ( $i = 0; $i < 5; $i++ ) {
+			$this->repo->seed();
+		}
+
+		$result = $this->repo->list_for_admin( [], 1, 200, 'created_at', 'DESC' );
+
+		self::assertSame( 5, $result['total'] );
+		self::assertCount( 5, $result['items'] );
+	}
+
 	public function test_list_expired_open_respects_limit(): void {
 		$now = self::utc( '2026-05-03 00:00:00' );
 

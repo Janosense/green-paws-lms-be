@@ -6,6 +6,8 @@ namespace VL\LMS;
 
 use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
+use VL\LMS\Admin\Orders\OrderDetailPage;
+use VL\LMS\Admin\Orders\OrdersListPage;
 use VL\LMS\Api\AdminOrdersController;
 use VL\LMS\Api\AuthController;
 use VL\LMS\Api\CertificatesController;
@@ -401,6 +403,37 @@ final class Plugin {
 		$order_failed_listener = $this->container->get( OrderFailedListener::class );
 		if ( $order_failed_listener instanceof OrderFailedListener ) {
 			$order_failed_listener->register();
+		}
+
+		// Phase 8.6 — admin "Замовлення" screen. Top-level menu, position 26
+		// (just below "Comments" at 25). Cap-gated on `vl_refund_orders`
+		// (administrator-only) so non-admins do not see the menu item; the
+		// detail page enforces granular cap checks for the refund button.
+		$orders_list_page  = $this->container->get( OrdersListPage::class );
+		$order_detail_page = $this->container->get( OrderDetailPage::class );
+		if ( $orders_list_page instanceof OrdersListPage && $order_detail_page instanceof OrderDetailPage ) {
+			add_action(
+				'admin_menu',
+				static function () use ( $orders_list_page, $order_detail_page ): void {
+					add_menu_page(
+						'Замовлення',
+						'Замовлення',
+						'vl_refund_orders',
+						'vl-lms-orders',
+						[ $orders_list_page, 'render' ],
+						'dashicons-cart',
+						26
+					);
+					add_submenu_page(
+						'',
+						'Деталі замовлення',
+						'Деталі замовлення',
+						'vl_refund_orders',
+						'vl-lms-order-detail',
+						[ $order_detail_page, 'render' ]
+					);
+				}
+			);
 		}
 
 		/**
@@ -2519,6 +2552,30 @@ final class Plugin {
 				$logger = $c->get( Logger::class );
 				assert( $logger instanceof Logger );
 				return new OrderRefundEnrollmentRevoker( $enrollments, $webinars, $logger );
+			}
+		);
+
+		// --- Phase 8.6 — admin orders screen ---
+
+		$container->set(
+			OrdersListPage::class,
+			static function ( Container $c ): OrdersListPage {
+				$orders = $c->get( OrderRepository::class );
+				assert( $orders instanceof OrderRepository );
+				return new OrdersListPage( $orders );
+			}
+		);
+
+		$container->set(
+			OrderDetailPage::class,
+			static function ( Container $c ): OrderDetailPage {
+				$orders = $c->get( OrderRepository::class );
+				assert( $orders instanceof OrderRepository );
+				$payments = $c->get( PaymentRepository::class );
+				assert( $payments instanceof PaymentRepository );
+				$refunds = $c->get( RefundService::class );
+				assert( $refunds instanceof RefundService );
+				return new OrderDetailPage( $orders, $payments, $refunds );
 			}
 		);
 

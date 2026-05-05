@@ -216,6 +216,21 @@ final class PluginTest extends TestCase {
 		self::assertInstanceOf( \VL\LMS\Services\Notifications\OrderFailedListener::class, $failed_listener );
 	}
 
+	public function test_container_resolves_phase_8_6_admin_bindings(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		Plugin::instance()->boot();
+
+		$container = Plugin::instance()->container();
+		self::assertNotNull( $container );
+
+		$list_page = $container->get( \VL\LMS\Admin\Orders\OrdersListPage::class );
+		self::assertInstanceOf( \VL\LMS\Admin\Orders\OrdersListPage::class, $list_page );
+
+		$detail_page = $container->get( \VL\LMS\Admin\Orders\OrderDetailPage::class );
+		self::assertInstanceOf( \VL\LMS\Admin\Orders\OrderDetailPage::class, $detail_page );
+	}
+
 	public function test_default_dependency_check_uses_class_exists(): void {
 		// Override cleared in setUp; the default path relies on the real
 		// facade class, which is not loaded in the unit suite.

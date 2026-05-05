@@ -62,6 +62,67 @@ if ( ! defined( 'VL_JWT_AUTH_SECRET_KEY' ) ) {
 	define( 'VL_JWT_AUTH_SECRET_KEY', 'phpstan-analysis-placeholder' );
 }
 
+// Phase 8.6 — minimal stub for WP_List_Table so the admin classes can
+// extend it in unit tests without booting WP-admin. Mirrors only the
+// surface the subclasses interact with (constructor, $items,
+// $_column_headers, set_pagination_args, search_box, display).
+if ( ! class_exists( 'WP_List_Table' ) ) {
+	// phpcs:ignore
+	class WP_List_Table {
+
+		/** @var array<int, mixed> */
+		public array $items = [];
+
+		/** @var array<string, mixed> */
+		// phpcs:ignore PSR2.Classes.PropertyDeclaration.Underscore
+		protected array $_pagination_args = [];
+
+		/** @var array<int, mixed>|null */
+		// phpcs:ignore PSR2.Classes.PropertyDeclaration.Underscore
+		protected ?array $_column_headers = null;
+
+		/** @param array<string, mixed>|string $args */
+		public function __construct( $args = [] ) {
+			unset( $args );
+		}
+
+		/**
+		 * @param array<string, mixed> $args
+		 */
+		public function set_pagination_args( array $args ): void {
+			$this->_pagination_args = $args;
+		}
+
+		public function search_box( string $text, string $input_id ): void {
+			unset( $text, $input_id );
+			echo '<p class="search-box"></p>';
+		}
+
+		public function display(): void {
+			echo '<table class="wp-list-table"></table>';
+		}
+	}
+}
+
+// Phase 8.6 — minimal stub for WP_User so admin pages and tests that
+// look up `get_userdata()` results can read its public fields.
+if ( ! class_exists( 'WP_User' ) ) {
+	// phpcs:ignore
+	class WP_User {
+
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		public int $ID              = 0;
+		public string $user_email   = '';
+		public string $user_login   = '';
+		public string $display_name = '';
+
+		public function has_cap( string $cap ): bool {
+			unset( $cap );
+			return false;
+		}
+	}
+}
+
 // Minimal stub for WP_Error so code paths that construct a real
 // `new WP_Error(...)` (e.g. the login gate) work in unit tests without
 // booting WordPress. Mirrors the getter surface the tests actually use.

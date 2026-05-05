@@ -286,6 +286,113 @@ class OrderRepository {
 	}
 
 	/**
+	 * Admin-side query: search by UUID / user_email / title; filter by
+	 * status / entity_type; sort by an allowed column; paginate.
+	 *
+	 * Phase 8.6 — `Admin/Orders/OrdersListTable` consumer. The user_email
+	 * branch JOINs against `wp_users` so a learner's mailbox matches even
+	 * when their display name doesn't appear in the order snapshot.
+	 *
+	 * `$filters` accepts:
+	 *   - `'search'`      => string|null (UUID exact / email exact / title LIKE — OR'd)
+	 *   - `'status'`      => string|null single OrderStatus value
+	 *   - `'entity_type'` => string|null `'course'` / `'webinar'`
+	 *
+	 * `$sort_by` whitelist: `created_at`, `amount`, `status`, `user_email`.
+	 * Anything else falls back to `created_at`. `$sort_dir`: `ASC` / `DESC`,
+	 * else `DESC`. `$per_page` is clamped to `[1, 100]` and `$page` to `>= 1`.
+	 *
+	 * @param array{search?: string|null, status?: string|null, entity_type?: string|null} $filters
+	 *
+	 * @return array{items: list<Order>, total: int}
+	 */
+	public function list_for_admin(
+		array $filters,
+		int $page,
+		int $per_page,
+		string $sort_by,
+		string $sort_dir
+	): array {
+		$page     = max( 1, $page );
+		$per_page = max( 1, min( 100, $per_page ) );
+
+		$sort_columns = [
+			'created_at' => 'o.created_at',
+			'amount'     => 'o.amount',
+			'status'     => 'o.status',
+			'user_email' => 'u.user_email',
+		];
+		$sort_column  = $sort_columns[ $sort_by ] ?? $sort_columns['created_at'];
+		$sort_dir     = 'ASC' === strtoupper( $sort_dir ) ? 'ASC' : 'DESC';
+
+		$wpdb        = $this->wpdb();
+		$orders      = $this->table();
+		$users_table = $wpdb->prefix . 'users';
+
+		$where  = [];
+		$params = [];
+
+		$status = $filters['status'] ?? null;
+		if ( null !== $status && '' !== $status ) {
+			$where[]  = 'o.status = %s';
+			$params[] = (string) $status;
+		}
+
+		$entity_type = $filters['entity_type'] ?? null;
+		if ( null !== $entity_type && '' !== $entity_type ) {
+			$where[]  = 'o.entity_type = %s';
+			$params[] = (string) $entity_type;
+		}
+
+		$search = $filters['search'] ?? null;
+		if ( null !== $search && '' !== trim( (string) $search ) ) {
+			$search   = trim( (string) $search );
+			$like     = '%' . $wpdb->esc_like( $search ) . '%';
+			$where[]  = '( o.uuid = %s OR u.user_email = %s OR o.entity_title_snapshot LIKE %s )';
+			$params[] = $search;
+			$params[] = $search;
+			$params[] = $like;
+		}
+
+		$where_sql = [] === $where ? '' : ( ' WHERE ' . implode( ' AND ', $where ) );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$count_sql_template = "SELECT COUNT(*) FROM {$orders} o LEFT JOIN {$users_table} u ON u.ID = o.user_id" . $where_sql;
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$page_sql_template = "SELECT o.* FROM {$orders} o LEFT JOIN {$users_table} u ON u.ID = o.user_id" . $where_sql . " ORDER BY {$sort_column} {$sort_dir} LIMIT %d OFFSET %d";
+
+		if ( [] === $params ) {
+			$count_sql = $count_sql_template;
+		} else {
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$count_sql = $wpdb->prepare( $count_sql_template, ...$params );
+		}
+
+		$page_params = array_merge( $params, [ $per_page, ( $page - 1 ) * $per_page ] );
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$page_sql = $wpdb->prepare( $page_sql_template, ...$page_params );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$total = $wpdb->get_var( $count_sql );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $page_sql, ARRAY_A );
+
+		$items = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( is_array( $row ) ) {
+					$items[] = Order::from_row( $row );
+				}
+			}
+		}
+
+		return [
+			'items' => $items,
+			'total' => is_numeric( $total ) ? (int) $total : 0,
+		];
+	}
+
+	/**
 	 * Phase 8.2's expiration cron reads up to `$limit` open orders past
 	 * their `expires_at`, ordered by oldest expiry first.
 	 *

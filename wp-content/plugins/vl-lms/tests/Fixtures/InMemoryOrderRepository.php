@@ -25,6 +25,9 @@ final class InMemoryOrderRepository extends OrderRepository {
 
 	private int $next_id = 1;
 
+	/** @var array<int, string> Map of user_id → user_email for the admin search path. */
+	private array $user_emails = [];
+
 	public function insert( Order $order ): int {
 		if ( null !== $order->id ) {
 			throw new \DomainException(
@@ -208,6 +211,108 @@ final class InMemoryOrderRepository extends OrderRepository {
 		);
 
 		return Order::from_row( $matched[0] );
+	}
+
+	/**
+	 * @param array{search?: string|null, status?: string|null, entity_type?: string|null} $filters
+	 *
+	 * @return array{items: list<Order>, total: int}
+	 */
+	public function list_for_admin(
+		array $filters,
+		int $page,
+		int $per_page,
+		string $sort_by,
+		string $sort_dir
+	): array {
+		$page     = max( 1, $page );
+		$per_page = max( 1, min( 100, $per_page ) );
+
+		$allowed_sort = [ 'created_at', 'amount', 'status', 'user_email' ];
+		if ( ! in_array( $sort_by, $allowed_sort, true ) ) {
+			$sort_by = 'created_at';
+		}
+		$sort_dir = 'ASC' === strtoupper( $sort_dir ) ? 'ASC' : 'DESC';
+
+		$status_filter      = $filters['status'] ?? null;
+		$entity_type_filter = $filters['entity_type'] ?? null;
+		$search             = $filters['search'] ?? null;
+		if ( null !== $search ) {
+			$search = trim( (string) $search );
+			if ( '' === $search ) {
+				$search = null;
+			}
+		}
+
+		$matched = [];
+		foreach ( $this->rows as $row ) {
+			if ( null !== $status_filter && '' !== $status_filter && (string) $row['status'] !== (string) $status_filter ) {
+				continue;
+			}
+			if ( null !== $entity_type_filter && '' !== $entity_type_filter && (string) $row['entity_type'] !== (string) $entity_type_filter ) {
+				continue;
+			}
+			if ( null !== $search ) {
+				$user_email = $this->user_emails[ (int) $row['user_id'] ] ?? '';
+				$matches    = (string) $row['uuid'] === $search
+					|| $user_email === $search
+					|| ( '' !== $search && false !== stripos( (string) $row['entity_title_snapshot'], $search ) );
+				if ( ! $matches ) {
+					continue;
+				}
+			}
+			$matched[] = $row;
+		}
+
+		usort(
+			$matched,
+			function ( array $a, array $b ) use ( $sort_by, $sort_dir ): int {
+				$cmp = $this->compare_for_sort( $a, $b, $sort_by );
+				return 'ASC' === $sort_dir ? $cmp : -$cmp;
+			}
+		);
+
+		$total  = count( $matched );
+		$offset = ( $page - 1 ) * $per_page;
+		$slice  = array_slice( $matched, $offset, $per_page );
+
+		$items = [];
+		foreach ( $slice as $row ) {
+			$items[] = Order::from_row( $row );
+		}
+
+		return [
+			'items' => $items,
+			'total' => $total,
+		];
+	}
+
+	/**
+	 * Test helper: register a user_email mapping so the search-by-email
+	 * branch can match in admin-list tests.
+	 */
+	public function set_user_email( int $user_id, string $email ): void {
+		$this->user_emails[ $user_id ] = $email;
+	}
+
+	/**
+	 * @param array<string, mixed> $a
+	 * @param array<string, mixed> $b
+	 */
+	private function compare_for_sort( array $a, array $b, string $sort_by ): int {
+		switch ( $sort_by ) {
+			case 'amount':
+				return (float) $a['amount'] <=> (float) $b['amount'];
+			case 'status':
+				return ( (string) $a['status'] ) <=> ( (string) $b['status'] );
+			case 'user_email':
+				$ea = $this->user_emails[ (int) $a['user_id'] ] ?? '';
+				$eb = $this->user_emails[ (int) $b['user_id'] ] ?? '';
+				return $ea <=> $eb;
+			case 'created_at':
+			default:
+				return ( (string) $a['created_at'] ) <=> ( (string) $b['created_at'] );
+		}
 	}
 
 	/**

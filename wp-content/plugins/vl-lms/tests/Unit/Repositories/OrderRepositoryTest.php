@@ -376,4 +376,159 @@ final class OrderRepositoryTest extends TestCase {
 
 		self::assertSame( [], $this->repo->list_expired_open( self::utc( '2026-05-03 00:00:00' ) ) );
 	}
+
+	private function arm_admin_query( array $rows, string $total = '0' ): \ArrayObject {
+		$captured = new \ArrayObject(
+			[
+				'count'    => null,
+				'page'     => null,
+				'params'   => [],
+				'esc_like' => [],
+			]
+		);
+
+		$this->wpdb->shouldReceive( 'esc_like' )->andReturnUsing(
+			function ( string $value ) use ( $captured ): string {
+				$list                 = $captured['esc_like'];
+				$list[]               = $value;
+				$captured['esc_like'] = $list;
+				return $value;
+			}
+		);
+		$this->wpdb->shouldReceive( 'prepare' )->andReturnUsing(
+			function ( string $sql, ...$args ) use ( $captured ): string {
+				$params             = $captured['params'];
+				$params[]           = $args;
+				$captured['params'] = $params;
+				if ( str_contains( $sql, 'COUNT' ) ) {
+					$captured['count'] = $sql;
+				} else {
+					$captured['page'] = $sql;
+				}
+				return $sql;
+			}
+		);
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( $total );
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( $rows );
+
+		return $captured;
+	}
+
+	public function test_list_for_admin_with_no_filters_paginates_created_at_desc(): void {
+		$captured = $this->arm_admin_query( [ self::row( [ 'id' => '1' ] ), self::row( [ 'id' => '2' ] ) ], '12' );
+
+		$result = $this->repo->list_for_admin( [], 1, 20, 'created_at', 'DESC' );
+
+		self::assertSame( 12, $result['total'] );
+		self::assertCount( 2, $result['items'] );
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'ORDER BY o.created_at DESC', $captured['page'] );
+		self::assertStringContainsString( 'LEFT JOIN', $captured['page'] );
+	}
+
+	public function test_list_for_admin_status_filter_emits_predicate(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [ 'status' => 'paid' ], 1, 20, 'created_at', 'DESC' );
+
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'o.status = %s', $captured['page'] );
+		self::assertSame( 'paid', $captured['params'][0][0] );
+	}
+
+	public function test_list_for_admin_entity_type_filter_emits_predicate(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [ 'entity_type' => 'webinar' ], 1, 20, 'created_at', 'DESC' );
+
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'o.entity_type = %s', $captured['page'] );
+		self::assertSame( 'webinar', $captured['params'][0][0] );
+	}
+
+	public function test_list_for_admin_status_and_entity_type_combine(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin(
+			[
+				'status'      => 'paid',
+				'entity_type' => 'course',
+			],
+			1,
+			20,
+			'created_at',
+			'DESC'
+		);
+
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'o.status = %s', $captured['page'] );
+		self::assertStringContainsString( 'o.entity_type = %s', $captured['page'] );
+	}
+
+	public function test_list_for_admin_search_emits_uuid_email_title_or_branch(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [ 'search' => 'foo@example.com' ], 1, 20, 'created_at', 'DESC' );
+
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'o.uuid = %s', $captured['page'] );
+		self::assertStringContainsString( 'u.user_email = %s', $captured['page'] );
+		self::assertStringContainsString( 'o.entity_title_snapshot LIKE %s', $captured['page'] );
+		self::assertSame( 'foo@example.com', $captured['esc_like'][0] );
+	}
+
+	public function test_list_for_admin_sort_by_amount_asc(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [], 1, 20, 'amount', 'ASC' );
+
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'ORDER BY o.amount ASC', $captured['page'] );
+	}
+
+	public function test_list_for_admin_sort_by_user_email_desc(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [], 1, 20, 'user_email', 'DESC' );
+
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'ORDER BY u.user_email DESC', $captured['page'] );
+	}
+
+	public function test_list_for_admin_invalid_sort_by_falls_back_to_created_at(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [], 1, 20, 'malicious; DROP TABLE', 'ASC' );
+
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'ORDER BY o.created_at ASC', $captured['page'] );
+	}
+
+	public function test_list_for_admin_invalid_sort_dir_falls_back_to_desc(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [], 1, 20, 'created_at', 'sideways' );
+
+		self::assertNotNull( $captured['page'] );
+		self::assertStringContainsString( 'ORDER BY o.created_at DESC', $captured['page'] );
+	}
+
+	public function test_list_for_admin_per_page_clamped_above_100(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [], 1, 500, 'created_at', 'DESC' );
+
+		// last call to prepare is the page query; LIMIT/OFFSET are the trailing args.
+		$page_args = end( $captured['params'] );
+		self::assertSame( 100, $page_args[ count( $page_args ) - 2 ] );
+	}
+
+	public function test_list_for_admin_per_page_clamped_below_1(): void {
+		$captured = $this->arm_admin_query( [], '0' );
+
+		$this->repo->list_for_admin( [], 1, 0, 'created_at', 'DESC' );
+
+		$page_args = end( $captured['params'] );
+		self::assertSame( 1, $page_args[ count( $page_args ) - 2 ] );
+	}
 }
