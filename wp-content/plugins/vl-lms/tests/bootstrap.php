@@ -116,6 +116,9 @@ if ( ! class_exists( 'WP_User' ) ) {
 		public string $user_login   = '';
 		public string $display_name = '';
 
+		/** @var list<string> */
+		public array $roles = [];
+
 		public function has_cap( string $cap ): bool {
 			unset( $cap );
 			return false;

@@ -21,7 +21,7 @@ use VL\LMS\Repositories\CourseInstructorRepository;
  *
  * @author Tymofii Synianskyi
  */
-final class CourseInstructorService {
+class CourseInstructorService {
 
 	public function __construct( private readonly CourseInstructorRepository $repo ) {
 	}
@@ -130,6 +130,63 @@ final class CourseInstructorService {
 	 */
 	public function list_for_entity( InstructorEntityType $entity_type, int $entity_id ): array {
 		return $this->repo->list_for_entity( $entity_type, $entity_id );
+	}
+
+	/**
+	 * Reconciles the co-instructor list for a `vl_course` against `$user_ids`.
+	 *
+	 * Inserts rows for newly added users (role = `co_instructor`) and removes
+	 * rows for users no longer present. The course lead row (`role = lead`)
+	 * is owned by {@see AuthorSyncService} and is never touched here — callers
+	 * must not include `post_author` in `$user_ids`.
+	 *
+	 * @param list<int> $user_ids Co-instructor user IDs.
+	 */
+	public function sync_co_instructors( int $course_id, array $user_ids ): void {
+		$desired = [];
+		foreach ( $user_ids as $uid ) {
+			$uid = (int) $uid;
+			if ( $uid > 0 ) {
+				$desired[ $uid ] = true;
+			}
+		}
+
+		$entity_type = InstructorEntityType::COURSE;
+		$current     = $this->repo->list_for_entity( $entity_type, $course_id );
+
+		$current_co_user_ids = [];
+		foreach ( $current as $row ) {
+			if ( InstructorRole::CO_INSTRUCTOR === $row->role_in_course ) {
+				$current_co_user_ids[ $row->user_id ] = $row;
+			}
+		}
+
+		// Remove rows whose user is no longer desired.
+		foreach ( $current_co_user_ids as $user_id => $row ) {
+			if ( ! isset( $desired[ $user_id ] ) ) {
+				$this->repo->delete( $row->id );
+			}
+		}
+
+		$assigner = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+
+		// Insert rows for newly added users.
+		foreach ( array_keys( $desired ) as $user_id ) {
+			if ( isset( $current_co_user_ids[ $user_id ] ) ) {
+				continue;
+			}
+			$this->repo->insert(
+				[
+					'entity_type'    => $entity_type->value,
+					'entity_id'      => $course_id,
+					'user_id'        => $user_id,
+					'role_in_course' => InstructorRole::CO_INSTRUCTOR->value,
+					'display_order'  => 0,
+					'assigned_at'    => gmdate( 'Y-m-d H:i:s' ),
+					'assigned_by'    => $assigner > 0 ? $assigner : $user_id,
+				]
+			);
+		}
 	}
 
 	/**

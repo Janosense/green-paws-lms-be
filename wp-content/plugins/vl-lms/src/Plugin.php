@@ -6,6 +6,17 @@ namespace VL\LMS;
 
 use VL\LMS\Access\InstructorAccessFilter;
 use VL\LMS\Access\TableBackedCoInstructorLookup;
+use VL\LMS\Admin\AdminProvider;
+use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
+use VL\LMS\Admin\MetaBoxes\CourseInstructorsMetaBox;
+use VL\LMS\Admin\MetaBoxes\CourseMetaBox;
+use VL\LMS\Admin\MetaBoxes\LessonMetaBox;
+use VL\LMS\Admin\MetaBoxes\ModuleMetaBox;
+use VL\LMS\Admin\MetaBoxes\QuizMetaBox;
+use VL\LMS\Admin\MetaBoxes\QuizQuestionMetaBox;
+use VL\LMS\Admin\MetaBoxes\SessionMetaBox;
+use VL\LMS\Admin\MetaBoxes\TopicMetaBox;
+use VL\LMS\Admin\MetaBoxes\WebinarMetaBox;
 use VL\LMS\Admin\Orders\OrderDetailPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
 use VL\LMS\Api\AdminOrdersController;
@@ -435,6 +446,25 @@ final class Plugin {
 				}
 			);
 		}
+
+		// Phase 9.0 — typed CPT meta-boxes + co-instructor UI. The provider
+		// only registers wp-admin hooks (add_meta_boxes, save_post,
+		// admin_enqueue_scripts, ajax) so guarding boot() under is_admin()
+		// keeps the admin classes off REST and CLI request paths.
+		$container = $this->container;
+		add_action(
+			'init',
+			static function () use ( $container ): void {
+				if ( ! is_admin() ) {
+					return;
+				}
+				$admin_provider = $container->get( AdminProvider::class );
+				if ( $admin_provider instanceof AdminProvider ) {
+					$admin_provider->boot();
+				}
+			},
+			15
+		);
 
 		/**
 		 * Fires once the plugin has finished booting.
@@ -2594,6 +2624,49 @@ final class Plugin {
 					$refunds,
 					$transformer
 				);
+			}
+		);
+
+		// --- Phase 9.0 — typed CPT meta-boxes + co-instructor UI ---
+
+		$container->set( CourseMetaBox::class, static fn (): CourseMetaBox => new CourseMetaBox() );
+		$container->set( ModuleMetaBox::class, static fn (): ModuleMetaBox => new ModuleMetaBox() );
+		$container->set( LessonMetaBox::class, static fn (): LessonMetaBox => new LessonMetaBox() );
+		$container->set( TopicMetaBox::class, static fn (): TopicMetaBox => new TopicMetaBox() );
+		$container->set( SessionMetaBox::class, static fn (): SessionMetaBox => new SessionMetaBox() );
+		$container->set( WebinarMetaBox::class, static fn (): WebinarMetaBox => new WebinarMetaBox() );
+		$container->set( QuizMetaBox::class, static fn (): QuizMetaBox => new QuizMetaBox() );
+		$container->set( QuizQuestionMetaBox::class, static fn (): QuizQuestionMetaBox => new QuizQuestionMetaBox() );
+		$container->set( AssignmentMetaBox::class, static fn (): AssignmentMetaBox => new AssignmentMetaBox() );
+
+		$container->set(
+			CourseInstructorsMetaBox::class,
+			static function ( Container $c ): CourseInstructorsMetaBox {
+				$service = $c->get( CourseInstructorService::class );
+				assert( $service instanceof CourseInstructorService );
+				$repo = $c->get( CourseInstructorRepository::class );
+				assert( $repo instanceof CourseInstructorRepository );
+				return new CourseInstructorsMetaBox( $service, $repo );
+			}
+		);
+
+		$container->set(
+			AdminProvider::class,
+			static function ( Container $c ): AdminProvider {
+				$boxes = [
+					$c->get( CourseMetaBox::class ),
+					$c->get( CourseInstructorsMetaBox::class ),
+					$c->get( ModuleMetaBox::class ),
+					$c->get( LessonMetaBox::class ),
+					$c->get( TopicMetaBox::class ),
+					$c->get( SessionMetaBox::class ),
+					$c->get( WebinarMetaBox::class ),
+					$c->get( QuizMetaBox::class ),
+					$c->get( QuizQuestionMetaBox::class ),
+					$c->get( AssignmentMetaBox::class ),
+				];
+				/** @var list<\VL\LMS\Admin\MetaBoxes\AbstractMetaBox> $boxes */
+				return new AdminProvider( $boxes );
 			}
 		);
 

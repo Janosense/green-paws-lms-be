@@ -51,9 +51,10 @@ final class PluginTest extends TestCase {
 	public function test_boot_registers_hooks_and_fires_action_when_dependencies_present(): void {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 
-		// Four hooks fire on `init`: textdomain loading, CPT registration,
-		// taxonomy registration, instructor profile user-meta registration.
-		Actions\expectAdded( 'init' )->times( 4 );
+		// Five hooks fire on `init`: textdomain loading, CPT registration,
+		// taxonomy registration, instructor profile user-meta registration,
+		// and the Phase 9.0 admin meta-box provider boot.
+		Actions\expectAdded( 'init' )->times( 5 );
 		Actions\expectAdded( 'rest_api_init' )->once();
 		Actions\expectAdded( 'after_setup_theme' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
@@ -64,9 +65,10 @@ final class PluginTest extends TestCase {
 	public function test_boot_is_idempotent(): void {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 
-		// Four hooks fire on `init`: textdomain loading, CPT registration,
-		// taxonomy registration, instructor profile user-meta registration.
-		Actions\expectAdded( 'init' )->times( 4 );
+		// Five hooks fire on `init`: textdomain loading, CPT registration,
+		// taxonomy registration, instructor profile user-meta registration,
+		// and the Phase 9.0 admin meta-box provider boot.
+		Actions\expectAdded( 'init' )->times( 5 );
 		Actions\expectAdded( 'rest_api_init' )->once();
 		Actions\expectAdded( 'after_setup_theme' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
@@ -81,8 +83,9 @@ final class PluginTest extends TestCase {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 		Functions\when( 'get_option' )->justReturn( '1' );
 
-		// Five init listeners now: textdomain, CPTs, taxonomies, instructor profile meta, first-run tasks.
-		Actions\expectAdded( 'init' )->times( 5 );
+		// Six init listeners now: textdomain, CPTs, taxonomies, instructor
+		// profile meta, first-run tasks, and the Phase 9.0 admin provider.
+		Actions\expectAdded( 'init' )->times( 6 );
 
 		Plugin::instance()->boot();
 	}
