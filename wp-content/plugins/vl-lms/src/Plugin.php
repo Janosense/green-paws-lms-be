@@ -176,10 +176,16 @@ use VL\LMS\Services\Progress\ProgressService;
 use VL\LMS\Services\Progress\SessionAttendanceProgressListener;
 use VL\LMS\Mail\CertificateIssuedMailer;
 use VL\LMS\Mail\HtmlMailSender;
+use VL\LMS\Mail\OrderFailedMailer;
+use VL\LMS\Mail\OrderPaidMailer;
+use VL\LMS\Mail\OrderRefundedMailer;
 use VL\LMS\Mail\RecordingReadyMailer;
 use VL\LMS\Mail\SessionReminderMailer;
 use VL\LMS\Mail\WebinarReminderMailer;
 use VL\LMS\Services\Notifications\CertificateIssuedListener;
+use VL\LMS\Services\Notifications\OrderFailedListener;
+use VL\LMS\Services\Notifications\OrderPaidListener;
+use VL\LMS\Services\Notifications\OrderRefundedListener;
 use VL\LMS\Services\Notifications\RecordingReadyListener;
 use VL\LMS\Services\Notifications\ReminderDispatcher;
 use VL\LMS\Services\Notifications\ReminderScheduler;
@@ -379,6 +385,22 @@ final class Plugin {
 		$refund_revoker = $this->container->get( OrderRefundEnrollmentRevoker::class );
 		if ( $refund_revoker instanceof OrderRefundEnrollmentRevoker ) {
 			add_action( 'vl_lms_order_refunded', [ $refund_revoker, 'on_order_refunded' ], 10, 2 );
+		}
+
+		// Phase 8.5 — transactional email listeners at priority 20 (after
+		// provisioning / revocation side-effects at priority 10). Each
+		// listener bridges its domain action to the matching mailer.
+		$order_paid_listener = $this->container->get( OrderPaidListener::class );
+		if ( $order_paid_listener instanceof OrderPaidListener ) {
+			$order_paid_listener->register();
+		}
+		$order_refunded_listener = $this->container->get( OrderRefundedListener::class );
+		if ( $order_refunded_listener instanceof OrderRefundedListener ) {
+			$order_refunded_listener->register();
+		}
+		$order_failed_listener = $this->container->get( OrderFailedListener::class );
+		if ( $order_failed_listener instanceof OrderFailedListener ) {
+			$order_failed_listener->register();
 		}
 
 		/**
@@ -2147,6 +2169,78 @@ final class Plugin {
 				$logger = $c->get( Logger::class );
 				assert( $logger instanceof Logger );
 				return new CertificateIssuedListener( $mailer, $logger );
+			}
+		);
+
+		$container->set(
+			OrderPaidMailer::class,
+			static function ( Container $c ): OrderPaidMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				$sender = $c->get( HtmlMailSender::class );
+				assert( $sender instanceof HtmlMailSender );
+				return new OrderPaidMailer( $logger, $resolver, $sender );
+			}
+		);
+
+		$container->set(
+			OrderRefundedMailer::class,
+			static function ( Container $c ): OrderRefundedMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				$sender = $c->get( HtmlMailSender::class );
+				assert( $sender instanceof HtmlMailSender );
+				return new OrderRefundedMailer( $logger, $resolver, $sender );
+			}
+		);
+
+		$container->set(
+			OrderFailedMailer::class,
+			static function ( Container $c ): OrderFailedMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				$sender = $c->get( HtmlMailSender::class );
+				assert( $sender instanceof HtmlMailSender );
+				return new OrderFailedMailer( $logger, $resolver, $sender );
+			}
+		);
+
+		$container->set(
+			OrderPaidListener::class,
+			static function ( Container $c ): OrderPaidListener {
+				$mailer = $c->get( OrderPaidMailer::class );
+				assert( $mailer instanceof OrderPaidMailer );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new OrderPaidListener( $mailer, $logger );
+			}
+		);
+
+		$container->set(
+			OrderRefundedListener::class,
+			static function ( Container $c ): OrderRefundedListener {
+				$mailer = $c->get( OrderRefundedMailer::class );
+				assert( $mailer instanceof OrderRefundedMailer );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new OrderRefundedListener( $mailer, $logger );
+			}
+		);
+
+		$container->set(
+			OrderFailedListener::class,
+			static function ( Container $c ): OrderFailedListener {
+				$mailer = $c->get( OrderFailedMailer::class );
+				assert( $mailer instanceof OrderFailedMailer );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new OrderFailedListener( $mailer, $logger );
 			}
 		);
 

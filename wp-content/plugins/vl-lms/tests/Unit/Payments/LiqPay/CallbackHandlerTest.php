@@ -93,11 +93,12 @@ final class CallbackHandlerTest extends TestCase {
 		);
 	}
 
-	public function test_failure_status_flips_order_to_failed_without_firing_action(): void {
+	public function test_failure_status_flips_order_to_failed_and_fires_action(): void {
 		$order_id = $this->seed_pending_order( 'uuid-fail', '1500.00' );
 		$payload  = $this->payload( order_id: 'uuid-fail', status: 'failure', payment_id: '201' );
 
 		Actions\expectDone( 'vl_lms_order_paid' )->never();
+		Actions\expectDone( 'vl_lms_order_failed' )->once();
 
 		$outcome = $this->handler->handle( $payload );
 
@@ -113,9 +114,44 @@ final class CallbackHandlerTest extends TestCase {
 		$order_id = $this->seed_pending_order( 'uuid-error', '1500.00' );
 		$payload  = $this->payload( order_id: 'uuid-error', status: 'error', payment_id: '202' );
 
+		Actions\expectDone( 'vl_lms_order_failed' )->once();
+
 		$outcome = $this->handler->handle( $payload );
 
 		self::assertSame( CallbackOutcome::OK_PROCESSED, $outcome );
+		self::assertSame(
+			OrderStatus::FAILED,
+			( $this->orders->find_by_id( $order_id ) ?? throw new \RuntimeException( 'order missing' ) )->status
+		);
+	}
+
+	public function test_failure_callback_on_already_failed_order_does_not_refire_action(): void {
+		$order_id = $this->orders->seed(
+			[
+				'uuid'            => 'uuid-already-failed',
+				'liqpay_order_id' => 'uuid-already-failed',
+				'status'          => OrderStatus::FAILED->value,
+				'amount'          => '1500.00',
+				'currency'        => 'UAH',
+				'entity_type'     => PurchasableEntityType::COURSE->value,
+			]
+		);
+
+		// Different payment_id so the row is NOT a duplicate-idempotency hit;
+		// the order is just already terminal so no transition (and no fire).
+		$payload = $this->payload(
+			order_id: 'uuid-already-failed',
+			status: 'failure',
+			payment_id: '299'
+		);
+
+		Actions\expectDone( 'vl_lms_order_paid' )->never();
+		Actions\expectDone( 'vl_lms_order_failed' )->never();
+
+		$outcome = $this->handler->handle( $payload );
+
+		self::assertSame( CallbackOutcome::OK_PROCESSED, $outcome );
+		self::assertCount( 1, $this->payments->list_for_order( $order_id ) );
 		self::assertSame(
 			OrderStatus::FAILED,
 			( $this->orders->find_by_id( $order_id ) ?? throw new \RuntimeException( 'order missing' ) )->status

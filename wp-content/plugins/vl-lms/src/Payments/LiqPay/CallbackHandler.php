@@ -17,23 +17,26 @@ use VL\LMS\Support\Logger;
 
 /**
  * Phase 8.2 — runs the LiqPay callback state machine. Phase 8.3 matures the
- * `reversed` branch from short-circuit to confirmation.
+ * `reversed` branch from short-circuit to confirmation. Phase 8.5 closes the
+ * action symmetry by firing `vl_lms_order_failed` on transitions into FAILED.
  *
  * Decision table (per the spec's locked decisions):
  *
- *   | LiqPay status                                       | Row | Order transition       | `vl_lms_order_paid` |
- *   | --------------------------------------------------- | --- | ---------------------- | ------------------- |
- *   | `success`, `sandbox`                                | yes | → PAID                 | fires               |
- *   | `failure`, `error`                                  | yes | → FAILED               | does not fire       |
- *   | `wait_*`, `processing`                              | yes | none                   | does not fire       |
- *   | `reversed` (matching prior REFUND row)              | dup | none (already REFUNDED) | does not fire       |
- *   | `reversed` (orphan; no prior REFUND row)            | no  | none                   | does not fire       |
- *   | `other` (unknown)                                   | yes | none                   | does not fire       |
+ *   | LiqPay status                                       | Row | Order transition       | Action fired           |
+ *   | --------------------------------------------------- | --- | ---------------------- | ---------------------- |
+ *   | `success`, `sandbox` (transition)                   | yes | → PAID                 | `vl_lms_order_paid`    |
+ *   | `failure`, `error` (transition)                     | yes | → FAILED               | `vl_lms_order_failed`  |
+ *   | `success` on already-PAID                           | yes | none                   | none                   |
+ *   | `failure` / `error` on already-terminal             | yes | none                   | none                   |
+ *   | `wait_*`, `processing`                              | yes | none                   | none                   |
+ *   | `reversed` (matching prior REFUND row)              | dup | none (already REFUNDED) | none                  |
+ *   | `reversed` (orphan; no prior REFUND row)            | no  | none                   | none                   |
+ *   | `other` (unknown)                                   | yes | none                   | none                   |
  *
  * Currency or amount mismatch short-circuits the table: no row, no transition.
  * Unknown order_id short-circuits: no row, no transition. A duplicate
  * callback (idempotency-key collision) is caught and reported as
- * {@see CallbackOutcome::OK_DUPLICATE}.
+ * {@see CallbackOutcome::OK_DUPLICATE} — no action fires on duplicates.
  *
  * Concrete (not final). Mockery-mockable in unit tests; the only seam is
  * `protected now()` for clock control.
@@ -156,6 +159,22 @@ class CallbackHandler {
 			 * @param Payment $payment The persisted payment row that triggered the transition.
 			 */
 			do_action( 'vl_lms_order_paid', $transitioned_order, $persisted_payment );
+		}
+
+		if ( null !== $transitioned_order && OrderStatus::FAILED === $transitioned_order->status ) {
+			/**
+			 * Phase 8.5 — fires after a LiqPay callback flips an order to FAILED
+			 * (`failure` / `error` LiqPay statuses). Symmetric with
+			 * `vl_lms_order_paid`: only on real transitions, never on duplicate
+			 * callbacks against already-terminal orders.
+			 *
+			 * Listeners include {@see \VL\LMS\Services\Notifications\OrderFailedListener}
+			 * at priority 20.
+			 *
+			 * @param Order   $order   The post-transition order, freshly reloaded.
+			 * @param Payment $payment The persisted payment row that triggered the transition.
+			 */
+			do_action( 'vl_lms_order_failed', $transitioned_order, $persisted_payment );
 		}
 
 		return CallbackOutcome::OK_PROCESSED;

@@ -189,6 +189,33 @@ final class PluginTest extends TestCase {
 		self::assertInstanceOf( \VL\LMS\Payments\LiqPay\RefundResponseParser::class, $refund_parser );
 	}
 
+	public function test_container_resolves_phase_8_5_notification_bindings(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		Plugin::instance()->boot();
+
+		$container = Plugin::instance()->container();
+		self::assertNotNull( $container );
+
+		$paid_mailer = $container->get( \VL\LMS\Mail\OrderPaidMailer::class );
+		self::assertInstanceOf( \VL\LMS\Mail\OrderPaidMailer::class, $paid_mailer );
+
+		$refunded_mailer = $container->get( \VL\LMS\Mail\OrderRefundedMailer::class );
+		self::assertInstanceOf( \VL\LMS\Mail\OrderRefundedMailer::class, $refunded_mailer );
+
+		$failed_mailer = $container->get( \VL\LMS\Mail\OrderFailedMailer::class );
+		self::assertInstanceOf( \VL\LMS\Mail\OrderFailedMailer::class, $failed_mailer );
+
+		$paid_listener = $container->get( \VL\LMS\Services\Notifications\OrderPaidListener::class );
+		self::assertInstanceOf( \VL\LMS\Services\Notifications\OrderPaidListener::class, $paid_listener );
+
+		$refunded_listener = $container->get( \VL\LMS\Services\Notifications\OrderRefundedListener::class );
+		self::assertInstanceOf( \VL\LMS\Services\Notifications\OrderRefundedListener::class, $refunded_listener );
+
+		$failed_listener = $container->get( \VL\LMS\Services\Notifications\OrderFailedListener::class );
+		self::assertInstanceOf( \VL\LMS\Services\Notifications\OrderFailedListener::class, $failed_listener );
+	}
+
 	public function test_default_dependency_check_uses_class_exists(): void {
 		// Override cleared in setUp; the default path relies on the real
 		// facade class, which is not loaded in the unit suite.
