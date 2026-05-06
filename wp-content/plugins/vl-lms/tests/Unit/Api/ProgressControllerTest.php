@@ -50,10 +50,6 @@ final class ProgressControllerTest extends TestCase {
 	/** @var array<int, WP_Post> */
 	private array $posts = [];
 
-	private bool $logged_in = true;
-
-	private bool $has_cap = true;
-
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
@@ -82,8 +78,6 @@ final class ProgressControllerTest extends TestCase {
 		Functions\when( 'get_post' )->alias(
 			fn ( int $id ): ?WP_Post => $this->posts[ $id ] ?? null
 		);
-		Functions\when( 'is_user_logged_in' )->alias( fn (): bool => $this->logged_in );
-		Functions\when( 'current_user_can' )->alias( fn (): bool => $this->has_cap );
 
 		$this->authenticator = Mockery::mock( RestAuthenticator::class );
 		$this->hierarchy     = Mockery::mock( EntityHierarchy::class );
@@ -183,26 +177,36 @@ final class ProgressControllerTest extends TestCase {
 		self::assertSame( 'POST', $captured[0]['args']['methods'] );
 	}
 
-	public function test_permission_callback_false_when_logged_out(): void {
-		$this->logged_in = false;
+	public function test_permission_callback_returns_401_when_bearer_unresolved(): void {
+		// JWT auth — no user resolved from the request means no valid bearer
+		// (or no bearer at all). Cookie auth would silently pass through; we
+		// must explicitly 401 so the SPA's refresh-and-retry interceptor can
+		// react.
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( null );
 
-		self::assertFalse(
-			$this->controller->permission_callback( $this->request( null ) )
-		);
+		$result = $this->controller->permission_callback( $this->request( null ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'rest_not_logged_in', $result->get_error_code() );
+		self::assertSame( 401, $result->get_error_data()['status'] );
 	}
 
-	public function test_permission_callback_false_when_missing_cap(): void {
-		$this->logged_in = true;
-		$this->has_cap   = false;
+	public function test_permission_callback_returns_403_when_bearer_user_lacks_cap(): void {
+		$user = $this->user();
+		$user->shouldReceive( 'has_cap' )->with( ProgressController::VIEW_CAPABILITY )->andReturn( false );
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $user );
 
-		self::assertFalse(
-			$this->controller->permission_callback( $this->request( null ) )
-		);
+		$result = $this->controller->permission_callback( $this->request( null ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'rest_forbidden', $result->get_error_code() );
+		self::assertSame( 403, $result->get_error_data()['status'] );
 	}
 
-	public function test_permission_callback_true_when_logged_in_and_capable(): void {
-		$this->logged_in = true;
-		$this->has_cap   = true;
+	public function test_permission_callback_true_when_bearer_user_has_cap(): void {
+		$user = $this->user();
+		$user->shouldReceive( 'has_cap' )->with( ProgressController::VIEW_CAPABILITY )->andReturn( true );
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $user );
 
 		self::assertTrue(
 			$this->controller->permission_callback( $this->request( null ) )

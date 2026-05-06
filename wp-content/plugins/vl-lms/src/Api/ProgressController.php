@@ -61,12 +61,35 @@ final class ProgressController {
 		);
 	}
 
-	public function permission_callback( WP_REST_Request $request ): bool {
-		unset( $request );
-		if ( ! is_user_logged_in() ) {
-			return false;
+	/**
+	 * Resolve the caller through the JWT bearer-auth path rather than WP's
+	 * cookie auth. `is_user_logged_in()` and `current_user_can()` only see
+	 * the user when `wp_set_current_user()` has been called — and
+	 * `vl-jwt-auth` deliberately doesn't pollute global user state when it
+	 * decodes a bearer token (that's why it exposes the explicit
+	 * `AuthFacade::user_from_request()` call). Using cookie-auth helpers
+	 * here would 401 every JWT request — including the lesson player's
+	 * `useProgressTracker` heartbeats and "Mark as Complete" clicks.
+	 *
+	 * @return true|WP_Error
+	 */
+	public function permission_callback( WP_REST_Request $request ) {
+		$user = $this->authenticator->user_from_request( $request );
+		if ( ! $user instanceof WP_User ) {
+			return new WP_Error(
+				'rest_not_logged_in',
+				__( 'You are not currently logged in.', 'vl-lms' ),
+				[ 'status' => 401 ]
+			);
 		}
-		return current_user_can( self::VIEW_CAPABILITY );
+		if ( ! $user->has_cap( self::VIEW_CAPABILITY ) ) {
+			return new WP_Error(
+				'rest_forbidden',
+				__( 'You do not have permission to perform this action.', 'vl-lms' ),
+				[ 'status' => 403 ]
+			);
+		}
+		return true;
 	}
 
 	/**
