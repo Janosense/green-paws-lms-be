@@ -26,6 +26,22 @@ final class RateLimiter {
 	 * @return bool True when the call is allowed, false when the cap has been exceeded.
 	 */
 	public function check( string $key, int $limit, int $window ): bool {
+		/**
+		 * Short-circuit the rate-limit check.
+		 *
+		 * Callers can hook this to bypass the limiter entirely — used by the
+		 * plugin to disable rate limiting in `local` / `development`
+		 * environments so dev iteration isn't throttled by repeated logins.
+		 *
+		 * @param bool   $bypass Whether to skip the rate-limit check.
+		 * @param string $key    The bucket key.
+		 * @param int    $limit  Max hits allowed in the window.
+		 * @param int    $window Window length in seconds.
+		 */
+		if ( (bool) apply_filters( 'vl_jwt_auth_rate_limit_bypass', false, $key, $limit, $window ) ) {
+			return true;
+		}
+
 		$bucket = self::BUCKET_PREFIX . md5( $key );
 		$now    = time();
 

@@ -52,6 +52,8 @@ final class Plugin {
 		// scheduled by the Activator; binding the listener here ensures
 		// the handler is reachable on every request, including WP-Cron's.
 		add_action( Activator::CLEANUP_HOOK, [ $this, 'cleanup_expired_tokens' ] );
+
+		add_filter( 'vl_jwt_auth_rate_limit_bypass', [ $this, 'bypass_rate_limit_in_dev' ], 10, 1 );
 	}
 
 	public function load_textdomain(): void {
@@ -111,6 +113,28 @@ final class Plugin {
 	 */
 	public function cleanup_expired_tokens(): void {
 		$this->refresh_repo()->cleanup_expired();
+	}
+
+	/**
+	 * Default bypass policy for {@see RateLimiter::check()}.
+	 *
+	 * Skips rate limiting in dev: either when `wp_get_environment_type()`
+	 * reports `local`/`development`, or when `WP_DEBUG` is enabled (DDEV
+	 * defaults the environment type to `production`, so debug mode is the
+	 * more reliable signal locally). Production and staging stay protected
+	 * as long as `WP_DEBUG` is off, which is the standard expectation.
+	 */
+	public function bypass_rate_limit_in_dev( bool $bypass ): bool {
+		if ( $bypass ) {
+			return true;
+		}
+		if ( function_exists( 'wp_get_environment_type' ) ) {
+			$env = wp_get_environment_type();
+			if ( 'local' === $env || 'development' === $env ) {
+				return true;
+			}
+		}
+		return defined( 'WP_DEBUG' ) && WP_DEBUG;
 	}
 
 	private function refresh_repo(): RefreshTokenRepository {
