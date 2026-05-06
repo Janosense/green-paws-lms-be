@@ -3,9 +3,10 @@
  * Certificate Template v1
  *
  * Layout: A4 landscape (297mm × 210mm).
- * Fonts: DejaVu Sans (Cyrillic-capable, bundled with dompdf). Onest is
- *        not embedded — registering custom fonts in dompdf requires the
- *        `load_font.php` build step and is deferred per phase decision.
+ * Fonts: Onest (Cyrillic-capable, registered in Phase 9.7 from
+ *        `src/Pdf/Fonts/Onest-Regular.ttf` and `Onest-Bold.ttf`). DejaVu
+ *        Sans remains the fallback in case Onest registration fails —
+ *        Cyrillic coverage is preserved either way.
  * Colors:
  *   - brand-600 #397E49 (accents)
  *   - stone-900 #26221C (body text)
@@ -45,7 +46,7 @@ html, body {
     padding: 0;
     width: 297mm;
     height: 210mm;
-    font-family: DejaVu Sans, sans-serif;
+    font-family: Onest, 'DejaVu Sans', sans-serif;
     color: #26221C;
 }
 .page {

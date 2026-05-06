@@ -86,6 +86,13 @@ class PdfGenerator {
 	 * Build the dompdf instance. Isolated so tests can subclass and
 	 * stub it out — exercising the actual dompdf binary in unit tests
 	 * is brittle and slow.
+	 *
+	 * Phase 9.7: registers the Onest TTF family bundled under
+	 * `src/Pdf/Fonts/` so the certificate template can pick it up.
+	 * Cyrillic coverage is preserved by keeping `DejaVu Sans` as the
+	 * default font (and as the fallback declared in the template's
+	 * `font-family` rule) — if Onest registration fails for any reason,
+	 * the certificate still renders.
 	 */
 	protected function build_dompdf( string $basedir ): Dompdf {
 		$options = new Options();
@@ -94,7 +101,56 @@ class PdfGenerator {
 		$options->set( 'chroot', $basedir );
 		$options->set( 'isHtml5ParserEnabled', true );
 
-		return new Dompdf( $options );
+		$dompdf = new Dompdf( $options );
+
+		$this->register_onest_fonts( $dompdf );
+
+		return $dompdf;
+	}
+
+	/**
+	 * Register the Onest TTFs shipped with the plugin so dompdf can
+	 * resolve `font-family: Onest` at render time. Failures are logged
+	 * but never raised — DejaVu Sans (template fallback) keeps the
+	 * certificate renderable.
+	 */
+	protected function register_onest_fonts( Dompdf $dompdf ): void {
+		$fonts_dir = dirname( __DIR__, 2 ) . '/Pdf/Fonts';
+		$regular   = $fonts_dir . '/Onest-Regular.ttf';
+		$bold      = $fonts_dir . '/Onest-Bold.ttf';
+
+		if ( ! is_file( $regular ) || ! is_file( $bold ) ) {
+			$this->logger->warning(
+				'PdfGenerator: Onest TTFs missing — falling back to DejaVu Sans.',
+				[ 'fonts_dir' => $fonts_dir ]
+			);
+			return;
+		}
+
+		try {
+			$metrics = $dompdf->getFontMetrics();
+			$metrics->registerFont(
+				[
+					'family' => 'Onest',
+					'style'  => 'normal',
+					'weight' => 'normal',
+				],
+				$regular
+			);
+			$metrics->registerFont(
+				[
+					'family' => 'Onest',
+					'style'  => 'normal',
+					'weight' => 'bold',
+				],
+				$bold
+			);
+		} catch ( \Throwable $e ) {
+			$this->logger->warning(
+				'PdfGenerator: Onest registration failed — falling back to DejaVu Sans.',
+				[ 'message' => $e->getMessage() ]
+			);
+		}
 	}
 
 	protected function file_exists_and_non_empty( string $path ): bool {
