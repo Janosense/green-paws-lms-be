@@ -10,13 +10,10 @@ use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
-use VL\LMS\Domain\Progress\EntityType;
-use VL\LMS\Domain\Progress\ProgressStatus;
 use VL\LMS\Learn\Access\LessonAccessGate;
 use VL\LMS\Learn\EntityHierarchy;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
-use VL\LMS\Tests\Fixtures\InMemoryProgressRepository;
 use WP_Post;
 
 final class LessonAccessGateTest extends TestCase {
@@ -25,7 +22,6 @@ final class LessonAccessGateTest extends TestCase {
 
 	private InMemoryEnrollmentRepository $enrollment_repo;
 	private EnrollmentService $enrollments;
-	private InMemoryProgressRepository $progress;
 
 	/** @var array<int, mixed> */
 	private array $meta = [];
@@ -36,7 +32,6 @@ final class LessonAccessGateTest extends TestCase {
 
 		$this->enrollment_repo = new InMemoryEnrollmentRepository();
 		$this->enrollments     = new EnrollmentService( $this->enrollment_repo );
-		$this->progress        = new InMemoryProgressRepository();
 		$this->meta            = [];
 
 		$meta = &$this->meta;
@@ -107,7 +102,7 @@ final class LessonAccessGateTest extends TestCase {
 		$lesson    = $this->makePost( 10, 'vl_lesson' );
 		$hierarchy = $this->makeHierarchy( [ 10 => null ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
 
 		$decision = $gate->check( 1, $lesson );
 
@@ -122,7 +117,7 @@ final class LessonAccessGateTest extends TestCase {
 
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
 
 		$decision = $gate->check( 1, $lesson );
 
@@ -138,7 +133,7 @@ final class LessonAccessGateTest extends TestCase {
 		$this->setMeta( 10, '_vl_lesson_is_preview', '1' );
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
 
 		$decision = $gate->check( 99, $lesson );
 
@@ -153,7 +148,7 @@ final class LessonAccessGateTest extends TestCase {
 
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
 
 		$decision = $gate->check( 99, $lesson );
 
@@ -169,7 +164,7 @@ final class LessonAccessGateTest extends TestCase {
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ], [ 10 => null ] );
 
 		$this->seedActiveEnrollment( 5, 1 );
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
 
 		$decision = $gate->check( 5, $lesson );
 
@@ -178,114 +173,25 @@ final class LessonAccessGateTest extends TestCase {
 		self::assertSame( 1, $decision->course_id );
 	}
 
-	public function test_allows_when_previous_does_not_require_completion(): void {
+	public function test_allows_enrolled_lesson_regardless_of_previous_completion(): void {
 		$prior  = $this->makePost( 9, 'vl_lesson' );
 		$lesson = $this->makePost( 10, 'vl_lesson' );
 		$course = $this->makePost( 1, 'vl_course' );
 
-		$hierarchy = $this->makeHierarchy( [ 10 => $course ], [ 10 => $prior ] );
-
-		$this->seedActiveEnrollment( 5, 1 );
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
-
-		$decision = $gate->check( 5, $lesson );
-
-		self::assertTrue( $decision->allowed );
-	}
-
-	public function test_allows_when_prereq_required_and_completed(): void {
-		$prior  = $this->makePost( 9, 'vl_lesson' );
-		$lesson = $this->makePost( 10, 'vl_lesson' );
-		$course = $this->makePost( 1, 'vl_course' );
-
+		// The previous lesson is flagged as `requires_completion` and the
+		// learner has no progress row for it. Once the prerequisite gate
+		// was lifted, enrollment alone is enough to view any lesson.
 		$this->setMeta( 9, '_vl_lesson_requires_completion', '1' );
-		$this->progress->upsert(
-			5,
-			EntityType::LESSON,
-			9,
-			1,
-			ProgressStatus::COMPLETED,
-			null,
-			new \DateTimeImmutable( 'now' ),
-			new \DateTimeImmutable( 'now' )
-		);
 
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ], [ 10 => $prior ] );
 
 		$this->seedActiveEnrollment( 5, 1 );
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
 
 		$decision = $gate->check( 5, $lesson );
 
 		self::assertTrue( $decision->allowed );
 		self::assertSame( 1, $decision->course_id );
-	}
-
-	public function test_denies_when_prereq_required_and_not_completed(): void {
-		$prior  = $this->makePost( 9, 'vl_lesson' );
-		$lesson = $this->makePost( 10, 'vl_lesson' );
-		$course = $this->makePost( 1, 'vl_course' );
-
-		$this->setMeta( 9, '_vl_lesson_requires_completion', '1' );
-		$this->progress->upsert(
-			5,
-			EntityType::LESSON,
-			9,
-			1,
-			ProgressStatus::IN_PROGRESS,
-			15,
-			null,
-			new \DateTimeImmutable( 'now' )
-		);
-
-		$hierarchy = $this->makeHierarchy( [ 10 => $course ], [ 10 => $prior ] );
-
-		$this->seedActiveEnrollment( 5, 1 );
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
-
-		$decision = $gate->check( 5, $lesson );
-
-		self::assertFalse( $decision->allowed );
-		self::assertSame( 'prerequisite_not_completed', $decision->reason );
-		self::assertSame( 1, $decision->course_id );
-	}
-
-	public function test_denies_when_prereq_required_and_progress_row_missing(): void {
-		$prior  = $this->makePost( 9, 'vl_lesson' );
-		$lesson = $this->makePost( 10, 'vl_lesson' );
-		$course = $this->makePost( 1, 'vl_course' );
-
-		$this->setMeta( 9, '_vl_lesson_requires_completion', '1' );
-		$hierarchy = $this->makeHierarchy( [ 10 => $course ], [ 10 => $prior ] );
-
-		$this->seedActiveEnrollment( 5, 1 );
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
-
-		$decision = $gate->check( 5, $lesson );
-
-		self::assertFalse( $decision->allowed );
-		self::assertSame( 'prerequisite_not_completed', $decision->reason );
-	}
-
-	public function test_topic_skips_prerequisite_check_entirely(): void {
-		$prior_lesson = $this->makePost( 9, 'vl_lesson' );
-		$topic        = $this->makePost( 20, 'vl_topic' );
-		$course       = $this->makePost( 1, 'vl_course' );
-
-		// Set up a meta flag on the previous post that, if walked, WOULD
-		// trip the prerequisite gate. The fact that it does not deny here
-		// proves topics skip the check.
-		$this->setMeta( 9, '_vl_lesson_requires_completion', '1' );
-
-		$hierarchy = $this->makeHierarchy( [ 20 => $course ], [ 20 => $prior_lesson ] );
-
-		$this->seedActiveEnrollment( 5, 1 );
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
-
-		$decision = $gate->check( 5, $topic );
-
-		self::assertTrue( $decision->allowed );
-		self::assertFalse( $decision->is_preview );
 	}
 
 	public function test_topic_does_not_use_preview_bypass(): void {
@@ -298,7 +204,7 @@ final class LessonAccessGateTest extends TestCase {
 
 		$hierarchy = $this->makeHierarchy( [ 20 => $course ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $this->progress, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
 
 		$decision = $gate->check( 99, $topic );
 

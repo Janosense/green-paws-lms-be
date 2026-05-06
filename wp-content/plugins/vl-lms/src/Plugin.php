@@ -1243,11 +1243,9 @@ final class Plugin {
 			static function ( Container $c ): LessonAccessGate {
 				$service = $c->get( EnrollmentService::class );
 				assert( $service instanceof EnrollmentService );
-				$progress = $c->get( ProgressRepository::class );
-				assert( $progress instanceof ProgressRepository );
 				$hierarchy = $c->get( EntityHierarchy::class );
 				assert( $hierarchy instanceof EntityHierarchy );
-				return new LessonAccessGate( $service, $progress, $hierarchy );
+				return new LessonAccessGate( $service, $hierarchy );
 			}
 		);
 

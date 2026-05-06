@@ -20,10 +20,10 @@ use WP_User;
  * - `GET /vl/v1/learn/topics/{slug}` — topic detail.
  *
  * Permission flow: cap-check happens in {@see self::permission_callback()}
- * (logged-in + `vl_view_lesson`). Domain access — enrollment, prerequisite,
- * publish status, preview bypass — flows through {@see LessonAccessGate}
- * inside the route handler so the gate's reason codes can be mapped to
- * stable HTTP-aware `WP_Error` shapes.
+ * (logged-in + `vl_view_lesson`). Domain access — enrollment, publish
+ * status, preview bypass — flows through {@see LessonAccessGate} inside
+ * the route handler so the gate's reason codes can be mapped to stable
+ * HTTP-aware `WP_Error` shapes.
  *
  * Response envelope follows the existing `{ success: true, data: {...} }`
  * convention used elsewhere in the plugin.
@@ -180,27 +180,22 @@ final class LessonContentController {
 
 	private function map_denied_decision( AccessDecision $decision ): WP_Error {
 		return match ( $decision->reason ) {
-			'parent_not_found'           => new WP_Error(
+			'parent_not_found'   => new WP_Error(
 				'parent_not_found',
 				__( 'Parent not found.', 'vl-lms' ),
 				[ 'status' => 404 ]
 			),
-			'course_unpublished'         => new WP_Error(
+			'course_unpublished' => new WP_Error(
 				'course_unpublished',
 				__( 'Course is not published.', 'vl-lms' ),
 				[ 'status' => 404 ]
 			),
-			'not_enrolled'               => new WP_Error(
+			'not_enrolled'       => new WP_Error(
 				'not_enrolled',
 				__( 'You must be enrolled to view this content.', 'vl-lms' ),
 				[ 'status' => 403 ]
 			),
-			'prerequisite_not_completed' => new WP_Error(
-				'prerequisite_not_completed',
-				__( 'Complete the previous lesson to unlock this one.', 'vl-lms' ),
-				[ 'status' => 403 ]
-			),
-			default                      => new WP_Error(
+			default              => new WP_Error(
 				'access_denied',
 				__( 'Access denied.', 'vl-lms' ),
 				[ 'status' => 403 ]

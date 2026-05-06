@@ -237,18 +237,6 @@ final class LessonContentControllerTest extends TestCase {
 		self::assertSame( 403, $result->get_error_data()['status'] );
 	}
 
-	public function test_lesson_handler_maps_prerequisite_not_completed_to_403(): void {
-		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
-		$this->seed_published_post( $this->post( 123, 'vl_lesson', 'intro' ) );
-		$this->gate->shouldReceive( 'check' )->andReturn( AccessDecision::deny( 'prerequisite_not_completed', 100 ) );
-
-		$result = $this->controller->handle_lesson( $this->request( 'intro' ) );
-
-		self::assertInstanceOf( WP_Error::class, $result );
-		self::assertSame( 'prerequisite_not_completed', $result->get_error_code() );
-		self::assertSame( 403, $result->get_error_data()['status'] );
-	}
-
 	public function test_lesson_handler_returns_envelope_on_success(): void {
 		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
 		$lesson = $this->post( 123, 'vl_lesson', 'intro' );
