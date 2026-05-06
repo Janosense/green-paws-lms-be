@@ -225,6 +225,8 @@ use VL\LMS\Services\Notifications\OrderRefundedListener;
 use VL\LMS\Services\Notifications\RecordingReadyListener;
 use VL\LMS\Services\Notifications\ReminderDispatcher;
 use VL\LMS\Services\Notifications\ReminderScheduler;
+use VL\LMS\Slug\CyrillicTransliterator;
+use VL\LMS\Slug\SlugTransliterationListener;
 use VL\LMS\Support\AppUrlResolver;
 use VL\LMS\Support\HeroImageSize;
 use VL\LMS\Support\Logger;
@@ -301,6 +303,14 @@ final class Plugin {
 
 		$taxonomy_registrar = new TaxonomyRegistrar();
 		$taxonomy_registrar->register_hooks();
+
+		// Auto-transliterate Cyrillic slugs on the inner-course CPTs (lessons,
+		// topics, modules, quizzes, sessions, assignments, quiz questions).
+		// `vl_course` and `vl_webinar` are intentionally excluded — those slugs
+		// land in shareable public URLs and may already be indexed; touching
+		// them silently would break inbound links. See `SlugTransliterationListener`.
+		$slug_transliteration_listener = new SlugTransliterationListener( new CyrillicTransliterator() );
+		$slug_transliteration_listener->register_hooks();
 
 		$instructor_profile_meta = $this->container->get( InstructorProfileMetaRegistrar::class );
 		if ( $instructor_profile_meta instanceof InstructorProfileMetaRegistrar ) {
