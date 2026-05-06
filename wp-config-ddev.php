@@ -31,7 +31,7 @@ if ( getenv( 'IS_DDEV_PROJECT' ) == 'true' ) {
 	/** JWT Auth secret key */
 	defined( 'VL_JWT_AUTH_SECRET_KEY' ) || define( 'VL_JWT_AUTH_SECRET_KEY', 'Pd>2+.^nzKx##/t}gt5yjA=QGPn5|Z*WmSf2vpit&[k{}9x8nAf7Nn~rqZa.5CIb' );
 
-	define('VL_CORS_ORIGINS', 'http://localhost:3000,https://app.vetlms.com');
+	define('VL_CORS_ORIGINS', 'http://localhost:3000,https://app.vetlms.com,http://localhost:49894');
 	define('VL_FRONTEND_URL', 'http://localhost:3000');
 	define('VL_LMS_APP_URL', 'http://localhost:3000');
 
