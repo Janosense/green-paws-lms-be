@@ -148,6 +148,15 @@ final class Handler {
 		header( 'Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages' );
 		header( 'Access-Control-Max-Age: 600' );
 		header( 'Vary: Origin', false );
+
+		// VL endpoints are per-user and auth-sensitive; without an explicit
+		// Cache-Control, browsers fall back to heuristic caching on GETs and
+		// can serve a stale 401/403 (or empty body) after a fresh login,
+		// leaving the SPA wedged on the previous render. `no-store` prevents
+		// any disk/memory cache; `private` blocks shared caches in front of
+		// the origin. Pragma is the HTTP/1.0 fallback.
+		header( 'Cache-Control: no-store, private' );
+		header( 'Pragma: no-cache' );
 	}
 
 	private function isOurRoute( \WP_REST_Request $request ): bool {
