@@ -15,7 +15,7 @@ namespace VL\LMS\Support;
  *
  * @author Tymofii Synianskyi
  */
-final class AppUrlResolver {
+class AppUrlResolver {
 
 	public function __construct(
 		private readonly Logger $logger

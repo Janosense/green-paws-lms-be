@@ -408,4 +408,35 @@ final class QuizAttemptRepositoryTest extends TestCase {
 		);
 		self::assertFalse( $ok );
 	}
+
+	public function test_count_submitted_for_user_returns_count_of_terminal_attempts(): void {
+		$captured_args = [];
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, ...$args ) use ( &$captured_args ): string {
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( '2' );
+
+		$count = $this->repo->count_submitted_for_user( 10, 5 );
+
+		self::assertSame( 2, $count );
+		self::assertSame( [ 10, 5, 'in_progress' ], $captured_args );
+	}
+
+	public function test_best_score_for_user_returns_max_or_null(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( '85.5' );
+
+		self::assertSame( 85.5, $this->repo->best_score_for_user( 10, 5 ) );
+
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( null );
+
+		self::assertNull( $this->repo->best_score_for_user( 10, 5 ) );
+	}
 }

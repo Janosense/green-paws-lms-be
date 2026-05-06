@@ -182,6 +182,7 @@ final class CapabilitiesMap {
 			'vl_purchase_course',
 			'vl_view_own_orders',
 			'vl_refund_orders',
+			'manage_vl_lms_settings',
 		],
 	];
 

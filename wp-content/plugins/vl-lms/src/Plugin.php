@@ -11,6 +11,8 @@ use VL\LMS\Admin\Analytics\AnalyticsCron;
 use VL\LMS\Admin\Analytics\AnalyticsPage;
 use VL\LMS\Admin\Analytics\AnalyticsRollupService;
 use VL\LMS\Admin\Api\AdminPreviewController;
+use VL\LMS\Admin\Assignments\GradingQueuePage;
+use VL\LMS\Admin\Assignments\SubmissionDetailPage;
 use VL\LMS\Admin\Dashboard\CourseStatsQuery;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
@@ -31,7 +33,11 @@ use VL\LMS\Admin\MetaBoxes\WebinarMetaBox;
 use VL\LMS\Admin\Orders\OrderDetailPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
 use VL\LMS\Admin\Reorder\ReorderAjaxHandler;
+use VL\LMS\Admin\Settings\SettingsPage;
+use VL\LMS\Admin\Settings\ZoomSettingsSection;
+use VL\LMS\Api\AdminAssignmentsController;
 use VL\LMS\Api\AdminOrdersController;
+use VL\LMS\Api\AssignmentsController;
 use VL\LMS\Api\AuthController;
 use VL\LMS\Api\CertificatesController;
 use VL\LMS\Api\CertificateVerificationController;
@@ -41,6 +47,8 @@ use VL\LMS\Api\ProgressController;
 use VL\LMS\Api\QuizAttemptsController;
 use VL\LMS\Api\RestController;
 use VL\LMS\Api\SessionAccessController;
+use VL\LMS\Api\Transformers\QuizAttemptStateTransformer;
+use VL\LMS\Api\Transformers\SubmissionTransformer;
 use VL\LMS\Api\Transformers\WebinarRegistrationTransformer;
 use VL\LMS\Api\WebinarAccessController;
 use VL\LMS\Api\OrdersController;
@@ -67,6 +75,7 @@ use VL\LMS\Payments\LiqPay\SignatureBuilder as LiqPaySignatureBuilder;
 use VL\LMS\Payments\LiqPay\SignatureVerifier as LiqPaySignatureVerifier;
 use VL\LMS\Payments\PaymentProvider;
 use VL\LMS\Payments\RefundCapableProvider;
+use VL\LMS\Repositories\AssignmentSubmissionRepository;
 use VL\LMS\Repositories\OrderRepository;
 use VL\LMS\Repositories\PaymentRepository;
 use VL\LMS\Certificate\CertificateAutoIssuer;
@@ -161,6 +170,8 @@ use VL\LMS\Repositories\QuizAttemptRepository;
 use VL\LMS\Repositories\SessionAttendanceRepository;
 use VL\LMS\Repositories\WebinarRegistrationRepository;
 use VL\LMS\Repositories\ZoomWebhookEventRepository;
+use VL\LMS\Services\Assignments\AssignmentCompletionListener;
+use VL\LMS\Services\Assignments\AssignmentSubmissionService;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\JoinWindowPolicy;
@@ -416,6 +427,39 @@ final class Plugin {
 			add_action( 'admin_enqueue_scripts', [ $analytics_page, 'enqueue_assets' ] );
 		}
 
+		// Phase 9.4 — wire the assignment-completion listener and the
+		// `admin-post.php` handlers behind the grading queue's grade /
+		// reject buttons. The listener fires on `vl_lms_assignment_graded`,
+		// which the service raises only on passing scores; the handlers
+		// are nonce + cap gated inside their methods.
+		$assignment_listener = $this->container->get( AssignmentCompletionListener::class );
+		if ( $assignment_listener instanceof AssignmentCompletionListener ) {
+			add_action( 'vl_lms_assignment_graded', [ $assignment_listener, 'handle' ], 10, 2 );
+		}
+		$submission_detail_page = $this->container->get( SubmissionDetailPage::class );
+		if ( $submission_detail_page instanceof SubmissionDetailPage ) {
+			add_action(
+				'admin_post_' . SubmissionDetailPage::GRADE_ACTION,
+				[ $submission_detail_page, 'handle_grade' ]
+			);
+			add_action(
+				'admin_post_' . SubmissionDetailPage::REJECT_ACTION,
+				[ $submission_detail_page, 'handle_reject' ]
+			);
+		}
+
+		// Phase 9.5 — wp-admin Settings page form handler. Nonce + cap
+		// gated inside the method; constants in wp-config.php still take
+		// precedence so the loop silently skips fields whose constant is
+		// defined.
+		$settings_page = $this->container->get( SettingsPage::class );
+		if ( $settings_page instanceof SettingsPage ) {
+			add_action(
+				'admin_post_' . SettingsPage::SAVE_ACTION,
+				[ $settings_page, 'handle_save' ]
+			);
+		}
+
 		// Phase 8.3 — wire the order-refund revocation listener. Subscribes
 		// to vl_lms_order_refunded at priority 10. The certificate-revocation
 		// chain (Phase 6.3) cascades automatically when EnrollmentService::revoke
@@ -611,6 +655,14 @@ final class Plugin {
 		$admin_preview_controller = $this->container->get( AdminPreviewController::class );
 		if ( $admin_preview_controller instanceof AdminPreviewController ) {
 			$admin_preview_controller->register_routes();
+		}
+		$assignments_controller = $this->container->get( AssignmentsController::class );
+		if ( $assignments_controller instanceof AssignmentsController ) {
+			$assignments_controller->register_routes();
+		}
+		$admin_assignments_controller = $this->container->get( AdminAssignmentsController::class );
+		if ( $admin_assignments_controller instanceof AdminAssignmentsController ) {
+			$admin_assignments_controller->register_routes();
 		}
 	}
 
@@ -1540,6 +1592,15 @@ final class Plugin {
 		);
 
 		$container->set(
+			QuizAttemptStateTransformer::class,
+			static function ( Container $c ): QuizAttemptStateTransformer {
+				$repo = $c->get( QuizAttemptRepository::class );
+				assert( $repo instanceof QuizAttemptRepository );
+				return new QuizAttemptStateTransformer( $repo );
+			}
+		);
+
+		$container->set(
 			QuizAttemptsController::class,
 			static function ( Container $c ): QuizAttemptsController {
 				$service = $c->get( QuizAttemptService::class );
@@ -1548,11 +1609,14 @@ final class Plugin {
 				assert( $authenticator instanceof RestAuthenticator );
 				$logger = $c->get( Logger::class );
 				assert( $logger instanceof Logger );
+				$transformer = $c->get( QuizAttemptStateTransformer::class );
+				assert( $transformer instanceof QuizAttemptStateTransformer );
 				return new QuizAttemptsController(
 					VL_LMS_API_NAMESPACE,
 					$service,
 					$authenticator,
-					$logger
+					$logger,
+					$transformer
 				);
 			}
 		);
@@ -2690,7 +2754,7 @@ final class Plugin {
 		$container->set(
 			AdminProvider::class,
 			static function ( Container $c ): AdminProvider {
-				$boxes = [
+				$boxes            = [
 					$c->get( CourseMetaBox::class ),
 					$c->get( CourseInstructorsMetaBox::class ),
 					$c->get( ModuleMetaBox::class ),
@@ -2708,7 +2772,7 @@ final class Plugin {
 					$c->get( TopicListMetaBox::class ),
 					$c->get( QuestionListMetaBox::class ),
 				];
-				$reorder_handler = $c->get( ReorderAjaxHandler::class );
+				$reorder_handler  = $c->get( ReorderAjaxHandler::class );
 				assert( $reorder_handler instanceof ReorderAjaxHandler );
 				$menu_provider = $c->get( AdminMenuProvider::class );
 				assert( $menu_provider instanceof AdminMenuProvider );
@@ -2745,7 +2809,17 @@ final class Plugin {
 				assert( $orders_page instanceof OrdersListPage );
 				$analytics_page = $c->get( AnalyticsPage::class );
 				assert( $analytics_page instanceof AnalyticsPage );
-				return new AdminMenuProvider( $dashboard, $orders_page, $analytics_page );
+				$grading_page = $c->get( GradingQueuePage::class );
+				assert( $grading_page instanceof GradingQueuePage );
+				$settings_page = $c->get( SettingsPage::class );
+				assert( $settings_page instanceof SettingsPage );
+				return new AdminMenuProvider(
+					$dashboard,
+					$orders_page,
+					$analytics_page,
+					$grading_page,
+					$settings_page
+				);
 			}
 		);
 
@@ -2773,6 +2847,116 @@ final class Plugin {
 		$container->set(
 			AnalyticsPage::class,
 			static fn (): AnalyticsPage => new AnalyticsPage()
+		);
+
+		// --- Phase 9.4 — assignment submissions, grading service + queue ---
+
+		$container->set(
+			AssignmentSubmissionRepository::class,
+			static fn (): AssignmentSubmissionRepository => new AssignmentSubmissionRepository()
+		);
+
+		$container->set(
+			SubmissionTransformer::class,
+			static fn (): SubmissionTransformer => new SubmissionTransformer()
+		);
+
+		$container->set(
+			AssignmentSubmissionService::class,
+			static function ( Container $c ): AssignmentSubmissionService {
+				$repo = $c->get( AssignmentSubmissionRepository::class );
+				assert( $repo instanceof AssignmentSubmissionRepository );
+				$enrollment = $c->get( EnrollmentService::class );
+				assert( $enrollment instanceof EnrollmentService );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				return new AssignmentSubmissionService( $repo, $enrollment, $hierarchy );
+			}
+		);
+
+		$container->set(
+			AssignmentCompletionListener::class,
+			static function ( Container $c ): AssignmentCompletionListener {
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$propagator = $c->get( CompletionPropagator::class );
+				assert( $propagator instanceof CompletionPropagator );
+				return new AssignmentCompletionListener( $hierarchy, $propagator );
+			}
+		);
+
+		$container->set(
+			AssignmentsController::class,
+			static function ( Container $c ): AssignmentsController {
+				$service = $c->get( AssignmentSubmissionService::class );
+				assert( $service instanceof AssignmentSubmissionService );
+				$repo = $c->get( AssignmentSubmissionRepository::class );
+				assert( $repo instanceof AssignmentSubmissionRepository );
+				$transformer = $c->get( SubmissionTransformer::class );
+				assert( $transformer instanceof SubmissionTransformer );
+				$auth = $c->get( RestAuthenticator::class );
+				assert( $auth instanceof RestAuthenticator );
+				return new AssignmentsController( VL_LMS_API_NAMESPACE, $service, $repo, $transformer, $auth );
+			}
+		);
+
+		$container->set(
+			AdminAssignmentsController::class,
+			static function ( Container $c ): AdminAssignmentsController {
+				$service = $c->get( AssignmentSubmissionService::class );
+				assert( $service instanceof AssignmentSubmissionService );
+				$repo = $c->get( AssignmentSubmissionRepository::class );
+				assert( $repo instanceof AssignmentSubmissionRepository );
+				$transformer = $c->get( SubmissionTransformer::class );
+				assert( $transformer instanceof SubmissionTransformer );
+				return new AdminAssignmentsController( VL_LMS_API_NAMESPACE, $service, $repo, $transformer );
+			}
+		);
+
+		$container->set(
+			SubmissionDetailPage::class,
+			static function ( Container $c ): SubmissionDetailPage {
+				$service = $c->get( AssignmentSubmissionService::class );
+				assert( $service instanceof AssignmentSubmissionService );
+				$repo = $c->get( AssignmentSubmissionRepository::class );
+				assert( $repo instanceof AssignmentSubmissionRepository );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				return new SubmissionDetailPage( $service, $repo, $hierarchy );
+			}
+		);
+
+		$container->set(
+			GradingQueuePage::class,
+			static function ( Container $c ): GradingQueuePage {
+				$repo = $c->get( AssignmentSubmissionRepository::class );
+				assert( $repo instanceof AssignmentSubmissionRepository );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$detail = $c->get( SubmissionDetailPage::class );
+				assert( $detail instanceof SubmissionDetailPage );
+				return new GradingQueuePage( $repo, $hierarchy, $detail );
+			}
+		);
+
+		// --- Phase 9.5 — wp-admin Settings page (Zoom credentials) ---
+
+		$container->set(
+			ZoomSettingsSection::class,
+			static function ( Container $c ): ZoomSettingsSection {
+				$provider = $c->get( ZoomSettingsProvider::class );
+				assert( $provider instanceof ZoomSettingsProvider );
+				return new ZoomSettingsSection( $provider );
+			}
+		);
+
+		$container->set(
+			SettingsPage::class,
+			static function ( Container $c ): SettingsPage {
+				$section = $c->get( ZoomSettingsSection::class );
+				assert( $section instanceof ZoomSettingsSection );
+				return new SettingsPage( $section );
+			}
 		);
 
 		return $container;

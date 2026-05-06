@@ -22,7 +22,7 @@ namespace VL\LMS\Database;
 final class SchemaManager {
 
 	public const string DB_VERSION_OPTION  = 'vl_lms_db_version';
-	public const string CURRENT_DB_VERSION = '8';
+	public const string CURRENT_DB_VERSION = '9';
 
 	/**
 	 * Returns the full prefixed table name for a base suffix.
@@ -101,6 +101,10 @@ final class SchemaManager {
 		return self::table_name( 'user_activity_daily' );
 	}
 
+	public static function assignment_submissions_table(): string {
+		return self::table_name( 'assignment_submissions' );
+	}
+
 	/**
 	 * Installs (or migrates) the schema when the stored DB version is
 	 * behind {@see self::CURRENT_DB_VERSION}. Safe to call on every
@@ -131,6 +135,7 @@ final class SchemaManager {
 		self::create_orders_table();
 		self::create_payments_table();
 		self::create_user_activity_daily_table();
+		self::create_assignment_submissions_table();
 
 		update_option( self::DB_VERSION_OPTION, self::CURRENT_DB_VERSION );
 	}
@@ -145,6 +150,7 @@ final class SchemaManager {
 		global $wpdb;
 
 		$tables = [
+			self::assignment_submissions_table(),
 			self::user_activity_daily_table(),
 			self::payments_table(),
 			self::orders_table(),
@@ -786,6 +792,43 @@ final class SchemaManager {
 			completions INT UNSIGNED NOT NULL DEFAULT 0,
 			PRIMARY KEY  (id),
 			UNIQUE KEY course_date (course_id, activity_date)
+		) {$charset};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Phase 9.4 — student-submitted assignment payloads + grader writes.
+	 *
+	 * One row per `(assignment_id, user_id)` enforced by the UNIQUE key, so
+	 * re-submission while still in `pending` is an in-place UPDATE rather
+	 * than a second row. The `(status, submitted_at)` index drives the
+	 * "perевірка завдань" admin queue.
+	 */
+	private static function create_assignment_submissions_table(): void {
+		global $wpdb;
+
+		self::require_db_delta();
+
+		$table   = self::assignment_submissions_table();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			assignment_id BIGINT UNSIGNED NOT NULL,
+			user_id BIGINT UNSIGNED NOT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			submission_text LONGTEXT NULL,
+			submission_file_url VARCHAR(2083) NULL,
+			submission_file_name VARCHAR(255) NULL,
+			score INT UNSIGNED NULL,
+			feedback LONGTEXT NULL,
+			graded_by BIGINT UNSIGNED NULL,
+			submitted_at DATETIME NOT NULL,
+			graded_at DATETIME NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY assignment_user (assignment_id, user_id),
+			KEY status_submitted (status, submitted_at)
 		) {$charset};";
 
 		dbDelta( $sql );

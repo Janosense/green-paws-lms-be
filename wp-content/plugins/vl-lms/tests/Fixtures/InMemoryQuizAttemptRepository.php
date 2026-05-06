@@ -70,6 +70,38 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 		return $count;
 	}
 
+	public function count_submitted_for_user( int $quiz_id, int $user_id ): int {
+		$count = 0;
+		foreach ( $this->rows as $row ) {
+			if ( $row->quiz_id === $quiz_id
+				&& $row->user_id === $user_id
+				&& QuizAttemptStatus::IN_PROGRESS !== $row->status
+			) {
+				++$count;
+			}
+		}
+		return $count;
+	}
+
+	public function best_score_for_user( int $quiz_id, int $user_id ): ?float {
+		$best = null;
+		foreach ( $this->rows as $row ) {
+			if ( $row->quiz_id !== $quiz_id
+				|| $row->user_id !== $user_id
+				|| QuizAttemptStatus::SUBMITTED !== $row->status
+				|| null === $row->score
+				|| $row->max_score <= 0
+			) {
+				continue;
+			}
+			$pct = round( ( $row->score / $row->max_score ) * 100, 2 );
+			if ( null === $best || $pct > $best ) {
+				$best = $pct;
+			}
+		}
+		return $best;
+	}
+
 	/**
 	 * @return list<QuizAttempt>
 	 */

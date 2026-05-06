@@ -90,6 +90,56 @@ class QuizAttemptRepository {
 	}
 
 	/**
+	 * Counts attempts in a terminal state (anything that is not IN_PROGRESS).
+	 *
+	 * Drives the `attempts_remaining` derivation against
+	 * `_vl_quiz_max_attempts`. Argument order is `(quiz_id, user_id)` —
+	 * the inverse of the older `_for_user_in_quiz` family — because the
+	 * call site iterates "quiz first, user second" when rendering an
+	 * attempt-state envelope.
+	 */
+	public function count_submitted_for_user( int $quiz_id, int $user_id ): int {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT COUNT(*) FROM {$table} WHERE quiz_id = %d AND user_id = %d AND status != %s",
+			$quiz_id,
+			$user_id,
+			QuizAttemptStatus::IN_PROGRESS->value
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$count = $wpdb->get_var( $sql );
+
+		return is_numeric( $count ) ? (int) $count : 0;
+	}
+
+	/**
+	 * Highest passing-percentage observed on submitted attempts for the
+	 * pair, or `null` if there are no submitted attempts. Stored columns
+	 * are raw `score` + `max_score`, so the percentage is derived by
+	 * `MAX(score / max_score * 100)` SQL-side and rounded to two decimals
+	 * for stable wire-format equality (75 vs 75.0 vs 75.00).
+	 */
+	public function best_score_for_user( int $quiz_id, int $user_id ): ?float {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT MAX(ROUND(score / max_score * 100, 2)) FROM {$table} WHERE quiz_id = %d AND user_id = %d AND status = %s AND max_score > 0",
+			$quiz_id,
+			$user_id,
+			QuizAttemptStatus::SUBMITTED->value
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$value = $wpdb->get_var( $sql );
+
+		return is_numeric( $value ) ? (float) $value : null;
+	}
+
+	/**
 	 * @return list<QuizAttempt>
 	 */
 	public function list_for_user_in_quiz( int $user_id, int $quiz_id ): array {

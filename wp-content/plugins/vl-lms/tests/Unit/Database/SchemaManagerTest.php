@@ -99,8 +99,8 @@ final class SchemaManagerTest extends TestCase {
 		self::assertSame( 'wp_vl_payments', SchemaManager::payments_table() );
 	}
 
-	public function test_current_db_version_is_eight(): void {
-		self::assertSame( '8', SchemaManager::CURRENT_DB_VERSION );
+	public function test_current_db_version_is_nine(): void {
+		self::assertSame( '9', SchemaManager::CURRENT_DB_VERSION );
 	}
 
 	public function test_install_short_circuits_when_version_matches(): void {
@@ -116,7 +116,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 16 )
+			->times( 17 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -142,6 +142,7 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_webinar_registrations', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_zoom_webhook_events', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_user_activity_daily', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_assignment_submissions', $combined );
 
 		self::assertStringContainsString( 'UNIQUE KEY uk_user_course (user_id, course_id)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY uk_slug (slug)', $combined );
@@ -194,7 +195,7 @@ final class SchemaManagerTest extends TestCase {
 	public function test_install_runs_migration_path_when_stored_version_is_behind(): void {
 		Functions\when( 'get_option' )->justReturn( '2' );
 		Functions\when( 'update_option' )->justReturn( true );
-		Functions\expect( 'dbDelta' )->times( 16 )->andReturn( [] );
+		Functions\expect( 'dbDelta' )->times( 17 )->andReturn( [] );
 
 		SchemaManager::install();
 	}
@@ -204,7 +205,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( '5' );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 16 )
+			->times( 17 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -246,7 +247,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 16 )
+			->times( 17 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -279,7 +280,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 16 )
+			->times( 17 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -329,5 +330,6 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_orders', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_payments', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_user_activity_daily', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_assignment_submissions', $combined );
 	}
 }

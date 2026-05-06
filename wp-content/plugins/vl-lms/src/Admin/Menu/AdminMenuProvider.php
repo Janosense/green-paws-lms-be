@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace VL\LMS\Admin\Menu;
 
 use VL\LMS\Admin\Analytics\AnalyticsPage;
+use VL\LMS\Admin\Assignments\GradingQueuePage;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
+use VL\LMS\Admin\Settings\SettingsPage;
 
 /**
  * Phase 9.2 — top-level "Green Paws LMS" wp-admin menu.
@@ -26,15 +28,20 @@ class AdminMenuProvider {
 	public const string PARENT_SLUG    = 'vl-lms';
 	public const string ORDERS_SLUG    = 'vl-lms-orders';
 	public const string ANALYTICS_SLUG = 'vl-lms-analytics';
+	public const string GRADING_SLUG   = 'vl-lms-grading-queue';
+	public const string SETTINGS_SLUG  = 'vl-lms-settings';
 	public const string CAP            = 'edit_posts';
 	public const string ORDERS_CAP     = 'vl_refund_orders';
+	public const string SETTINGS_CAP   = 'manage_vl_lms_settings';
 	public const string MENU_ICON      = 'dashicons-welcome-learn-more';
 	public const int MENU_POSITION     = 3;
 
 	public function __construct(
 		private readonly InstructorDashboardPage $dashboard,
 		private readonly OrdersListPage $orders_page,
-		private readonly ?AnalyticsPage $analytics_page = null
+		private readonly ?AnalyticsPage $analytics_page = null,
+		private readonly ?GradingQueuePage $grading_page = null,
+		private readonly ?SettingsPage $settings_page = null
 	) {
 	}
 
@@ -81,6 +88,28 @@ class AdminMenuProvider {
 				self::CAP,
 				self::ANALYTICS_SLUG,
 				[ $this->analytics_page, 'render' ]
+			);
+		}
+
+		if ( null !== $this->grading_page ) {
+			add_submenu_page(
+				self::PARENT_SLUG,
+				'Перевірка завдань',
+				'Перевірка завдань',
+				self::CAP,
+				self::GRADING_SLUG,
+				[ $this->grading_page, 'render' ]
+			);
+		}
+
+		if ( null !== $this->settings_page ) {
+			add_submenu_page(
+				self::PARENT_SLUG,
+				'Налаштування',
+				'Налаштування',
+				self::SETTINGS_CAP,
+				self::SETTINGS_SLUG,
+				[ $this->settings_page, 'render' ]
 			);
 		}
 	}

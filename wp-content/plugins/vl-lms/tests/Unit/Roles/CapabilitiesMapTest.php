@@ -133,7 +133,7 @@ final class CapabilitiesMapTest extends TestCase {
 	public function test_domain_caps_for_administrator_contains_all_thirty(): void {
 		$caps = CapabilitiesMap::domain_caps_for_role( 'administrator' );
 
-		self::assertCount( 30, $caps );
+		self::assertCount( 31, $caps );
 		self::assertContains( 'vl_manage_finances', $caps );
 		self::assertContains( 'vl_issue_certificates', $caps );
 		self::assertContains( 'vl_view_lesson', $caps );
@@ -142,6 +142,7 @@ final class CapabilitiesMapTest extends TestCase {
 		self::assertContains( 'vl_purchase_course', $caps );
 		self::assertContains( 'vl_view_own_orders', $caps );
 		self::assertContains( 'vl_refund_orders', $caps );
+		self::assertContains( 'manage_vl_lms_settings', $caps );
 	}
 
 	public function test_view_session_recording_cap_is_granted_to_every_lms_role(): void {

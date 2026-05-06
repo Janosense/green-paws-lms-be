@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Api;
 
+use VL\LMS\Api\Transformers\QuizAttemptStateTransformer;
 use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\Domain\Quiz\QuizAnswer;
 use VL\LMS\Domain\Quiz\QuizAttempt;
@@ -47,7 +48,8 @@ final class QuizAttemptsController {
 		private readonly string $rest_namespace,
 		private readonly QuizAttemptService $service,
 		private readonly RestAuthenticator $authenticator,
-		private readonly Logger $logger
+		private readonly Logger $logger,
+		private readonly QuizAttemptStateTransformer $attempt_transformer
 	) {
 	}
 
@@ -276,31 +278,7 @@ final class QuizAttemptsController {
 	 * @return array<string, mixed>
 	 */
 	private function envelope_attempt( QuizAttempt $attempt ): array {
-		$time_remaining = null;
-		if ( $attempt->time_limit_seconds > 0 ) {
-			$elapsed        = time() - $attempt->started_at->getTimestamp();
-			$remaining      = $attempt->time_limit_seconds - $elapsed;
-			$time_remaining = $remaining > 0 ? $remaining : 0;
-		}
-
-		return [
-			'id'                     => $attempt->id,
-			'quiz_id'                => $attempt->quiz_id,
-			'course_id'              => $attempt->course_id,
-			'status'                 => $attempt->status->value,
-			'started_at'             => $attempt->started_at->format( \DateTimeInterface::ATOM ),
-			'submitted_at'           => null === $attempt->submitted_at
-				? null
-				: $attempt->submitted_at->format( \DateTimeInterface::ATOM ),
-			'time_limit_seconds'     => $attempt->time_limit_seconds,
-			'time_remaining_seconds' => $time_remaining,
-			'time_taken_seconds'     => $attempt->time_taken_seconds,
-			'max_score'              => $attempt->max_score,
-			'score'                  => $attempt->score,
-			'passed'                 => $attempt->passed,
-			'passing_threshold'      => $attempt->passing_threshold,
-			'question_order'         => $attempt->question_order,
-		];
+		return $this->attempt_transformer->transform_attempt( $attempt );
 	}
 
 	/**

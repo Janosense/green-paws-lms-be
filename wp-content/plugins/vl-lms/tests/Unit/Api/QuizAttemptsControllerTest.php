@@ -10,6 +10,7 @@ use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Api\QuizAttemptsController;
+use VL\LMS\Api\Transformers\QuizAttemptStateTransformer;
 use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\Domain\Quiz\QuizAnswer;
 use VL\LMS\Domain\Quiz\QuizAttempt;
@@ -19,6 +20,7 @@ use VL\LMS\Quiz\QuizAttemptException;
 use VL\LMS\Quiz\QuizAttemptService;
 use VL\LMS\Quiz\SaveAnswerResult;
 use VL\LMS\Support\Logger;
+use VL\LMS\Tests\Fixtures\InMemoryQuizAttemptRepository;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -36,6 +38,10 @@ final class QuizAttemptsControllerTest extends TestCase {
 
 	/** @var Mockery\MockInterface&Logger */
 	private $logger;
+
+	private InMemoryQuizAttemptRepository $repo;
+
+	private TestableQuizAttemptStateTransformer $transformer;
 
 	private QuizAttemptsController $controller;
 
@@ -63,11 +69,15 @@ final class QuizAttemptsControllerTest extends TestCase {
 		$this->service       = Mockery::mock( QuizAttemptService::class );
 		$this->authenticator = Mockery::mock( RestAuthenticator::class );
 		$this->logger        = Mockery::mock( Logger::class );
-		$this->controller    = new QuizAttemptsController(
+		$this->repo          = new InMemoryQuizAttemptRepository();
+		$this->transformer   = new TestableQuizAttemptStateTransformer( $this->repo );
+
+		$this->controller = new QuizAttemptsController(
 			'vl/v1',
 			$this->service,
 			$this->authenticator,
-			$this->logger
+			$this->logger,
+			$this->transformer
 		);
 	}
 
@@ -341,5 +351,63 @@ final class QuizAttemptsControllerTest extends TestCase {
 		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( null );
 
 		self::assertFalse( $this->controller->permission_callback( $this->request() ) );
+	}
+
+	public function test_response_includes_quiz_title_attempts_remaining_best_score(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		Functions\when( 'get_posts' )->justReturn( [ $this->quiz( 101 ) ] );
+
+		$this->transformer->titles            = [ 101 => 'Підсумкова атестація' ];
+		$this->transformer->max_attempts_meta = [ 101 => 3 ];
+
+		$now = new \DateTimeImmutable( '2026-04-29 09:00:00', new \DateTimeZone( 'UTC' ) );
+		$this->repo->insert(
+			new QuizAttempt(
+				0,
+				5,
+				101,
+				50,
+				QuizAttemptStatus::SUBMITTED,
+				$now,
+				$now,
+				0,
+				null,
+				75,
+				100,
+				true,
+				70,
+				[ 201 ],
+				$now,
+				$now
+			)
+		);
+
+		$state = new AttemptStateResult( $this->attempt(), [], [], true );
+		$this->service->shouldReceive( 'start' )->once()->andReturn( $state );
+
+		$response = $this->controller->handle_start( $this->request( [ 'slug' => 'q' ] ) );
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		$body = $response->get_data();
+		self::assertSame( 'Підсумкова атестація', $body['data']['attempt']['quiz_title'] );
+		self::assertSame( 2, $body['data']['attempt']['attempts_remaining'] );
+		self::assertSame( 75.0, $body['data']['attempt']['best_score'] );
+	}
+
+	public function test_attempts_remaining_is_null_when_unlimited(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		Functions\when( 'get_posts' )->justReturn( [ $this->quiz( 101 ) ] );
+
+		$this->transformer->titles            = [ 101 => 'Тест без ліміту' ];
+		$this->transformer->max_attempts_meta = [ 101 => 0 ];
+
+		$state = new AttemptStateResult( $this->attempt(), [], [], true );
+		$this->service->shouldReceive( 'start' )->once()->andReturn( $state );
+
+		$response = $this->controller->handle_start( $this->request( [ 'slug' => 'q' ] ) );
+
+		$body = $response->get_data();
+		self::assertNull( $body['data']['attempt']['attempts_remaining'] );
+		self::assertNull( $body['data']['attempt']['best_score'] );
 	}
 }
