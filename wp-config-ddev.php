@@ -34,6 +34,7 @@ if ( getenv( 'IS_DDEV_PROJECT' ) == 'true' ) {
 	define('VL_CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001,https://app.vetlms.com,http://localhost:49894');
 	define('VL_FRONTEND_URL', 'http://localhost:3000');
 	define('VL_LMS_APP_URL', 'http://localhost:3000');
+	define('VL_LMS_EMAIL_FROM', 'Green Paws LMS <lms@dovira.vet>');
 
 	/**
 	 * Set WordPress Database Table prefix if not already set.

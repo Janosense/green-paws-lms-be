@@ -77,10 +77,26 @@ class VerificationMailer {
 		add_filter( 'wp_mail_content_type', $content_type_callback );
 
 		try {
-			return (bool) wp_mail( (string) $user->user_email, $subject, $body );
+			return (bool) wp_mail( (string) $user->user_email, $subject, $body, $this->default_headers() );
 		} finally {
 			remove_filter( 'wp_mail_content_type', $content_type_callback );
 		}
+	}
+
+	/**
+	 * Build the default header set for outbound mail. Sources the `From:`
+	 * header from the `VL_LMS_EMAIL_FROM` constant (set in `wp-config.php`);
+	 * if the constant is missing or empty, no `From` header is sent and
+	 * WordPress falls back to its own default.
+	 *
+	 * @return array<int, string>
+	 */
+	private function default_headers(): array {
+		$headers = array();
+		if ( defined( 'VL_LMS_EMAIL_FROM' ) && '' !== (string) constant( 'VL_LMS_EMAIL_FROM' ) ) {
+			$headers[] = 'From: ' . (string) constant( 'VL_LMS_EMAIL_FROM' );
+		}
+		return $headers;
 	}
 
 	private function build_verification_url( string $plain_token ): string {
