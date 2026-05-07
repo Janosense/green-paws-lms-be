@@ -81,7 +81,10 @@ class MeetingSynchronizer {
 	}
 
 	/**
-	 * `save_post_{vl_session,vl_webinar}` adapter.
+	 * `save_post` adapter — filters by post type internally so the
+	 * synchronizer can hook the generic action and still run after
+	 * {@see \VL\LMS\Admin\AdminProvider} (which also hooks `save_post`
+	 * at priority 10). See {@see MeetingSynchronizerBootstrap}.
 	 */
 	public function sync_on_save( int $post_id, WP_Post $post, bool $update ): void {
 		unset( $update );
