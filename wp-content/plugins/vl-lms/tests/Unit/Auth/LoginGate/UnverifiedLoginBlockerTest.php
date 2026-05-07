@@ -49,6 +49,7 @@ final class UnverifiedLoginBlockerTest extends TestCase {
 	public function test_verified_user_passes_through_untouched(): void {
 		$user                    = Mockery::mock( 'WP_User' );
 		$user->ID                = 42;
+		$user->roles             = [ 'student' ];
 		$this->verified_meta[42] = '1';
 
 		$result = $this->blocker->block_unverified( $user, 'ignored' );
@@ -59,6 +60,7 @@ final class UnverifiedLoginBlockerTest extends TestCase {
 	public function test_unverified_user_returns_wp_error(): void {
 		$user                    = Mockery::mock( 'WP_User' );
 		$user->ID                = 42;
+		$user->roles             = [ 'student' ];
 		$this->verified_meta[42] = '0';
 
 		$result = $this->blocker->block_unverified( $user, 'ignored' );
@@ -77,12 +79,24 @@ final class UnverifiedLoginBlockerTest extends TestCase {
 	}
 
 	public function test_user_with_completely_missing_meta_is_treated_as_unverified(): void {
-		$user     = Mockery::mock( 'WP_User' );
-		$user->ID = 77;
+		$user        = Mockery::mock( 'WP_User' );
+		$user->ID    = 77;
+		$user->roles = [ 'student' ];
 
 		$result = $this->blocker->block_unverified( $user, 'ignored' );
 
 		self::assertInstanceOf( WP_Error::class, $result );
 		self::assertSame( 'vl_lms_email_not_verified', $result->get_error_code() );
+	}
+
+	public function test_administrator_bypasses_verification_check(): void {
+		$user                    = Mockery::mock( 'WP_User' );
+		$user->ID                = 1;
+		$user->roles             = [ 'administrator' ];
+		$this->verified_meta[1]  = '0';
+
+		$result = $this->blocker->block_unverified( $user, 'ignored' );
+
+		self::assertSame( $user, $result );
 	}
 }

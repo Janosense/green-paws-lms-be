@@ -9,7 +9,9 @@ use WP_User;
 
 /**
  * Rejects `wp_authenticate()` when the matched user has not verified
- * their email address.
+ * their email address. Administrators bypass this gate so site owners
+ * are never locked out of `wp-login.php` if their verification meta is
+ * missing or stale.
  *
  * Hooks the WP-core `wp_authenticate_user` filter at priority 30 — after
  * WP's built-in validators (priorities 10–20 for password match, spam
@@ -41,6 +43,10 @@ final class UnverifiedLoginBlocker {
 		unset( $password );
 
 		if ( ! $user instanceof WP_User ) {
+			return $user;
+		}
+
+		if ( in_array( 'administrator', (array) $user->roles, true ) ) {
 			return $user;
 		}
 
