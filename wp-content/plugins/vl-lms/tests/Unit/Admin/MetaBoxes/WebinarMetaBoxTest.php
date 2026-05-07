@@ -30,6 +30,9 @@ final class WebinarMetaBoxTest extends TestCase {
 		Functions\when( 'wp_verify_nonce' )->justReturn( 1 );
 		Functions\when( 'current_user_can' )->justReturn( true );
 		Functions\when( 'get_post_type' )->justReturn( 'vl_webinar' );
+		Functions\when( 'wp_timezone' )->alias(
+			static fn (): \DateTimeZone => new \DateTimeZone( 'Europe/Kyiv' )
+		);
 
 		$this->writes = [];
 		$writes       = &$this->writes;
@@ -47,6 +50,47 @@ final class WebinarMetaBoxTest extends TestCase {
 		$_POST = [];
 		Monkey\tearDown();
 		parent::tearDown();
+	}
+
+	/**
+	 * Regression: HTML `datetime-local` inputs submit values without a
+	 * timezone (e.g. `2026-05-08T14:30`), but the
+	 * `_vl_webinar_scheduled_*` meta sanitizer rejects everything that
+	 * lacks a `Z`/offset suffix — silently storing `''` and starving
+	 * the Zoom MeetingSynchronizer of `start_time`. The metabox must
+	 * convert the wall-clock value to an ISO 8601 string with the WP
+	 * timezone offset before writing.
+	 */
+	public function test_save_converts_datetime_local_inputs_to_iso8601_with_offset(): void {
+		$_POST = [
+			self::NONCE_FIELD                  => 'nonce-x',
+			'_vl_webinar_scheduled_start'      => '2026-05-08T14:30',
+			'_vl_webinar_scheduled_end'        => '2026-05-08T15:30:00',
+			'_vl_webinar_registration_opens_at'  => '',
+			'_vl_webinar_registration_closes_at' => '2026-05-07T09:00',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new WebinarMetaBox() )->save( 88, $post );
+
+		$saved = [];
+		foreach ( $this->writes as [ , $key, $value ] ) {
+			$saved[ $key ] = $value;
+		}
+
+		self::assertArrayHasKey( '_vl_webinar_scheduled_start', $saved );
+		self::assertSame( '2026-05-08T14:30:00+03:00', $saved['_vl_webinar_scheduled_start'] );
+		self::assertSame( '2026-05-08T15:30:00+03:00', $saved['_vl_webinar_scheduled_end'] );
+		self::assertSame( '', $saved['_vl_webinar_registration_opens_at'] );
+		self::assertSame( '2026-05-07T09:00:00+03:00', $saved['_vl_webinar_registration_closes_at'] );
+
+		// Spot-check that what we save passes the same regex the meta
+		// sanitizer uses, so the value survives `update_post_meta`.
+		$iso8601 = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+\-]\d{2}:?\d{2})$/';
+		self::assertMatchesRegularExpression( $iso8601, $saved['_vl_webinar_scheduled_start'] );
+		self::assertMatchesRegularExpression( $iso8601, $saved['_vl_webinar_scheduled_end'] );
+		self::assertMatchesRegularExpression( $iso8601, $saved['_vl_webinar_registration_closes_at'] );
 	}
 
 	public function test_save_does_not_write_recording_url(): void {

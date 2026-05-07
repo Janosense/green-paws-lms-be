@@ -291,6 +291,43 @@ abstract class AbstractMetaBox {
 		return (string) get_post_meta( $post_id, $key, true );
 	}
 
+	/**
+	 * Convert an HTML `datetime-local` input value (no timezone, e.g.
+	 * `2026-05-08T14:30`) to the ISO 8601 form the `_vl_*_scheduled_*`
+	 * meta sanitizers accept (`Y-m-d\TH:i:sP`, e.g.
+	 * `2026-05-08T14:30:00+03:00`). The site timezone (`wp_timezone()`)
+	 * is the natural interpretation since the input shows wall-clock
+	 * time to the editor. Empty / unparseable input collapses to `''`.
+	 */
+	protected function datetime_local_to_iso8601( string $value ): string {
+		if ( '' === $value ) {
+			return '';
+		}
+		try {
+			$dt = new \DateTimeImmutable( $value, wp_timezone() );
+		} catch ( \Throwable ) {
+			return '';
+		}
+		return $dt->format( 'Y-m-d\\TH:i:sP' );
+	}
+
+	/**
+	 * Convert a stored ISO 8601 datetime back to the wall-clock format
+	 * the HTML `datetime-local` input expects. Empty or unparseable
+	 * input collapses to `''`.
+	 */
+	protected function iso8601_to_datetime_local( string $value ): string {
+		if ( '' === $value ) {
+			return '';
+		}
+		try {
+			$dt = new \DateTimeImmutable( $value );
+		} catch ( \Throwable ) {
+			return '';
+		}
+		return $dt->setTimezone( wp_timezone() )->format( 'Y-m-d\\TH:i:s' );
+	}
+
 	protected function meta_int( int $post_id, string $key ): int {
 		return (int) get_post_meta( $post_id, $key, true );
 	}

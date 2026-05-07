@@ -54,13 +54,13 @@ class WebinarMetaBox extends AbstractMetaBox {
 		$this->render_text_row(
 			'_vl_webinar_scheduled_start',
 			'Запланований початок',
-			$this->meta_string( $post->ID, '_vl_webinar_scheduled_start' ),
+			$this->iso8601_to_datetime_local( $this->meta_string( $post->ID, '_vl_webinar_scheduled_start' ) ),
 			'datetime-local'
 		);
 		$this->render_text_row(
 			'_vl_webinar_scheduled_end',
 			'Запланований кінець',
-			$this->meta_string( $post->ID, '_vl_webinar_scheduled_end' ),
+			$this->iso8601_to_datetime_local( $this->meta_string( $post->ID, '_vl_webinar_scheduled_end' ) ),
 			'datetime-local'
 		);
 		$this->render_select_row(
@@ -100,13 +100,13 @@ class WebinarMetaBox extends AbstractMetaBox {
 		$this->render_text_row(
 			'_vl_webinar_registration_opens_at',
 			'Реєстрація відкривається',
-			$this->meta_string( $post->ID, '_vl_webinar_registration_opens_at' ),
+			$this->iso8601_to_datetime_local( $this->meta_string( $post->ID, '_vl_webinar_registration_opens_at' ) ),
 			'datetime-local'
 		);
 		$this->render_text_row(
 			'_vl_webinar_registration_closes_at',
 			'Реєстрація закривається',
-			$this->meta_string( $post->ID, '_vl_webinar_registration_closes_at' ),
+			$this->iso8601_to_datetime_local( $this->meta_string( $post->ID, '_vl_webinar_registration_closes_at' ) ),
 			'datetime-local'
 		);
 		$this->render_text_row(
@@ -183,11 +183,10 @@ class WebinarMetaBox extends AbstractMetaBox {
 		];
 		foreach ( $datetime_keys as $key ) {
 			$value = $this->post_string( $key );
-			if ( null !== $value && '' !== $value ) {
-				update_post_meta( $post_id, $key, $value );
-			} elseif ( null !== $value ) {
-				update_post_meta( $post_id, $key, '' );
+			if ( null === $value ) {
+				continue;
 			}
+			update_post_meta( $post_id, $key, $this->datetime_local_to_iso8601( $value ) );
 		}
 
 		$status = $this->post_enum( '_vl_webinar_status', self::STATUSES );

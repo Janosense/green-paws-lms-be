@@ -51,13 +51,13 @@ class SessionMetaBox extends AbstractMetaBox {
 		$this->render_text_row(
 			'_vl_session_scheduled_start',
 			'Запланований початок',
-			$this->meta_string( $post->ID, '_vl_session_scheduled_start' ),
+			$this->iso8601_to_datetime_local( $this->meta_string( $post->ID, '_vl_session_scheduled_start' ) ),
 			'datetime-local'
 		);
 		$this->render_text_row(
 			'_vl_session_scheduled_end',
 			'Запланований кінець',
-			$this->meta_string( $post->ID, '_vl_session_scheduled_end' ),
+			$this->iso8601_to_datetime_local( $this->meta_string( $post->ID, '_vl_session_scheduled_end' ) ),
 			'datetime-local'
 		);
 		$this->render_select_row(
@@ -74,7 +74,7 @@ class SessionMetaBox extends AbstractMetaBox {
 		$this->render_text_row(
 			'_vl_session_recording_available_until',
 			'Запис доступний до',
-			$this->meta_string( $post->ID, '_vl_session_recording_available_until' ),
+			$this->iso8601_to_datetime_local( $this->meta_string( $post->ID, '_vl_session_recording_available_until' ) ),
 			'datetime-local'
 		);
 
@@ -123,11 +123,10 @@ class SessionMetaBox extends AbstractMetaBox {
 		];
 		foreach ( $datetime_keys as $key ) {
 			$value = $this->post_string( $key );
-			if ( null !== $value && '' !== $value ) {
-				update_post_meta( $post_id, $key, $value );
-			} elseif ( null !== $value ) {
-				update_post_meta( $post_id, $key, '' );
+			if ( null === $value ) {
+				continue;
 			}
+			update_post_meta( $post_id, $key, $this->datetime_local_to_iso8601( $value ) );
 		}
 
 		$status = $this->post_enum( '_vl_session_status', self::STATUSES );
