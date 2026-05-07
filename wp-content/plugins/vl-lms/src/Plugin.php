@@ -305,11 +305,13 @@ final class Plugin {
 		$taxonomy_registrar = new TaxonomyRegistrar();
 		$taxonomy_registrar->register_hooks();
 
-		// Auto-transliterate Cyrillic slugs on the inner-course CPTs (lessons,
-		// topics, modules, quizzes, sessions, assignments, quiz questions).
-		// `vl_course` and `vl_webinar` are intentionally excluded — those slugs
-		// land in shareable public URLs and may already be indexed; touching
-		// them silently would break inbound links. See `SlugTransliterationListener`.
+		// Auto-transliterate Cyrillic slugs. Inner-course CPTs (lessons, topics,
+		// modules, quizzes, sessions, assignments, quiz questions) are rewritten
+		// on every save — they're auth-gated and never indexed. Catalog CPTs
+		// (`vl_course`, `vl_webinar`) are rewritten only at creation (no DB row
+		// yet, or existing row in `auto-draft`) so the public detail endpoint
+		// can route to them; once saved non-`auto-draft`, the slug is editor
+		// territory and we never silently rewrite. See `SlugTransliterationListener`.
 		$slug_transliteration_listener = new SlugTransliterationListener( new CyrillicTransliterator() );
 		$slug_transliteration_listener->register_hooks();
 

@@ -2,9 +2,12 @@
 // One-shot WP-CLI script: bulk-transliterate existing Cyrillic slugs on the
 // inner-course CPTs to ASCII via `Slug\CyrillicTransliterator`.
 //
-// Catalog post types (`vl_course`, `vl_webinar`) are intentionally excluded
-// — see `Slug\SlugTransliterationListener` for the rationale. If you want
-// to migrate those too, add the post type below explicitly and re-run.
+// Catalog post types (`vl_course`, `vl_webinar`) are not in the default list
+// because rewriting their slugs in bulk would break any already-indexed
+// inbound links. Newly-created catalog posts are handled at save time by
+// `Slug\SlugTransliterationListener` (create-only tier), so this script is
+// only relevant for catalog content created before that listener was wired
+// up. To migrate those historical rows, add the post type below and re-run.
 //
 // Usage:
 //   ddev exec --dir /var/www/html/wp-content/plugins/vl-lms \

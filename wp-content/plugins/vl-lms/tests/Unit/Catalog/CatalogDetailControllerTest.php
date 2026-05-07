@@ -85,6 +85,43 @@ final class CatalogDetailControllerTest extends TestCase {
 		self::assertSame( '__return_true', $calls[1]['args']['permission_callback'] );
 	}
 
+	public function test_route_regex_accepts_non_ascii_slugs(): void {
+		// Regression: courses created before the create-time transliteration
+		// listener was wired up may still have Cyrillic post_name in the DB.
+		// The catalog detail route must accept those — otherwise WordPress
+		// short-circuits at the regex match and never reaches the controller.
+		self::assertMatchesRegularExpression(
+			'#^' . str_replace( '#', '\\#', CatalogDetailController::COURSE_ROUTE ) . '$#u',
+			'/catalog/courses/тест-когорта'
+		);
+		self::assertMatchesRegularExpression(
+			'#^' . str_replace( '#', '\\#', CatalogDetailController::WEBINAR_ROUTE ) . '$#u',
+			'/catalog/webinars/весняна-кардіологія'
+		);
+	}
+
+	public function test_get_course_resolves_cyrillic_slug(): void {
+		$post = $this->post( 555, 'тест-когорта', 'vl_course' );
+		$this->posts_by_slug[ $this->cache_key(
+			[
+				'name'      => 'тест-когорта',
+				'post_type' => 'vl_course',
+			]
+		) ]   = [ $post ];
+
+		$this->course_detail
+			->shouldReceive( 'transform' )
+			->once()
+			->with( $post )
+			->andReturn( [ 'id' => 555 ] );
+
+		$request  = $this->request( [ 'slug' => 'тест-когорта' ] );
+		$response = $this->controller->get_course( $request );
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		self::assertSame( 555, $response->get_data()['data']['id'] );
+	}
+
 	public function test_get_course_returns_404_for_missing_slug(): void {
 		$request = $this->request( [ 'slug' => 'unknown-slug' ] );
 

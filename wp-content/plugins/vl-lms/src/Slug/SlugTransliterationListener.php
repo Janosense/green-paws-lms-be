@@ -6,15 +6,25 @@ namespace VL\LMS\Slug;
 
 /**
  * Hooks into WordPress's post-save pipeline to transliterate Cyrillic slugs
- * for the inner-course CPTs (lessons, topics, modules, quizzes, sessions,
- * assignments, quiz questions).
+ * for two tiers of post types:
  *
- * Why these and not `vl_course` / `vl_webinar`: the catalog post types are
- * SEO-relevant — their slugs land in shareable public URLs and may already
- * be indexed by search engines. We don't auto-rewrite those without an
- * editor's say-so. The inner-course CPTs are auth-gated, never indexed, and
- * their URLs only appear in the lesson-player surface, so transliteration
- * is purely an ergonomics fix.
+ * 1. **Inner-course CPTs** (`vl_module`, `vl_lesson`, `vl_topic`, `vl_quiz`,
+ *    `vl_quiz_question`, `vl_session`, `vl_assignment`) — transliterated on
+ *    *every* save. These are auth-gated and never indexed; their URLs only
+ *    appear in the lesson-player surface, so silently rewriting them on
+ *    rename is purely an ergonomics fix with no SEO blast radius.
+ *
+ * 2. **Catalog CPTs** (`vl_course`, `vl_webinar`) — transliterated only at
+ *    *creation time*. The catalog detail route (`/vl/v1/catalog/courses/{slug}`)
+ *    cannot resolve a Cyrillic slug if the route regex restricts to ASCII,
+ *    so a brand-new course derived from a Ukrainian title would 404 on the
+ *    public detail endpoint. Once the post has been saved non-`auto-draft`
+ *    at least once, the slug becomes editor territory and we never silently
+ *    rewrite it — that protects URLs that may already be indexed by search
+ *    engines or shared externally. Editors can still rename catalog slugs
+ *    by hand via the slug field in wp-admin; this filter only intervenes
+ *    when WordPress would otherwise persist a Cyrillic slug for the very
+ *    first save.
  *
  * Why `wp_insert_post_data` and not `sanitize_title`: the latter has no
  * post-type context, so a global filter would also rewrite category slugs,
@@ -34,11 +44,11 @@ namespace VL\LMS\Slug;
 final class SlugTransliterationListener {
 
 	/**
-	 * Inner-course CPTs only — see class-level docblock for the rationale.
+	 * Inner-course CPTs — always transliterated on every save.
 	 *
 	 * @var list<string>
 	 */
-	private const TARGETED_POST_TYPES = [
+	private const ALWAYS_POST_TYPES = [
 		'vl_module',
 		'vl_lesson',
 		'vl_topic',
@@ -46,6 +56,18 @@ final class SlugTransliterationListener {
 		'vl_quiz_question',
 		'vl_session',
 		'vl_assignment',
+	];
+
+	/**
+	 * Catalog CPTs — transliterated only on creation (no DB row yet, or
+	 * existing row still in `auto-draft`). See class-level docblock for
+	 * the SEO rationale.
+	 *
+	 * @var list<string>
+	 */
+	private const CREATE_ONLY_POST_TYPES = [
+		'vl_course',
+		'vl_webinar',
 	];
 
 	public function __construct(
@@ -64,7 +86,19 @@ final class SlugTransliterationListener {
 	 */
 	public function filter_insert_data( array $data, array $postarr ): array {
 		$post_type = isset( $data['post_type'] ) && is_string( $data['post_type'] ) ? $data['post_type'] : '';
-		if ( ! in_array( $post_type, self::TARGETED_POST_TYPES, true ) ) {
+		if ( '' === $post_type ) {
+			return $data;
+		}
+
+		$post_id = isset( $postarr['ID'] ) ? (int) $postarr['ID'] : 0;
+
+		$applies = in_array( $post_type, self::ALWAYS_POST_TYPES, true )
+			|| (
+				in_array( $post_type, self::CREATE_ONLY_POST_TYPES, true )
+				&& $this->is_creation_save( $post_id )
+			);
+
+		if ( ! $applies ) {
 			return $data;
 		}
 
@@ -78,7 +112,6 @@ final class SlugTransliterationListener {
 			return $data;
 		}
 
-		$post_id     = isset( $postarr['ID'] ) ? (int) $postarr['ID'] : 0;
 		$post_status = isset( $data['post_status'] ) && is_string( $data['post_status'] ) ? $data['post_status'] : 'draft';
 		$post_parent = isset( $data['post_parent'] ) ? (int) $data['post_parent'] : 0;
 
@@ -91,5 +124,19 @@ final class SlugTransliterationListener {
 		);
 
 		return $data;
+	}
+
+	/**
+	 * A "creation save" means no DB row yet (`ID === 0`) or the existing
+	 * row is still in `auto-draft`. Both indicate the slug being processed
+	 * was derived from the title by `sanitize_title` for the first time,
+	 * not editor-typed against an already-live post.
+	 */
+	private function is_creation_save( int $post_id ): bool {
+		if ( 0 === $post_id ) {
+			return true;
+		}
+
+		return 'auto-draft' === get_post_status( $post_id );
 	}
 }

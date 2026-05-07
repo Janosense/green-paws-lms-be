@@ -32,8 +32,15 @@ use WP_REST_Response;
  */
 final class CatalogDetailController {
 
-	public const string COURSE_ROUTE  = '/catalog/courses/(?P<slug>[a-z0-9-]+)';
-	public const string WEBINAR_ROUTE = '/catalog/webinars/(?P<slug>[a-z0-9-]+)';
+	// `[^/]+` rather than `[a-z0-9-]+` so non-ASCII slugs (e.g. Cyrillic
+	// ones produced before the `Slug\SlugTransliterationListener` create-time
+	// transliteration was wired up) still resolve. WordPress URL-decodes the
+	// route segment before the regex match, so a request for
+	// `%D1%82%D0%B5%D1%81%D1%82-...` is matched as `тест-...`. The
+	// `sanitize_title` arg sanitizer plus the exact `name=` lookup in
+	// `find_published_post()` are charset-agnostic.
+	public const string COURSE_ROUTE  = '/catalog/courses/(?P<slug>[^/]+)';
+	public const string WEBINAR_ROUTE = '/catalog/webinars/(?P<slug>[^/]+)';
 
 	public function __construct(
 		private readonly string $rest_namespace,
