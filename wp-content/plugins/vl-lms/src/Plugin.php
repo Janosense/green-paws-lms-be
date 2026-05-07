@@ -33,6 +33,7 @@ use VL\LMS\Admin\MetaBoxes\WebinarMetaBox;
 use VL\LMS\Admin\Orders\OrderDetailPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
 use VL\LMS\Admin\Reorder\ReorderAjaxHandler;
+use VL\LMS\Admin\Settings\LiqPaySettingsSection;
 use VL\LMS\Admin\Settings\SettingsPage;
 use VL\LMS\Admin\Settings\ZoomSettingsSection;
 use VL\LMS\Api\AdminAssignmentsController;
@@ -2959,11 +2960,22 @@ final class Plugin {
 		);
 
 		$container->set(
+			LiqPaySettingsSection::class,
+			static function ( Container $c ): LiqPaySettingsSection {
+				$settings = $c->get( LiqPaySettings::class );
+				assert( $settings instanceof LiqPaySettings );
+				return new LiqPaySettingsSection( $settings );
+			}
+		);
+
+		$container->set(
 			SettingsPage::class,
 			static function ( Container $c ): SettingsPage {
-				$section = $c->get( ZoomSettingsSection::class );
-				assert( $section instanceof ZoomSettingsSection );
-				return new SettingsPage( $section );
+				$zoom = $c->get( ZoomSettingsSection::class );
+				assert( $zoom instanceof ZoomSettingsSection );
+				$liqpay = $c->get( LiqPaySettingsSection::class );
+				assert( $liqpay instanceof LiqPaySettingsSection );
+				return new SettingsPage( $zoom, $liqpay );
 			}
 		);
 

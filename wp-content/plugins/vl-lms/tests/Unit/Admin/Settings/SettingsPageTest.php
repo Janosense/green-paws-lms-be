@@ -9,8 +9,9 @@ use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
-use VL\LMS\Admin\Settings\SettingsPage;
+use VL\LMS\Admin\Settings\LiqPaySettingsSection;
 use VL\LMS\Admin\Settings\ZoomSettingsSection;
+use VL\LMS\Payments\LiqPay\Settings as LiqPaySettings;
 use VL\LMS\Services\Zoom\Settings\ZoomSettingsProvider;
 
 final class SettingsPageTest extends TestCase {
@@ -41,6 +42,13 @@ final class SettingsPageTest extends TestCase {
 		parent::tearDown();
 	}
 
+	private function build_page(): TestableSettingsPage {
+		return new TestableSettingsPage(
+			new ZoomSettingsSection( Mockery::mock( ZoomSettingsProvider::class ) ),
+			new LiqPaySettingsSection( Mockery::mock( LiqPaySettings::class ) )
+		);
+	}
+
 	public function test_save_writes_option_when_constant_not_defined(): void {
 		$writes = [];
 		Functions\when( 'update_option' )->alias(
@@ -56,11 +64,12 @@ final class SettingsPageTest extends TestCase {
 			'vl_lms_zoom_client_id'      => 'cli',
 			'vl_lms_zoom_client_secret'  => 's3cret',
 			'vl_lms_zoom_webhook_secret' => 'whk',
+			'vl_lms_liqpay_public_key'   => 'sandbox_pub',
+			'vl_lms_liqpay_private_key'  => 'sandbox_priv',
+			'vl_lms_liqpay_sandbox'      => '1',
 		];
 
-		$page                    = new TestableSettingsPage(
-			new ZoomSettingsSection( Mockery::mock( ZoomSettingsProvider::class ) )
-		);
+		$page                    = $this->build_page();
 		$page->defined_constants = [];
 
 		$page->handle_save();
@@ -69,6 +78,9 @@ final class SettingsPageTest extends TestCase {
 		self::assertSame( 'cli', $writes['vl_lms_zoom_client_id'] );
 		self::assertSame( 's3cret', $writes['vl_lms_zoom_client_secret'] );
 		self::assertSame( 'whk', $writes['vl_lms_zoom_webhook_secret'] );
+		self::assertSame( 'sandbox_pub', $writes['vl_lms_liqpay_public_key'] );
+		self::assertSame( 'sandbox_priv', $writes['vl_lms_liqpay_private_key'] );
+		self::assertSame( '1', $writes['vl_lms_liqpay_sandbox'] );
 		self::assertTrue( $page->redirected );
 
 		$_POST = [];
@@ -89,17 +101,45 @@ final class SettingsPageTest extends TestCase {
 			'vl_lms_zoom_client_id'      => 'cli',
 			'vl_lms_zoom_client_secret'  => 's3cret',
 			'vl_lms_zoom_webhook_secret' => 'whk',
+			'vl_lms_liqpay_public_key'   => 'should-not-be-written',
+			'vl_lms_liqpay_private_key'  => 'priv',
 		];
 
-		$page                    = new TestableSettingsPage(
-			new ZoomSettingsSection( Mockery::mock( ZoomSettingsProvider::class ) )
-		);
-		$page->defined_constants = [ 'VL_ZOOM_ACCOUNT_ID' ];
+		$page                    = $this->build_page();
+		$page->defined_constants = [ 'VL_ZOOM_ACCOUNT_ID', 'VL_LMS_LIQPAY_PUBLIC_KEY' ];
 
 		$page->handle_save();
 
 		self::assertArrayNotHasKey( 'vl_lms_zoom_account_id', $writes );
+		self::assertArrayNotHasKey( 'vl_lms_liqpay_public_key', $writes );
 		self::assertSame( 'cli', $writes['vl_lms_zoom_client_id'] );
+		self::assertSame( 'priv', $writes['vl_lms_liqpay_private_key'] );
+
+		$_POST = [];
+	}
+
+	public function test_save_persists_unchecked_sandbox_as_empty_string(): void {
+		$writes = [];
+		Functions\when( 'update_option' )->alias(
+			static function ( string $key, mixed $value ) use ( &$writes ): bool {
+				$writes[ $key ] = $value;
+				return true;
+			}
+		);
+
+		$_POST = [
+			'_vl_lms_settings_nonce'    => 'nonce',
+			'vl_lms_liqpay_public_key'  => 'pub',
+			'vl_lms_liqpay_private_key' => 'priv',
+			// `vl_lms_liqpay_sandbox` deliberately absent — unchecked checkbox.
+		];
+
+		$page                    = $this->build_page();
+		$page->defined_constants = [];
+
+		$page->handle_save();
+
+		self::assertSame( '', $writes['vl_lms_liqpay_sandbox'] );
 
 		$_POST = [];
 	}

@@ -7,16 +7,15 @@ namespace VL\LMS\Admin\Settings;
 /**
  * Phase 9.5 — wp-admin "Налаштування" page (`?page=vl-lms-settings`).
  *
- * Hosts {@see ZoomSettingsSection} today and is the natural home for
- * any future LMS-wide admin options. The page slug + capability are
- * surfaced as constants so {@see \VL\LMS\Admin\Menu\AdminMenuProvider}
- * and the `admin-post.php` handler reference the same strings.
+ * Hosts {@see ZoomSettingsSection} and {@see LiqPaySettingsSection}; the
+ * page slug + capability are surfaced as constants so
+ * {@see \VL\LMS\Admin\Menu\AdminMenuProvider} and the `admin-post.php`
+ * handler reference the same strings.
  *
- * Constant-precedence handling lives in {@see ZoomSettingsSection}: if
- * `defined('VL_ZOOM_*')` we never write that option, even when the form
- * is POSTed. This matches Phase 7.0 wp-config.php precedence so a
- * hardened production deploy keeps working unchanged when the UI is
- * added later.
+ * Constant-precedence handling lives in each section: if `defined('VL_*')`
+ * we never write that option, even when the form is POSTed. This matches
+ * the wp-config.php precedence elsewhere so a hardened production deploy
+ * keeps working unchanged when the UI is added later.
  *
  * Not declared `final` — unit tests subclass to bypass `wp_redirect`
  * and capability checks.
@@ -25,15 +24,16 @@ namespace VL\LMS\Admin\Settings;
  */
 class SettingsPage {
 
-	public const string PAGE_SLUG     = 'vl-lms-settings';
-	public const string CAPABILITY    = 'manage_vl_lms_settings';
-	public const string SAVE_ACTION   = 'vl_lms_save_settings';
-	public const string NONCE_ACTION  = 'vl_lms_save_settings';
-	public const string NONCE_FIELD   = '_vl_lms_settings_nonce';
-	public const string SAVED_QUERY   = 'saved';
+	public const string PAGE_SLUG    = 'vl-lms-settings';
+	public const string CAPABILITY   = 'manage_vl_lms_settings';
+	public const string SAVE_ACTION  = 'vl_lms_save_settings';
+	public const string NONCE_ACTION = 'vl_lms_save_settings';
+	public const string NONCE_FIELD  = '_vl_lms_settings_nonce';
+	public const string SAVED_QUERY  = 'saved';
 
 	public function __construct(
-		private readonly ZoomSettingsSection $zoom_section
+		private readonly ZoomSettingsSection $zoom_section,
+		private readonly LiqPaySettingsSection $liqpay_section
 	) {
 	}
 
@@ -57,6 +57,7 @@ class SettingsPage {
 		wp_nonce_field( self::NONCE_ACTION, self::NONCE_FIELD );
 
 		$this->zoom_section->render();
+		$this->liqpay_section->render();
 
 		submit_button( __( 'Зберегти зміни', 'vl-lms' ) );
 
@@ -71,11 +72,24 @@ class SettingsPage {
 
 		check_admin_referer( self::NONCE_ACTION, self::NONCE_FIELD );
 
-		foreach ( ZoomSettingsSection::fields() as $field ) {
+		$fields = array_merge(
+			ZoomSettingsSection::fields(),
+			LiqPaySettingsSection::fields()
+		);
+
+		foreach ( $fields as $field ) {
 			if ( $this->is_constant_defined( $field['constant'] ) ) {
 				continue;
 			}
 			$option = $field['option'];
+
+			if ( 'checkbox' === $field['type'] ) {
+				// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce checked above via check_admin_referer().
+				$value = isset( $_POST[ $option ] ) ? '1' : '';
+				update_option( $option, $value );
+				continue;
+			}
+
 			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated -- Sanitized below; nonce checked above via check_admin_referer().
 			$raw = isset( $_POST[ $option ] ) ? wp_unslash( (string) $_POST[ $option ] ) : '';
 			update_option( $option, sanitize_text_field( $raw ) );
