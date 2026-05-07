@@ -21,6 +21,9 @@ final class SessionMetaBoxTest extends TestCase {
 	/** @var list<array{0: int, 1: string, 2: mixed}> */
 	private array $writes = [];
 
+	/** @var list<array<string, mixed>> */
+	private array $post_updates = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
@@ -29,17 +32,34 @@ final class SessionMetaBoxTest extends TestCase {
 		Functions\when( 'esc_url_raw' )->returnArg();
 		Functions\when( 'wp_verify_nonce' )->justReturn( 1 );
 		Functions\when( 'current_user_can' )->justReturn( true );
-		Functions\when( 'get_post_type' )->justReturn( 'vl_session' );
+		Functions\when( 'get_post_type' )->alias(
+			static function ( int|string $id ): string {
+				return match ( (int) $id ) {
+					77      => 'vl_course',
+					88      => 'page',
+					default => 'vl_session',
+				};
+			}
+		);
+		Functions\when( 'get_post_field' )->justReturn( 0 );
 		Functions\when( 'wp_timezone' )->alias(
 			static fn (): \DateTimeZone => new \DateTimeZone( 'Europe/Kyiv' )
 		);
 
-		$this->writes = [];
-		$writes       = &$this->writes;
+		$this->writes       = [];
+		$this->post_updates = [];
+		$writes             = &$this->writes;
+		$post_updates       = &$this->post_updates;
 		Functions\when( 'update_post_meta' )->alias(
 			static function ( int $id, string $key, mixed $value ) use ( &$writes ): bool {
 				$writes[] = [ $id, $key, $value ];
 				return true;
+			}
+		);
+		Functions\when( 'wp_update_post' )->alias(
+			static function ( array $postarr ) use ( &$post_updates ): int {
+				$post_updates[] = $postarr;
+				return (int) ( $postarr['ID'] ?? 0 );
 			}
 		);
 
@@ -52,6 +72,70 @@ final class SessionMetaBoxTest extends TestCase {
 		parent::tearDown();
 	}
 
+	public function test_save_updates_post_parent_when_course_id_changes(): void {
+		Functions\when( 'get_post_field' )->justReturn( 0 );
+
+		$_POST = [
+			self::NONCE_FIELD       => 'nonce-x',
+			'_vl_session_course_id' => '77',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new SessionMetaBox() )->save( 44, $post );
+
+		self::assertCount( 1, $this->post_updates );
+		self::assertSame( 44, $this->post_updates[0]['ID'] );
+		self::assertSame( 77, $this->post_updates[0]['post_parent'] );
+	}
+
+	public function test_save_skips_post_parent_update_when_course_id_unchanged(): void {
+		Functions\when( 'get_post_field' )->justReturn( 77 );
+
+		$_POST = [
+			self::NONCE_FIELD       => 'nonce-x',
+			'_vl_session_course_id' => '77',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new SessionMetaBox() )->save( 44, $post );
+
+		self::assertSame( [], $this->post_updates );
+	}
+
+	public function test_save_rejects_post_parent_pointing_at_non_course(): void {
+		Functions\when( 'get_post_field' )->justReturn( 0 );
+
+		$_POST = [
+			self::NONCE_FIELD       => 'nonce-x',
+			'_vl_session_course_id' => '88',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new SessionMetaBox() )->save( 44, $post );
+
+		self::assertSame( [], $this->post_updates );
+	}
+
+	public function test_save_clears_post_parent_when_course_id_zero(): void {
+		Functions\when( 'get_post_field' )->justReturn( 77 );
+
+		$_POST = [
+			self::NONCE_FIELD       => 'nonce-x',
+			'_vl_session_course_id' => '0',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new SessionMetaBox() )->save( 44, $post );
+
+		self::assertCount( 1, $this->post_updates );
+		self::assertSame( 44, $this->post_updates[0]['ID'] );
+		self::assertSame( 0, $this->post_updates[0]['post_parent'] );
+	}
+
 	/**
 	 * Regression: HTML `datetime-local` inputs submit values without a
 	 * timezone, but the `_vl_session_scheduled_*` meta sanitizer
@@ -62,10 +146,10 @@ final class SessionMetaBoxTest extends TestCase {
 	 */
 	public function test_save_converts_datetime_local_inputs_to_iso8601_with_offset(): void {
 		$_POST = [
-			self::NONCE_FIELD                        => 'nonce-x',
-			'_vl_session_scheduled_start'            => '2026-05-08T14:30',
-			'_vl_session_scheduled_end'              => '2026-05-08T15:30:00',
-			'_vl_session_recording_available_until'  => '',
+			self::NONCE_FIELD                       => 'nonce-x',
+			'_vl_session_scheduled_start'           => '2026-05-08T14:30',
+			'_vl_session_scheduled_end'             => '2026-05-08T15:30:00',
+			'_vl_session_recording_available_until' => '',
 		];
 
 		$post = Mockery::mock( 'WP_Post' );

@@ -9,13 +9,16 @@ use WP_Post;
 /**
  * Meta-box for `vl_session` posts.
  *
- * Editable fields cover the cohort session schedule, status, recording
- * window, and instructor-uploaded materials. Zoom-managed fields
- * (`_vl_session_zoom_*`, `_vl_session_recording_url`) are rendered as
- * read-only displays so authors see the synced state without being able
- * to overwrite values produced by
- * {@see \VL\LMS\Services\Zoom\Sync\MeetingSynchronizer} or the recording
- * webhook handler.
+ * Editable fields cover the parent course (`post_parent`), session
+ * schedule, status, recording window, and instructor-uploaded materials.
+ * Because `vl_session` is `hierarchical: false`, WordPress does not
+ * render a Parent dropdown of its own — this meta-box surfaces a course
+ * picker (cohort-type `vl_course` posts) and writes the selection back
+ * via `wp_update_post()`. Zoom-managed fields (`_vl_session_zoom_*`,
+ * `_vl_session_recording_url`) are rendered as read-only displays so
+ * authors see the synced state without being able to overwrite values
+ * produced by {@see \VL\LMS\Services\Zoom\Sync\MeetingSynchronizer} or
+ * the recording webhook handler.
  *
  * @author Tymofii Synianskyi
  */
@@ -39,6 +42,26 @@ class SessionMetaBox extends AbstractMetaBox {
 	public function render( WP_Post $post ): void {
 		$this->render_nonce();
 		echo '<div class="vl-lms-meta-box">';
+
+		$this->render_section_heading( 'Курс' );
+		$courses   = $this->query_cohort_courses();
+		$parent_id = (int) $post->post_parent;
+		if ( $parent_id > 0 && ! isset( $courses[ (string) $parent_id ] ) ) {
+			$current_title = (string) get_the_title( $parent_id );
+			if ( '' !== $current_title ) {
+				$courses[ (string) $parent_id ] = $current_title . ' (не когортний)';
+			}
+		}
+		$options = [ '0' => '— Без курсу —' ];
+		foreach ( $courses as $course_id => $course_title ) {
+			$options[ (string) $course_id ] = $course_title;
+		}
+		$this->render_select_row(
+			'_vl_session_course_id',
+			'Батьківський курс',
+			(string) $parent_id,
+			$options
+		);
 
 		$this->render_section_heading( 'Розклад' );
 		$this->render_text_row(
@@ -111,6 +134,22 @@ class SessionMetaBox extends AbstractMetaBox {
 			return;
 		}
 
+		$course_id = $this->post_int( '_vl_session_course_id', 0 );
+		if ( null !== $course_id ) {
+			$current_parent = (int) get_post_field( 'post_parent', $post_id );
+			if ( $course_id !== $current_parent ) {
+				$valid = ( 0 === $course_id ) || ( 'vl_course' === get_post_type( $course_id ) );
+				if ( $valid ) {
+					wp_update_post(
+						[
+							'ID'          => $post_id,
+							'post_parent' => $course_id,
+						]
+					);
+				}
+			}
+		}
+
 		$number = $this->post_int( '_vl_session_number', 0 );
 		if ( null !== $number ) {
 			update_post_meta( $post_id, '_vl_session_number', $number );
@@ -138,5 +177,46 @@ class SessionMetaBox extends AbstractMetaBox {
 		if ( null !== $materials_json ) {
 			update_post_meta( $post_id, '_vl_session_materials', $materials_json );
 		}
+	}
+
+	/**
+	 * Return cohort-type `vl_course` posts as `[ post_id => title ]`,
+	 * ordered by title. The cohort filter mirrors the runtime rule
+	 * enforced by services and REST controllers — sessions can only
+	 * be meaningfully scheduled inside a cohort course.
+	 *
+	 * @return array<string, string>
+	 */
+	private function query_cohort_courses(): array {
+		$posts = get_posts(
+			[
+				'post_type'      => 'vl_course',
+				'post_status'    => 'any',
+				'posts_per_page' => -1,
+				'orderby'        => 'title',
+				'order'          => 'ASC',
+				'meta_query'     => [
+					[
+						'key'   => '_vl_course_type',
+						'value' => 'cohort',
+					],
+				],
+			]
+		);
+
+		$out = [];
+		if ( ! is_array( $posts ) ) {
+			return $out;
+		}
+		foreach ( $posts as $course ) {
+			if ( ! $course instanceof WP_Post ) {
+				continue;
+			}
+			$title                       = '' !== $course->post_title
+				? $course->post_title
+				: sprintf( '#%d', (int) $course->ID );
+			$out[ (string) $course->ID ] = $title;
+		}
+		return $out;
 	}
 }
