@@ -6,44 +6,55 @@
  * @package ddevapp
  */
 
-if ( getenv( 'IS_DDEV_PROJECT' ) == 'true' ) {
-	/** The name of the database for WordPress */
-	defined( 'DB_NAME' ) || define( 'DB_NAME', 'db' );
+if ( getenv( 'IS_DDEV_PROJECT' ) !== 'true' ) {
+	return;
+}
 
-	/** MySQL database username */
-	defined( 'DB_USER' ) || define( 'DB_USER', 'db' );
+/** The name of the database for WordPress */
+defined( 'DB_NAME' ) || define( 'DB_NAME', getenv( 'DB_NAME' ) ?: 'db' );
 
-	/** MySQL database password */
-	defined( 'DB_PASSWORD' ) || define( 'DB_PASSWORD', 'db' );
+/** MySQL database username */
+defined( 'DB_USER' ) || define( 'DB_USER', getenv( 'DB_USER' ) ?: 'db' );
 
-	/** MySQL hostname */
-	defined( 'DB_HOST' ) || define( 'DB_HOST', 'ddev-green-paws-lms-backend-db' );
+/** MySQL database password */
+defined( 'DB_PASSWORD' ) || define( 'DB_PASSWORD', getenv( 'DB_PASSWORD' ) ?: 'db' );
 
-	/** WP_HOME URL */
-	defined( 'WP_HOME' ) || define( 'WP_HOME', 'https://green-paws-lms-backend.ddev.site' );
+/** MySQL hostname */
+defined( 'DB_HOST' ) || define( 'DB_HOST', getenv( 'DB_HOST' ) ?: 'db' );
 
-	/** WP_SITEURL location */
-	defined( 'WP_SITEURL' ) || define( 'WP_SITEURL', WP_HOME . '/' );
+/** WP_HOME URL */
+defined( 'WP_HOME' ) || define( 'WP_HOME', getenv( 'DDEV_PRIMARY_URL' ) ?: 'http://localhost' );
 
-	/** Enable debug */
-	defined( 'WP_DEBUG' ) || define( 'WP_DEBUG', true );
+/** WP_SITEURL location */
+defined( 'WP_SITEURL' ) || define(
+	'WP_SITEURL',
+	WP_HOME . '/' . ltrim(
+		str_replace(
+			realpath( getenv( 'DDEV_APPROOT' ) . '/' . getenv( 'DDEV_DOCROOT' ) ),
+			'',
+			realpath( ABSPATH )
+		),
+		'/'
+	)
+);
 
-	/** JWT Auth secret key */
-	defined( 'VL_JWT_AUTH_SECRET_KEY' ) || define( 'VL_JWT_AUTH_SECRET_KEY', 'Pd>2+.^nzKx##/t}gt5yjA=QGPn5|Z*WmSf2vpit&[k{}9x8nAf7Nn~rqZa.5CIb' );
+/** Enable debug (can be disabled with `ddev config --web-environment-add=WP_DEBUG=false`) */
+defined( 'WP_DEBUG' ) || define( 'WP_DEBUG', getenv( 'WP_DEBUG' ) === false || getenv( 'WP_DEBUG' ) === 'true' );
 
-	define('VL_CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001,https://app.vetlms.com,http://localhost:49894');
-	define('VL_FRONTEND_URL', 'http://localhost:3000');
-	define('VL_LMS_APP_URL', 'http://localhost:3000');
-	define('VL_LMS_EMAIL_FROM', 'Green Paws LMS <lms@dovira.vet>');
+defined( 'VL_JWT_AUTH_SECRET_KEY' ) || define( 'VL_JWT_AUTH_SECRET_KEY', 'Pd>2+.^nzKx##/t}gt5yjA=QGPn5|Z*WmSf2vpit&[k{}9x8nAf7Nn~rqZa.5CIb' );
 
-	/**
-	 * Set WordPress Database Table prefix if not already set.
-	 *
-	 * @global string $table_prefix
-	 */
-	if ( ! isset( $table_prefix ) || empty( $table_prefix ) ) {
-		// phpcs:disable WordPress.WP.GlobalVariablesOverride.Prohibited
-		$table_prefix = 'wp_';
-		// phpcs:enable
-	}
+define('VL_CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001,https://app.vetlms.com,http://localhost:49894');
+define('VL_FRONTEND_URL', 'http://localhost:3000');
+define('VL_LMS_APP_URL', 'http://localhost:3000');
+define('VL_LMS_EMAIL_FROM', 'Green Paws LMS <lms@dovira.vet>');
+
+/**
+ * Set WordPress Database Table prefix if not already set.
+ *
+ * @global string $table_prefix
+ */
+if ( empty( $table_prefix ) ) {
+	// phpcs:disable WordPress.WP.GlobalVariablesOverride.Prohibited
+	$table_prefix = getenv('DB_PREFIX') ?: 'wp_';
+	// phpcs:enable
 }
