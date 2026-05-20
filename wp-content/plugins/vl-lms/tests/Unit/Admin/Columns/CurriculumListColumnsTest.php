@@ -8,9 +8,11 @@ use Brain\Monkey;
 use Brain\Monkey\Actions;
 use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
+use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Admin\Columns\CurriculumListColumns;
+use WP_Query;
 
 final class CurriculumListColumnsTest extends TestCase {
 
@@ -22,9 +24,19 @@ final class CurriculumListColumnsTest extends TestCase {
 		Functions\when( '__' )->returnArg();
 		Functions\when( 'esc_html' )->returnArg();
 		Functions\when( 'esc_html__' )->returnArg();
+		Functions\when( 'esc_attr' )->returnArg();
+		Functions\when( 'esc_attr__' )->returnArg();
+		Functions\when( 'wp_unslash' )->returnArg();
+		Functions\when( 'absint' )->alias( static fn ( mixed $v ): int => max( 0, (int) $v ) );
+		Functions\when( 'selected' )->alias(
+			static fn ( mixed $a, mixed $b ): string => ( (string) $a === (string) $b ) ? ' selected="selected"' : ''
+		);
+
+		$_GET = [];
 	}
 
 	protected function tearDown(): void {
+		$_GET = [];
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -38,6 +50,8 @@ final class CurriculumListColumnsTest extends TestCase {
 		Actions\expectAdded( 'manage_vl_topic_posts_custom_column' )->once();
 		Filters\expectAdded( 'manage_vl_session_posts_columns' )->once();
 		Actions\expectAdded( 'manage_vl_session_posts_custom_column' )->once();
+		Actions\expectAdded( 'restrict_manage_posts' )->once();
+		Actions\expectAdded( 'parse_query' )->once();
 
 		( new CurriculumListColumns() )->boot();
 	}
@@ -307,5 +321,101 @@ final class CurriculumListColumnsTest extends TestCase {
 		ob_start();
 		( new CurriculumListColumns() )->render_session_column( 'vl_session_delivery', 55 );
 		self::assertSame( '—', ob_get_clean() );
+	}
+
+	public function test_render_module_course_filter_does_nothing_on_other_post_types(): void {
+		ob_start();
+		( new CurriculumListColumns() )->render_module_course_filter( 'post' );
+		self::assertSame( '', ob_get_clean() );
+	}
+
+	public function test_render_module_course_filter_emits_dropdown_with_courses(): void {
+		$_GET = [ 'vl_course_id' => '7' ];
+
+		$columns = new class() extends CurriculumListColumns {
+			/** @return array<int, string> */
+			protected function all_course_options(): array {
+				return [
+					3 => 'Course Beta',
+					7 => 'Course Alpha',
+				];
+			}
+		};
+
+		ob_start();
+		$columns->render_module_course_filter( 'vl_module' );
+		$html = (string) ob_get_clean();
+
+		self::assertStringContainsString( '<select name="vl_course_id"', $html );
+		self::assertStringContainsString( '<option value="0">All courses</option>', $html );
+		self::assertStringContainsString( '<option value="3"', $html );
+		self::assertStringContainsString( 'Course Beta', $html );
+		self::assertStringContainsString( '<option value="7" selected="selected">', $html );
+		self::assertStringContainsString( 'Course Alpha', $html );
+	}
+
+	public function test_apply_module_course_filter_sets_post_parent_when_present(): void {
+		$_GET = [ 'vl_course_id' => '42' ];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldReceive( 'is_main_query' )->andReturn( true );
+		$query->shouldReceive( 'get' )->with( 'post_type' )->andReturn( 'vl_module' );
+		$query->shouldReceive( 'set' )->once()->with( 'post_parent', 42 );
+
+		assert( $query instanceof WP_Query );
+		( new CurriculumListColumns() )->apply_module_course_filter( $query );
+	}
+
+	public function test_apply_module_course_filter_noop_when_param_absent(): void {
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldReceive( 'is_main_query' )->andReturn( true );
+		$query->shouldReceive( 'get' )->with( 'post_type' )->andReturn( 'vl_module' );
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		( new CurriculumListColumns() )->apply_module_course_filter( $query );
+	}
+
+	public function test_apply_module_course_filter_noop_for_other_post_types(): void {
+		$_GET = [ 'vl_course_id' => '42' ];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldReceive( 'is_main_query' )->andReturn( true );
+		$query->shouldReceive( 'get' )->with( 'post_type' )->andReturn( 'vl_lesson' );
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		( new CurriculumListColumns() )->apply_module_course_filter( $query );
+	}
+
+	public function test_apply_module_course_filter_noop_when_not_main_query(): void {
+		$_GET = [ 'vl_course_id' => '42' ];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldReceive( 'is_main_query' )->andReturn( false );
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		( new CurriculumListColumns() )->apply_module_course_filter( $query );
+	}
+
+	public function test_apply_module_course_filter_noop_outside_admin(): void {
+		$_GET = [ 'vl_course_id' => '42' ];
+
+		Functions\when( 'is_admin' )->justReturn( false );
+
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		( new CurriculumListColumns() )->apply_module_course_filter( $query );
 	}
 }

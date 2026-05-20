@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin\Columns;
 
+use WP_Query;
+
 /**
  * Adds parent-context columns to the wp-admin list tables for the flat
  * course-bound CPTs `vl_module`, `vl_lesson`, `vl_topic`, and `vl_session`.
@@ -22,9 +24,15 @@ namespace VL\LMS\Admin\Columns;
  * `posts_per_page=-1`) — the LMS list tables are paged at the WP default
  * (20) so the per-screen overhead is bounded.
  *
+ * Also renders a "Course" parent filter above the `vl_module` list table
+ * via `restrict_manage_posts`, and narrows the main query through
+ * `parse_query` when the dropdown is set.
+ *
  * @author Tymofii Synianskyi
  */
-final class CurriculumListColumns {
+class CurriculumListColumns {
+
+	private const string MODULE_COURSE_FILTER_PARAM = 'vl_course_id';
 
 	public function boot(): void {
 		add_filter( 'manage_vl_module_posts_columns', [ $this, 'module_columns' ] );
@@ -38,6 +46,9 @@ final class CurriculumListColumns {
 
 		add_filter( 'manage_vl_session_posts_columns', [ $this, 'session_columns' ] );
 		add_action( 'manage_vl_session_posts_custom_column', [ $this, 'render_session_column' ], 10, 2 );
+
+		add_action( 'restrict_manage_posts', [ $this, 'render_module_course_filter' ] );
+		add_action( 'parse_query', [ $this, 'apply_module_course_filter' ] );
 	}
 
 	/**
@@ -175,6 +186,119 @@ final class CurriculumListColumns {
 		$format      = trim( $date_format . ' ' . $time_format );
 
 		return (string) wp_date( $format, $timestamp );
+	}
+
+	/**
+	 * Render a "Course" dropdown above the `vl_module` list table.
+	 *
+	 * `restrict_manage_posts` fires for every post type; this method
+	 * short-circuits unless the current screen is the modules list. The
+	 * dropdown lists every `vl_course` post (any non-trashed status) and
+	 * preserves the active selection on reload via the `vl_course_id`
+	 * query var.
+	 *
+	 * The default form on `edit.php` is a GET form whose submit button is
+	 * already wired ("Filter"), so we only need to emit the `<select>`
+	 * — WordPress handles submission.
+	 */
+	public function render_module_course_filter( string $post_type ): void {
+		if ( 'vl_module' !== $post_type ) {
+			return;
+		}
+
+		$selected = $this->read_course_filter_param();
+		$courses  = $this->all_course_options();
+
+		echo '<label class="screen-reader-text" for="' . esc_attr( self::MODULE_COURSE_FILTER_PARAM ) . '">'
+			. esc_html__( 'Filter by course', 'vl-lms' )
+			. '</label>';
+		echo '<select name="' . esc_attr( self::MODULE_COURSE_FILTER_PARAM ) . '" id="' . esc_attr( self::MODULE_COURSE_FILTER_PARAM ) . '">';
+		echo '<option value="0">' . esc_html__( 'All courses', 'vl-lms' ) . '</option>';
+		foreach ( $courses as $course_id => $title ) {
+			$label = '' === $title ? __( '(no title)', 'vl-lms' ) : $title;
+			echo '<option value="' . esc_attr( (string) $course_id ) . '"' . selected( $selected, $course_id, false ) . '>'
+				. esc_html( $label )
+				. '</option>';
+		}
+		echo '</select>';
+	}
+
+	/**
+	 * Narrow the modules list query to the chosen course when the
+	 * `vl_course_id` query var is set.
+	 *
+	 * Guards: only the wp-admin main query for the `vl_module` list table
+	 * is touched — REST, frontend, and secondary admin queries are left
+	 * alone.
+	 */
+	public function apply_module_course_filter( WP_Query $query ): void {
+		if ( ! is_admin() ) {
+			return;
+		}
+		if ( ! $query->is_main_query() ) {
+			return;
+		}
+		if ( 'vl_module' !== $query->get( 'post_type' ) ) {
+			return;
+		}
+
+		$course_id = $this->read_course_filter_param();
+		if ( $course_id <= 0 ) {
+			return;
+		}
+
+		$query->set( 'post_parent', $course_id );
+	}
+
+	/**
+	 * Read the `vl_course_id` GET param. Nonces are skipped intentionally —
+	 * this is a read-only narrowing of an already-permission-gated admin
+	 * list query (the screen capability gates access; bookmarking a URL
+	 * does not bypass anything).
+	 */
+	private function read_course_filter_param(): int {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filter; see method docblock.
+		$raw = $_GET[ self::MODULE_COURSE_FILTER_PARAM ] ?? null;
+		if ( null === $raw ) {
+			return 0;
+		}
+		return absint( wp_unslash( (string) $raw ) );
+	}
+
+	/**
+	 * Fetch every `vl_course` post keyed by id with its title, sorted by
+	 * title. Trashed and auto-draft posts are excluded; everything else
+	 * (published / draft / pending / future / private) is included so
+	 * authors can find modules attached to courses that are not yet live.
+	 *
+	 * @return array<int, string>
+	 */
+	protected function all_course_options(): array {
+		$query = new WP_Query(
+			[
+				'post_type'              => 'vl_course',
+				'post_status'            => [ 'publish', 'draft', 'pending', 'future', 'private' ],
+				'posts_per_page'         => -1,
+				'orderby'                => 'title',
+				'order'                  => 'ASC',
+				'no_found_rows'          => true,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'suppress_filters'       => true,
+			]
+		);
+
+		$out = [];
+		if ( ! is_array( $query->posts ) ) {
+			return $out;
+		}
+		foreach ( $query->posts as $post ) {
+			if ( ! $post instanceof \WP_Post ) {
+				continue;
+			}
+			$out[ (int) $post->ID ] = (string) $post->post_title;
+		}
+		return $out;
 	}
 
 	private function resolve_lesson_course_label( int $lesson_id ): string {
