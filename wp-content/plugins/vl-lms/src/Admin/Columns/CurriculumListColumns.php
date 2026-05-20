@@ -1,0 +1,217 @@
+<?php
+
+declare(strict_types=1);
+
+namespace VL\LMS\Admin\Columns;
+
+/**
+ * Adds parent-context columns to the wp-admin list tables for the inner-course
+ * CPTs `vl_module`, `vl_lesson`, and `vl_topic`.
+ *
+ * The CPTs are flat (`hierarchical: false`); their relationships live in
+ * `post_parent`. Without these columns an editor opening "Lessons" sees only
+ * titles and dates and has no way to tell which course or module a lesson
+ * belongs to without clicking through. The columns surface:
+ *
+ *  - `vl_module`: Course, Lessons (count)
+ *  - `vl_lesson`: Course, Module, Topics (count)
+ *  - `vl_topic` : Course (resolved via the parent lesson), Lesson
+ *
+ * Counts are computed with a single `WP_Query` per row (`fields=ids`,
+ * `posts_per_page=-1`) — the LMS list tables are paged at the WP default
+ * (20) so the per-screen overhead is bounded.
+ *
+ * @author Tymofii Synianskyi
+ */
+final class CurriculumListColumns {
+
+	public function boot(): void {
+		add_filter( 'manage_vl_module_posts_columns', [ $this, 'module_columns' ] );
+		add_action( 'manage_vl_module_posts_custom_column', [ $this, 'render_module_column' ], 10, 2 );
+
+		add_filter( 'manage_vl_lesson_posts_columns', [ $this, 'lesson_columns' ] );
+		add_action( 'manage_vl_lesson_posts_custom_column', [ $this, 'render_lesson_column' ], 10, 2 );
+
+		add_filter( 'manage_vl_topic_posts_columns', [ $this, 'topic_columns' ] );
+		add_action( 'manage_vl_topic_posts_custom_column', [ $this, 'render_topic_column' ], 10, 2 );
+	}
+
+	/**
+	 * @param array<string, string> $columns
+	 * @return array<string, string>
+	 */
+	public function module_columns( array $columns ): array {
+		return self::insert_before(
+			$columns,
+			'date',
+			[
+				'vl_course'       => __( 'Course', 'vl-lms' ),
+				'vl_lesson_count' => __( 'Lessons', 'vl-lms' ),
+			]
+		);
+	}
+
+	/**
+	 * @param array<string, string> $columns
+	 * @return array<string, string>
+	 */
+	public function lesson_columns( array $columns ): array {
+		return self::insert_before(
+			$columns,
+			'date',
+			[
+				'vl_course'      => __( 'Course', 'vl-lms' ),
+				'vl_module'      => __( 'Module', 'vl-lms' ),
+				'vl_topic_count' => __( 'Topics', 'vl-lms' ),
+			]
+		);
+	}
+
+	/**
+	 * @param array<string, string> $columns
+	 * @return array<string, string>
+	 */
+	public function topic_columns( array $columns ): array {
+		return self::insert_before(
+			$columns,
+			'date',
+			[
+				'vl_course' => __( 'Course', 'vl-lms' ),
+				'vl_lesson' => __( 'Lesson', 'vl-lms' ),
+			]
+		);
+	}
+
+	public function render_module_column( string $column, int $post_id ): void {
+		switch ( $column ) {
+			case 'vl_course':
+				echo esc_html( $this->course_label_for( (int) get_post_field( 'post_parent', $post_id ), 'vl_course' ) );
+				break;
+			case 'vl_lesson_count':
+				echo (int) $this->count_children( $post_id, 'vl_lesson' );
+				break;
+		}
+	}
+
+	public function render_lesson_column( string $column, int $post_id ): void {
+		switch ( $column ) {
+			case 'vl_course':
+				echo esc_html( $this->resolve_lesson_course_label( $post_id ) );
+				break;
+			case 'vl_module':
+				echo esc_html( $this->resolve_lesson_module_label( $post_id ) );
+				break;
+			case 'vl_topic_count':
+				echo (int) $this->count_children( $post_id, 'vl_topic' );
+				break;
+		}
+	}
+
+	public function render_topic_column( string $column, int $post_id ): void {
+		switch ( $column ) {
+			case 'vl_course':
+				$lesson_id = (int) get_post_field( 'post_parent', $post_id );
+				if ( $lesson_id <= 0 ) {
+					echo esc_html__( '—', 'vl-lms' );
+					break;
+				}
+				echo esc_html( $this->resolve_lesson_course_label( $lesson_id ) );
+				break;
+			case 'vl_lesson':
+				$lesson_id = (int) get_post_field( 'post_parent', $post_id );
+				echo esc_html( $this->post_title_for( $lesson_id, 'vl_lesson' ) );
+				break;
+		}
+	}
+
+	private function resolve_lesson_course_label( int $lesson_id ): string {
+		$parent_id   = (int) get_post_field( 'post_parent', $lesson_id );
+		$parent_type = $parent_id > 0 ? (string) get_post_type( $parent_id ) : '';
+
+		if ( 'vl_course' === $parent_type ) {
+			return $this->post_title_for( $parent_id, 'vl_course' );
+		}
+
+		if ( 'vl_module' === $parent_type ) {
+			$course_id = (int) get_post_field( 'post_parent', $parent_id );
+			return $this->post_title_for( $course_id, 'vl_course' );
+		}
+
+		return __( '—', 'vl-lms' );
+	}
+
+	private function resolve_lesson_module_label( int $lesson_id ): string {
+		$parent_id   = (int) get_post_field( 'post_parent', $lesson_id );
+		$parent_type = $parent_id > 0 ? (string) get_post_type( $parent_id ) : '';
+
+		if ( 'vl_module' === $parent_type ) {
+			return $this->post_title_for( $parent_id, 'vl_module' );
+		}
+
+		return __( '—', 'vl-lms' );
+	}
+
+	private function course_label_for( int $course_id, string $expected_type ): string {
+		return $this->post_title_for( $course_id, $expected_type );
+	}
+
+	private function post_title_for( int $post_id, string $expected_type ): string {
+		if ( $post_id <= 0 ) {
+			return __( '—', 'vl-lms' );
+		}
+		if ( get_post_type( $post_id ) !== $expected_type ) {
+			return __( '—', 'vl-lms' );
+		}
+		$title = (string) get_the_title( $post_id );
+		return '' === $title ? __( '(no title)', 'vl-lms' ) : $title;
+	}
+
+	private function count_children( int $parent_id, string $child_post_type ): int {
+		if ( $parent_id <= 0 ) {
+			return 0;
+		}
+
+		$query = new \WP_Query(
+			[
+				'post_type'              => $child_post_type,
+				'post_parent'            => $parent_id,
+				'post_status'            => [ 'publish', 'draft', 'pending', 'future', 'private' ],
+				'fields'                 => 'ids',
+				'posts_per_page'         => -1,
+				'no_found_rows'          => true,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'suppress_filters'       => true,
+			]
+		);
+
+		return is_array( $query->posts ) ? count( $query->posts ) : 0;
+	}
+
+	/**
+	 * Insert `$additions` immediately before `$before_key` in `$columns`,
+	 * preserving the original order. If `$before_key` is absent the
+	 * additions are appended at the end.
+	 *
+	 * @param array<string, string> $columns
+	 * @param array<string, string> $additions
+	 * @return array<string, string>
+	 */
+	private static function insert_before( array $columns, string $before_key, array $additions ): array {
+		if ( ! array_key_exists( $before_key, $columns ) ) {
+			return array_merge( $columns, $additions );
+		}
+
+		$result = [];
+		foreach ( $columns as $key => $label ) {
+			if ( $key === $before_key ) {
+				foreach ( $additions as $add_key => $add_label ) {
+					$result[ $add_key ] = $add_label;
+				}
+			}
+			$result[ $key ] = $label;
+		}
+
+		return $result;
+	}
+}

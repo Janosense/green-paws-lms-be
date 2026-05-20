@@ -13,6 +13,7 @@ use VL\LMS\Admin\Analytics\AnalyticsRollupService;
 use VL\LMS\Admin\Api\AdminPreviewController;
 use VL\LMS\Admin\Assignments\GradingQueuePage;
 use VL\LMS\Admin\Assignments\SubmissionDetailPage;
+use VL\LMS\Admin\Columns\CurriculumListColumns;
 use VL\LMS\Admin\Dashboard\CourseStatsQuery;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
@@ -543,6 +544,10 @@ final class Plugin {
 				$admin_provider = $container->get( AdminProvider::class );
 				if ( $admin_provider instanceof AdminProvider ) {
 					$admin_provider->boot();
+				}
+				$curriculum_columns = $container->get( CurriculumListColumns::class );
+				if ( $curriculum_columns instanceof CurriculumListColumns ) {
+					$curriculum_columns->boot();
 				}
 			},
 			15
@@ -2791,6 +2796,11 @@ final class Plugin {
 				/** @var list<\VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox> $child_list_boxes */
 				return new AdminProvider( $boxes, $child_list_boxes, $reorder_handler, $menu_provider );
 			}
+		);
+
+		$container->set(
+			CurriculumListColumns::class,
+			static fn (): CurriculumListColumns => new CurriculumListColumns()
 		);
 
 		// --- Phase 9.2 — top-level wp-admin menu, instructor dashboard, preview API ---
