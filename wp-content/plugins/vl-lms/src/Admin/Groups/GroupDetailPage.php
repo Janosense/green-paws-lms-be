@@ -103,7 +103,7 @@ class GroupDetailPage {
 			printf(
 				'<option value="%s"%s>%s</option>',
 				esc_attr( $case->value ),
-				selected( $group->status, $case, false ),
+				selected( $group->status->value, $case->value, false ),
 				esc_html( $label )
 			);
 		}

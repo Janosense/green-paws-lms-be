@@ -44,7 +44,14 @@ final class GroupDetailPageTest extends TestCase {
 				return false === $out ? '""' : $out;
 			}
 		);
-		Functions\when( 'selected' )->justReturn( '' );
+		// Mirror WP's selected(): (string)$a === (string)$b. Doing the cast
+		// here ensures callers never pass values that the real WP function
+		// would TypeError on (e.g. a BackedEnum that can't be string-cast).
+		Functions\when( 'selected' )->alias(
+			static function ( $a, $b ): string {
+				return (string) $a === (string) $b ? " selected='selected'" : '';
+			}
+		);
 		Functions\when( 'submit_button' )->justReturn( null );
 		Functions\when( 'get_userdata' )->justReturn( false );
 		Functions\when( 'get_post' )->justReturn( null );
