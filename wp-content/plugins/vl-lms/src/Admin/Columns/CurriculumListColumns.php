@@ -5,17 +5,18 @@ declare(strict_types=1);
 namespace VL\LMS\Admin\Columns;
 
 /**
- * Adds parent-context columns to the wp-admin list tables for the inner-course
- * CPTs `vl_module`, `vl_lesson`, and `vl_topic`.
+ * Adds parent-context columns to the wp-admin list tables for the flat
+ * course-bound CPTs `vl_module`, `vl_lesson`, `vl_topic`, and `vl_session`.
  *
  * The CPTs are flat (`hierarchical: false`); their relationships live in
  * `post_parent`. Without these columns an editor opening "Lessons" sees only
  * titles and dates and has no way to tell which course or module a lesson
  * belongs to without clicking through. The columns surface:
  *
- *  - `vl_module`: Course, Lessons (count)
- *  - `vl_lesson`: Course, Module, Topics (count)
- *  - `vl_topic` : Course (resolved via the parent lesson), Lesson
+ *  - `vl_module` : Course, Lessons (count)
+ *  - `vl_lesson` : Course, Module, Topics (count)
+ *  - `vl_topic`  : Course (resolved via the parent lesson), Lesson
+ *  - `vl_session`: Course, Date of delivery (`_vl_session_scheduled_start`)
  *
  * Counts are computed with a single `WP_Query` per row (`fields=ids`,
  * `posts_per_page=-1`) — the LMS list tables are paged at the WP default
@@ -34,6 +35,9 @@ final class CurriculumListColumns {
 
 		add_filter( 'manage_vl_topic_posts_columns', [ $this, 'topic_columns' ] );
 		add_action( 'manage_vl_topic_posts_custom_column', [ $this, 'render_topic_column' ], 10, 2 );
+
+		add_filter( 'manage_vl_session_posts_columns', [ $this, 'session_columns' ] );
+		add_action( 'manage_vl_session_posts_custom_column', [ $this, 'render_session_column' ], 10, 2 );
 	}
 
 	/**
@@ -82,6 +86,21 @@ final class CurriculumListColumns {
 		);
 	}
 
+	/**
+	 * @param array<string, string> $columns
+	 * @return array<string, string>
+	 */
+	public function session_columns( array $columns ): array {
+		return self::insert_before(
+			$columns,
+			'date',
+			[
+				'vl_course'           => __( 'Course', 'vl-lms' ),
+				'vl_session_delivery' => __( 'Date of delivery', 'vl-lms' ),
+			]
+		);
+	}
+
 	public function render_module_column( string $column, int $post_id ): void {
 		switch ( $column ) {
 			case 'vl_course':
@@ -122,6 +141,40 @@ final class CurriculumListColumns {
 				echo esc_html( $this->post_title_for( $lesson_id, 'vl_lesson' ) );
 				break;
 		}
+	}
+
+	public function render_session_column( string $column, int $post_id ): void {
+		switch ( $column ) {
+			case 'vl_course':
+				echo esc_html( $this->post_title_for( (int) get_post_field( 'post_parent', $post_id ), 'vl_course' ) );
+				break;
+			case 'vl_session_delivery':
+				echo esc_html( $this->format_scheduled_start( $post_id ) );
+				break;
+		}
+	}
+
+	/**
+	 * Format `_vl_session_scheduled_start` (ISO 8601 UTC) using the site's
+	 * configured date + time formats. Empty / unparseable values render as
+	 * an em-dash so the column never collapses.
+	 */
+	private function format_scheduled_start( int $session_id ): string {
+		$raw = (string) get_post_meta( $session_id, '_vl_session_scheduled_start', true );
+		if ( '' === $raw ) {
+			return __( '—', 'vl-lms' );
+		}
+
+		$timestamp = strtotime( $raw );
+		if ( false === $timestamp ) {
+			return __( '—', 'vl-lms' );
+		}
+
+		$date_format = (string) get_option( 'date_format', 'Y-m-d' );
+		$time_format = (string) get_option( 'time_format', 'H:i' );
+		$format      = trim( $date_format . ' ' . $time_format );
+
+		return (string) wp_date( $format, $timestamp );
 	}
 
 	private function resolve_lesson_course_label( int $lesson_id ): string {

@@ -36,6 +36,8 @@ final class CurriculumListColumnsTest extends TestCase {
 		Actions\expectAdded( 'manage_vl_lesson_posts_custom_column' )->once();
 		Filters\expectAdded( 'manage_vl_topic_posts_columns' )->once();
 		Actions\expectAdded( 'manage_vl_topic_posts_custom_column' )->once();
+		Filters\expectAdded( 'manage_vl_session_posts_columns' )->once();
+		Actions\expectAdded( 'manage_vl_session_posts_custom_column' )->once();
 
 		( new CurriculumListColumns() )->boot();
 	}
@@ -227,6 +229,83 @@ final class CurriculumListColumnsTest extends TestCase {
 
 		ob_start();
 		( new CurriculumListColumns() )->render_topic_column( 'vl_course', 100 );
+		self::assertSame( '—', ob_get_clean() );
+	}
+
+	public function test_session_columns_inserts_course_and_delivery_before_date(): void {
+		$columns = [
+			'cb'    => '',
+			'title' => 'Title',
+			'date'  => 'Date',
+		];
+
+		$result = ( new CurriculumListColumns() )->session_columns( $columns );
+
+		self::assertSame(
+			[ 'cb', 'title', 'vl_course', 'vl_session_delivery', 'date' ],
+			array_keys( $result )
+		);
+		self::assertSame( 'Course', $result['vl_course'] );
+		self::assertSame( 'Date of delivery', $result['vl_session_delivery'] );
+	}
+
+	public function test_render_session_column_course_outputs_parent_course_title(): void {
+		Functions\when( 'get_post_field' )->alias(
+			static function ( string $field, int $id ): int {
+				return ( 'post_parent' === $field && 55 === $id ) ? 77 : 0;
+			}
+		);
+		Functions\when( 'get_post_type' )->alias(
+			static fn ( int $id ): string => 77 === $id ? 'vl_course' : ''
+		);
+		Functions\when( 'get_the_title' )->alias(
+			static fn ( int $id ): string => 77 === $id ? 'Cohort Course' : ''
+		);
+
+		ob_start();
+		( new CurriculumListColumns() )->render_session_column( 'vl_course', 55 );
+		self::assertSame( 'Cohort Course', ob_get_clean() );
+	}
+
+	public function test_render_session_column_delivery_formats_scheduled_start(): void {
+		Functions\when( 'get_post_meta' )->alias(
+			static function ( int $id, string $key ): string {
+				return ( 55 === $id && '_vl_session_scheduled_start' === $key )
+					? '2026-06-01T15:30:00Z'
+					: '';
+			}
+		);
+		Functions\when( 'get_option' )->alias(
+			static function ( string $name ): string {
+				return match ( $name ) {
+					'date_format' => 'Y-m-d',
+					'time_format' => 'H:i',
+					default       => '',
+				};
+			}
+		);
+		Functions\when( 'wp_date' )->alias(
+			static fn ( string $format, int $ts ): string => gmdate( $format, $ts )
+		);
+
+		ob_start();
+		( new CurriculumListColumns() )->render_session_column( 'vl_session_delivery', 55 );
+		self::assertSame( '2026-06-01 15:30', ob_get_clean() );
+	}
+
+	public function test_render_session_column_delivery_outputs_dash_when_empty(): void {
+		Functions\when( 'get_post_meta' )->justReturn( '' );
+
+		ob_start();
+		( new CurriculumListColumns() )->render_session_column( 'vl_session_delivery', 55 );
+		self::assertSame( '—', ob_get_clean() );
+	}
+
+	public function test_render_session_column_delivery_outputs_dash_for_unparseable_value(): void {
+		Functions\when( 'get_post_meta' )->justReturn( 'not-a-date' );
+
+		ob_start();
+		( new CurriculumListColumns() )->render_session_column( 'vl_session_delivery', 55 );
 		self::assertSame( '—', ob_get_clean() );
 	}
 }
