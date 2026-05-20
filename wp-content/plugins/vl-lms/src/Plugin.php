@@ -16,6 +16,9 @@ use VL\LMS\Admin\Assignments\SubmissionDetailPage;
 use VL\LMS\Admin\Columns\CurriculumListColumns;
 use VL\LMS\Admin\Dashboard\CourseStatsQuery;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
+use VL\LMS\Admin\Groups\GroupDetailPage;
+use VL\LMS\Admin\Groups\GroupFormHandler;
+use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\LessonListMetaBox;
@@ -477,6 +480,15 @@ final class Plugin {
 				'admin_post_' . SettingsPage::SAVE_ACTION,
 				[ $settings_page, 'handle_save' ]
 			);
+		}
+
+		// Phase 9.8 — Groups admin form handler. Registers six admin_post_*
+		// callbacks (create/update/member-add/member-remove/course-grant/
+		// course-revoke) plus two wp_ajax_* search endpoints. Each action
+		// is capability + nonce gated inside the handler.
+		$group_form_handler = $this->container->get( GroupFormHandler::class );
+		if ( $group_form_handler instanceof GroupFormHandler ) {
+			$group_form_handler->register();
 		}
 
 		// Phase 8.3 — wire the order-refund revocation listener. Subscribes
@@ -2870,6 +2882,55 @@ final class Plugin {
 		);
 
 		$container->set(
+			GroupDetailPage::class,
+			static function ( Container $c ): GroupDetailPage {
+				$groups = $c->get( GroupRepository::class );
+				assert( $groups instanceof GroupRepository );
+				$members = $c->get( GroupMemberRepository::class );
+				assert( $members instanceof GroupMemberRepository );
+				$access = $c->get( GroupAccessRepository::class );
+				assert( $access instanceof GroupAccessRepository );
+				return new GroupDetailPage( $groups, $members, $access );
+			}
+		);
+
+		$container->set(
+			GroupsListPage::class,
+			static function ( Container $c ): GroupsListPage {
+				$groups = $c->get( GroupRepository::class );
+				assert( $groups instanceof GroupRepository );
+				$members = $c->get( GroupMemberRepository::class );
+				assert( $members instanceof GroupMemberRepository );
+				$access = $c->get( GroupAccessRepository::class );
+				assert( $access instanceof GroupAccessRepository );
+				$detail = $c->get( GroupDetailPage::class );
+				assert( $detail instanceof GroupDetailPage );
+				return new GroupsListPage( $groups, $members, $access, $detail );
+			}
+		);
+
+		$container->set(
+			GroupFormHandler::class,
+			static function ( Container $c ): GroupFormHandler {
+				$service = $c->get( GroupService::class );
+				assert( $service instanceof GroupService );
+				$fanout = $c->get( GroupEnrollmentService::class );
+				assert( $fanout instanceof GroupEnrollmentService );
+				$groups = $c->get( GroupRepository::class );
+				assert( $groups instanceof GroupRepository );
+				$members = $c->get( GroupMemberRepository::class );
+				assert( $members instanceof GroupMemberRepository );
+				return new GroupFormHandler(
+					$service,
+					$fanout,
+					$groups,
+					$members,
+					new CyrillicTransliterator()
+				);
+			}
+		);
+
+		$container->set(
 			AdminMenuProvider::class,
 			static function ( Container $c ): AdminMenuProvider {
 				$dashboard = $c->get( InstructorDashboardPage::class );
@@ -2882,12 +2943,15 @@ final class Plugin {
 				assert( $grading_page instanceof GradingQueuePage );
 				$settings_page = $c->get( SettingsPage::class );
 				assert( $settings_page instanceof SettingsPage );
+				$groups_page = $c->get( GroupsListPage::class );
+				assert( $groups_page instanceof GroupsListPage );
 				return new AdminMenuProvider(
 					$dashboard,
 					$orders_page,
 					$analytics_page,
 					$grading_page,
-					$settings_page
+					$settings_page,
+					$groups_page
 				);
 			}
 		);

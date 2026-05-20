@@ -10,6 +10,7 @@ use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
+use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\Orders\OrdersListPage;
 
@@ -109,6 +110,39 @@ final class AdminMenuProviderTest extends TestCase {
 		self::assertNotNull( $orders_submenu, 'Expected an Orders submenu registration.' );
 		self::assertSame( 'vl-lms', $orders_submenu['parent_slug'] );
 		self::assertSame( 'vl_refund_orders', $orders_submenu['capability'] );
+	}
+
+	public function test_register_skips_groups_submenu_when_page_not_injected(): void {
+		$provider = $this->makeProvider();
+
+		$provider->register();
+
+		foreach ( $this->submenu_calls as $call ) {
+			self::assertNotSame( AdminMenuProvider::GROUPS_SLUG, $call['menu_slug'] );
+		}
+	}
+
+	public function test_register_adds_groups_submenu_when_page_injected(): void {
+		$dashboard = Mockery::mock( InstructorDashboardPage::class );
+		$orders    = Mockery::mock( OrdersListPage::class );
+		$groups    = Mockery::mock( GroupsListPage::class );
+
+		$provider = new AdminMenuProvider( $dashboard, $orders, null, null, null, $groups );
+
+		$provider->register();
+
+		$groups_submenu = null;
+		foreach ( $this->submenu_calls as $call ) {
+			if ( AdminMenuProvider::GROUPS_SLUG === $call['menu_slug'] ) {
+				$groups_submenu = $call;
+				break;
+			}
+		}
+
+		self::assertNotNull( $groups_submenu, 'Expected a Groups submenu registration.' );
+		self::assertSame( 'vl-lms', $groups_submenu['parent_slug'] );
+		self::assertSame( 'vl_manage_groups', $groups_submenu['capability'] );
+		self::assertSame( 'Групи', $groups_submenu['menu_title'] );
 	}
 
 	private function makeProvider(): AdminMenuProvider {

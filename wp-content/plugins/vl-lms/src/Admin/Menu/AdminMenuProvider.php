@@ -7,6 +7,7 @@ namespace VL\LMS\Admin\Menu;
 use VL\LMS\Admin\Analytics\AnalyticsPage;
 use VL\LMS\Admin\Assignments\GradingQueuePage;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
+use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
 use VL\LMS\Admin\Settings\SettingsPage;
 
@@ -30,9 +31,11 @@ class AdminMenuProvider {
 	public const string ANALYTICS_SLUG = 'vl-lms-analytics';
 	public const string GRADING_SLUG   = 'vl-lms-grading-queue';
 	public const string SETTINGS_SLUG  = 'vl-lms-settings';
+	public const string GROUPS_SLUG    = 'vl-lms-groups';
 	public const string CAP            = 'edit_posts';
 	public const string ORDERS_CAP     = 'vl_refund_orders';
 	public const string SETTINGS_CAP   = 'manage_vl_lms_settings';
+	public const string GROUPS_CAP     = 'vl_manage_groups';
 	public const string MENU_ICON      = 'dashicons-welcome-learn-more';
 	public const int MENU_POSITION     = 3;
 
@@ -41,7 +44,8 @@ class AdminMenuProvider {
 		private readonly OrdersListPage $orders_page,
 		private readonly ?AnalyticsPage $analytics_page = null,
 		private readonly ?GradingQueuePage $grading_page = null,
-		private readonly ?SettingsPage $settings_page = null
+		private readonly ?SettingsPage $settings_page = null,
+		private readonly ?GroupsListPage $groups_page = null
 	) {
 	}
 
@@ -99,6 +103,17 @@ class AdminMenuProvider {
 				self::CAP,
 				self::GRADING_SLUG,
 				[ $this->grading_page, 'render' ]
+			);
+		}
+
+		if ( null !== $this->groups_page ) {
+			add_submenu_page(
+				self::PARENT_SLUG,
+				'Групи',
+				'Групи',
+				self::GROUPS_CAP,
+				self::GROUPS_SLUG,
+				[ $this->groups_page, 'render' ]
 			);
 		}
 

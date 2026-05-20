@@ -70,6 +70,47 @@ final class InMemoryGroupRepository extends GroupRepository {
 	}
 
 	/**
+	 * @return list<Group>
+	 */
+	public function paginate( ?GroupStatus $status, ?string $search, int $limit, int $offset ): array {
+		$rows = $this->filter( $status, $search );
+		usort( $rows, static fn ( array $a, array $b ): int => strcmp( (string) $b['created_at'], (string) $a['created_at'] ) );
+		$page = array_slice( $rows, $offset, $limit );
+
+		$out = [];
+		foreach ( $page as $row ) {
+			$out[] = Group::from_row( $row );
+		}
+		return $out;
+	}
+
+	public function count( ?GroupStatus $status, ?string $search ): int {
+		return count( $this->filter( $status, $search ) );
+	}
+
+	/**
+	 * @return list<array<string, mixed>>
+	 */
+	private function filter( ?GroupStatus $status, ?string $search ): array {
+		$needle = null === $search ? '' : strtolower( trim( $search ) );
+
+		$out = [];
+		foreach ( $this->rows as $row ) {
+			if ( null !== $status && $row['status'] !== $status->value ) {
+				continue;
+			}
+			if ( '' !== $needle ) {
+				$haystack = strtolower( (string) ( $row['name'] ?? '' ) . ' ' . (string) ( $row['slug'] ?? '' ) );
+				if ( false === strpos( $haystack, $needle ) ) {
+					continue;
+				}
+			}
+			$out[] = $row;
+		}
+		return $out;
+	}
+
+	/**
 	 * @param array<string, mixed> $data
 	 */
 	public function insert( array $data ): int {
