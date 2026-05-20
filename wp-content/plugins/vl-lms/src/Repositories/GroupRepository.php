@@ -130,8 +130,8 @@ class GroupRepository {
 		$args[] = $limit;
 		$args[] = $offset;
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $table and $where are SQL fragments built locally; %d / %s placeholders for $args are valid.
 			"SELECT * FROM {$table} {$where} ORDER BY created_at DESC LIMIT %d OFFSET %d",
 			$args
 		);
@@ -150,11 +150,14 @@ class GroupRepository {
 		[ $where, $args ] = $this->build_filter( $status, $search );
 
 		if ( [] === $args ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$count = $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
 		} else {
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$sql = $wpdb->prepare( "SELECT COUNT(*) FROM {$table} {$where}", $args );
+			$sql = $wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table and $where are SQL fragments built locally; %s placeholders for $args are valid.
+				"SELECT COUNT(*) FROM {$table} {$where}",
+				$args
+			);
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
 			$count = $wpdb->get_var( $sql );
 		}

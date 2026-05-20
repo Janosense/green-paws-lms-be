@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin;
 
+use VL\LMS\Admin\Groups\GroupFormHandler;
+use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\MetaBoxes\AbstractMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox;
@@ -33,10 +35,12 @@ use WP_User;
  */
 class AdminProvider {
 
-	private const string SCRIPT_HANDLE = 'vl-lms-admin-meta-boxes';
-	private const string STYLE_HANDLE  = 'vl-lms-admin-meta-boxes';
-	private const string AJAX_ACTION   = 'vl_lms_search_instructors';
-	private const string AJAX_NONCE    = 'vl_lms_search_instructors_nonce';
+	private const string SCRIPT_HANDLE        = 'vl-lms-admin-meta-boxes';
+	private const string STYLE_HANDLE         = 'vl-lms-admin-meta-boxes';
+	private const string GROUPS_SCRIPT_HANDLE = 'vl-lms-admin-groups';
+	private const string GROUPS_STYLE_HANDLE  = 'vl-lms-admin-groups';
+	private const string AJAX_ACTION          = 'vl_lms_search_instructors';
+	private const string AJAX_NONCE           = 'vl_lms_search_instructors_nonce';
 
 	/** @var list<string> */
 	private const array CPT_SLUGS = [
@@ -120,6 +124,11 @@ class AdminProvider {
 	}
 
 	public function enqueue_assets( string $hook ): void {
+		if ( $this->is_groups_admin_hook( $hook ) ) {
+			$this->enqueue_groups_assets();
+			return;
+		}
+
 		if ( 'post.php' !== $hook && 'post-new.php' !== $hook ) {
 			return;
 		}
@@ -158,6 +167,55 @@ class AdminProvider {
 				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 				'action'  => self::AJAX_ACTION,
 				'nonce'   => wp_create_nonce( self::AJAX_NONCE ),
+			]
+		);
+	}
+
+	/**
+	 * Groups-page hook detection. wp-admin sets the hook on a parent-slug
+	 * subpage to `{sanitized-parent-title}_page_{slug}` — in practice
+	 * `toplevel_page_vl-lms` (parent) / `green-paws-lms_page_vl-lms-groups`
+	 * (subpage). We only care about the suffix.
+	 */
+	private function is_groups_admin_hook( string $hook ): bool {
+		return str_ends_with( $hook, '_page_' . GroupsListPage::PAGE_SLUG );
+	}
+
+	private function enqueue_groups_assets(): void {
+		$base_url = plugins_url( 'src/Admin/assets/', VL_LMS_FILE );
+
+		wp_enqueue_style(
+			self::GROUPS_STYLE_HANDLE,
+			$base_url . 'admin-groups.css',
+			[],
+			VL_LMS_VERSION
+		);
+
+		wp_enqueue_script(
+			self::GROUPS_SCRIPT_HANDLE,
+			$base_url . 'admin-groups.js',
+			[ 'jquery' ],
+			VL_LMS_VERSION,
+			true
+		);
+
+		wp_localize_script(
+			self::GROUPS_SCRIPT_HANDLE,
+			'VL_LMS_GROUPS',
+			[
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+				'actions' => [
+					'students' => GroupFormHandler::AJAX_SEARCH_STUDENTS,
+					'courses'  => GroupFormHandler::AJAX_SEARCH_COURSES,
+				],
+				'nonces'  => [
+					'students' => wp_create_nonce( GroupFormHandler::AJAX_SEARCH_STUDENTS ),
+					'courses'  => wp_create_nonce( GroupFormHandler::AJAX_SEARCH_COURSES ),
+				],
+				'i18n'    => [
+					'noStudents' => __( 'Студентів не знайдено', 'vl-lms' ),
+					'noCourses'  => __( 'Курсів не знайдено', 'vl-lms' ),
+				],
 			]
 		);
 	}

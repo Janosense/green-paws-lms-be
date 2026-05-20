@@ -1,0 +1,84 @@
+/* Phase 9.8 — Groups admin UI. Mirrors the spacing/border idiom used by
+   the Orders admin pages so the new screen feels native. */
+
+.vl-admin-group-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	margin-top: 16px;
+}
+
+.vl-admin-group-detail .vl-admin-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 16px 20px;
+}
+
+.vl-admin-group-detail .vl-admin-card h2 {
+	margin-top: 0;
+}
+
+.vl-admin-group-detail .vl-admin-card h3 {
+	margin-top: 24px;
+}
+
+.vl-status-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 12px;
+	background: #e5f1fb;
+	color: #2271b1;
+}
+
+.vl-status-archived {
+	background: #f0f0f1;
+	color: #50575e;
+}
+
+/* Pickers — student / course autocomplete dropdowns. */
+.vl-admin-group-add-member,
+.vl-admin-group-add-course {
+	position: relative;
+}
+
+.vl-admin-user-search-results,
+.vl-admin-course-search-results {
+	position: absolute;
+	left: 0;
+	top: 32px;
+	min-width: 320px;
+	max-height: 240px;
+	overflow-y: auto;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	box-shadow: 0 2px 6px rgba( 0, 0, 0, 0.08 );
+	z-index: 10;
+	display: none;
+}
+
+.vl-admin-search-result {
+	display: block;
+	padding: 6px 10px;
+	color: #1d2327;
+	text-decoration: none;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+.vl-admin-search-result:last-child {
+	border-bottom: none;
+}
+
+.vl-admin-search-result:hover,
+.vl-admin-search-result:focus {
+	background: #f6f7f7;
+	color: #2271b1;
+}
+
+.vl-admin-search-empty {
+	padding: 8px 10px;
+	color: #50575e;
+	font-style: italic;
+}

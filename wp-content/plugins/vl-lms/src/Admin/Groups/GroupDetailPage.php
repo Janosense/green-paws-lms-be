@@ -51,7 +51,13 @@ class GroupDetailPage {
 		echo '<div class="wrap">';
 		printf(
 			'<h1 class="wp-heading-inline">%s</h1>',
-			esc_html( sprintf( __( 'Група: %s', 'vl-lms' ), $group->name ) )
+			esc_html(
+				sprintf(
+					/* translators: %s: group name */
+					__( 'Група: %s', 'vl-lms' ),
+					$group->name
+				)
+			)
 		);
 		printf(
 			' <a href="%s" class="page-title-action">%s</a>',
