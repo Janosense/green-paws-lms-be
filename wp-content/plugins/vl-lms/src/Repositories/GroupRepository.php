@@ -111,6 +111,87 @@ class GroupRepository {
 	}
 
 	/**
+	 * Paginated listing for the wp-admin list table.
+	 *
+	 * Both filters are optional; passing `null` for both returns every row
+	 * ordered by `created_at DESC`. `$search` matches `name` OR `slug` via
+	 * a `LIKE` with `$wpdb->esc_like()`-escaped wildcards. `$limit` /
+	 * `$offset` go through `%d` placeholders to avoid the
+	 * `WordPress.DB.PreparedSQL.InterpolatedNotPrepared` sniff.
+	 *
+	 * @return list<Group>
+	 */
+	public function paginate( ?GroupStatus $status, ?string $search, int $limit, int $offset ): array {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		[ $where, $args ] = $this->build_filter( $status, $search );
+
+		$args[] = $limit;
+		$args[] = $offset;
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$sql = $wpdb->prepare(
+			"SELECT * FROM {$table} {$where} ORDER BY created_at DESC LIMIT %d OFFSET %d",
+			$args
+		);
+
+		return $this->hydrate_list( $sql );
+	}
+
+	/**
+	 * Total row count matching the same filters as {@see self::paginate()}.
+	 * Used to populate `WP_List_Table::set_pagination_args()`.
+	 */
+	public function count( ?GroupStatus $status, ?string $search ): int {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		[ $where, $args ] = $this->build_filter( $status, $search );
+
+		if ( [] === $args ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+			$count = $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+		} else {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$sql = $wpdb->prepare( "SELECT COUNT(*) FROM {$table} {$where}", $args );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+			$count = $wpdb->get_var( $sql );
+		}
+
+		return is_numeric( $count ) ? (int) $count : 0;
+	}
+
+	/**
+	 * Build the shared WHERE clause + positional args used by paginate/count.
+	 * Returns an empty clause + empty args when both filters are unset.
+	 *
+	 * @return array{0:string,1:list<scalar>}
+	 */
+	private function build_filter( ?GroupStatus $status, ?string $search ): array {
+		$wpdb        = $this->wpdb();
+		$conditions  = [];
+		$args        = [];
+		$search_trim = null === $search ? '' : trim( $search );
+
+		if ( null !== $status ) {
+			$conditions[] = 'status = %s';
+			$args[]       = $status->value;
+		}
+
+		if ( '' !== $search_trim ) {
+			$like         = '%' . $wpdb->esc_like( $search_trim ) . '%';
+			$conditions[] = '(name LIKE %s OR slug LIKE %s)';
+			$args[]       = $like;
+			$args[]       = $like;
+		}
+
+		$where = [] === $conditions ? '' : 'WHERE ' . implode( ' AND ', $conditions );
+
+		return [ $where, $args ];
+	}
+
+	/**
 	 * @param array<string, mixed> $data
 	 */
 	public function insert( array $data ): int {

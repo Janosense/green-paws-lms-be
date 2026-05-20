@@ -235,4 +235,170 @@ final class GroupRepositoryTest extends TestCase {
 		self::assertTrue( $ok );
 		self::assertSame( [ 'id' => 42 ], $captured_where );
 	}
+
+	public function test_paginate_without_filters_omits_where_and_orders_by_created_at(): void {
+		$captured_sql  = null;
+		$captured_args = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, $args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )->andReturn( [ self::row() ] );
+
+		$result = $this->repo->paginate( null, null, 20, 0 );
+
+		self::assertCount( 1, $result );
+		self::assertStringContainsString( 'SELECT * FROM wp_vl_groups', $captured_sql );
+		self::assertStringNotContainsString( 'WHERE', $captured_sql );
+		self::assertStringContainsString( 'ORDER BY created_at DESC', $captured_sql );
+		self::assertStringContainsString( 'LIMIT %d OFFSET %d', $captured_sql );
+		self::assertSame( [ 20, 0 ], $captured_args );
+	}
+
+	public function test_paginate_applies_status_filter(): void {
+		$captured_sql  = null;
+		$captured_args = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, $args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )->andReturn( [] );
+
+		$this->repo->paginate( GroupStatus::ARCHIVED, null, 10, 30 );
+
+		self::assertStringContainsString( 'WHERE status = %s', $captured_sql );
+		self::assertSame( [ 'archived', 10, 30 ], $captured_args );
+	}
+
+	public function test_paginate_applies_search_filter_with_escaped_like(): void {
+		$captured_sql  = null;
+		$captured_args = null;
+
+		$this->wpdb->shouldReceive( 'esc_like' )
+			->once()
+			->with( 'cohort' )
+			->andReturn( 'cohort' );
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, $args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )->andReturn( [] );
+
+		$this->repo->paginate( null, '  cohort  ', 25, 0 );
+
+		self::assertStringContainsString( '(name LIKE %s OR slug LIKE %s)', $captured_sql );
+		self::assertSame( [ '%cohort%', '%cohort%', 25, 0 ], $captured_args );
+	}
+
+	public function test_paginate_combines_status_and_search_with_and(): void {
+		$captured_sql  = null;
+		$captured_args = null;
+
+		$this->wpdb->shouldReceive( 'esc_like' )->andReturn( 'qa' );
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, $args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )->andReturn( [] );
+
+		$this->repo->paginate( GroupStatus::ACTIVE, 'qa', 10, 0 );
+
+		self::assertStringContainsString( 'status = %s AND (name LIKE %s OR slug LIKE %s)', $captured_sql );
+		self::assertSame( [ 'active', '%qa%', '%qa%', 10, 0 ], $captured_args );
+	}
+
+	public function test_count_without_filters_skips_prepare_and_uses_plain_count(): void {
+		$captured_sql = null;
+
+		$this->wpdb->shouldNotReceive( 'prepare' );
+		$this->wpdb->shouldReceive( 'get_var' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql ) use ( &$captured_sql ): string {
+					$captured_sql = $sql;
+					return '12';
+				}
+			);
+
+		$result = $this->repo->count( null, null );
+
+		self::assertSame( 12, $result );
+		self::assertSame( 'SELECT COUNT(*) FROM wp_vl_groups', $captured_sql );
+	}
+
+	public function test_count_with_status_filter_prepares_with_args(): void {
+		$captured_sql  = null;
+		$captured_args = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, $args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( '5' );
+
+		$result = $this->repo->count( GroupStatus::ARCHIVED, null );
+
+		self::assertSame( 5, $result );
+		self::assertStringContainsString( 'WHERE status = %s', $captured_sql );
+		self::assertSame( [ 'archived' ], $captured_args );
+	}
+
+	public function test_count_with_search_filter_escapes_like_and_uses_both_columns(): void {
+		$captured_sql  = null;
+		$captured_args = null;
+
+		$this->wpdb->shouldReceive( 'esc_like' )
+			->once()
+			->with( 'cohort' )
+			->andReturn( 'cohort' );
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, $args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( '2' );
+
+		$result = $this->repo->count( null, 'cohort' );
+
+		self::assertSame( 2, $result );
+		self::assertStringContainsString( 'WHERE (name LIKE %s OR slug LIKE %s)', $captured_sql );
+		self::assertSame( [ '%cohort%', '%cohort%' ], $captured_args );
+	}
+
+	public function test_count_returns_zero_when_get_var_is_non_numeric(): void {
+		$this->wpdb->shouldReceive( 'get_var' )->andReturn( null );
+
+		self::assertSame( 0, $this->repo->count( null, null ) );
+	}
 }

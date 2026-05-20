@@ -165,6 +165,9 @@ use VL\LMS\Quiz\Scoring\SingleChoiceScorer;
 use VL\LMS\Quiz\Scoring\TextScorer;
 use VL\LMS\Quiz\Scoring\TrueFalseScorer;
 use VL\LMS\Repositories\EnrollmentRepository;
+use VL\LMS\Repositories\GroupAccessRepository;
+use VL\LMS\Repositories\GroupMemberRepository;
+use VL\LMS\Repositories\GroupRepository;
 use VL\LMS\Repositories\LessonViewRepository;
 use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Repositories\QuizAnswerRepository;
@@ -176,6 +179,8 @@ use VL\LMS\Services\Assignments\AssignmentCompletionListener;
 use VL\LMS\Services\Assignments\AssignmentSubmissionService;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
+use VL\LMS\Services\Groups\GroupEnrollmentService;
+use VL\LMS\Services\Groups\GroupService;
 use VL\LMS\Services\JoinWindowPolicy;
 use VL\LMS\Services\Progress\CompletionPropagator;
 use VL\LMS\Services\Webinars\WebinarAccessGate;
@@ -1051,6 +1056,49 @@ final class Plugin {
 				$repository = $c->get( EnrollmentRepository::class );
 				assert( $repository instanceof EnrollmentRepository );
 				return new EnrollmentService( $repository );
+			}
+		);
+
+		$container->set(
+			GroupRepository::class,
+			static fn (): GroupRepository => new GroupRepository()
+		);
+
+		$container->set(
+			GroupMemberRepository::class,
+			static fn (): GroupMemberRepository => new GroupMemberRepository()
+		);
+
+		$container->set(
+			GroupAccessRepository::class,
+			static fn (): GroupAccessRepository => new GroupAccessRepository()
+		);
+
+		$container->set(
+			GroupService::class,
+			static function ( Container $c ): GroupService {
+				$groups = $c->get( GroupRepository::class );
+				assert( $groups instanceof GroupRepository );
+				$members = $c->get( GroupMemberRepository::class );
+				assert( $members instanceof GroupMemberRepository );
+				$access = $c->get( GroupAccessRepository::class );
+				assert( $access instanceof GroupAccessRepository );
+				return new GroupService( $groups, $members, $access );
+			}
+		);
+
+		$container->set(
+			GroupEnrollmentService::class,
+			static function ( Container $c ): GroupEnrollmentService {
+				$members = $c->get( GroupMemberRepository::class );
+				assert( $members instanceof GroupMemberRepository );
+				$access = $c->get( GroupAccessRepository::class );
+				assert( $access instanceof GroupAccessRepository );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				$enrollment_service = $c->get( EnrollmentService::class );
+				assert( $enrollment_service instanceof EnrollmentService );
+				return new GroupEnrollmentService( $members, $access, $enrollments, $enrollment_service );
 			}
 		);
 
