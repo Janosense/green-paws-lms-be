@@ -16,10 +16,12 @@ namespace VL\LMS\CPT;
  * topics). That rule is enforced in services and REST controllers, not at
  * the CPT level.
  *
- * Hidden from the main wp-admin menu (`show_in_menu: false`) — topics are
- * edited through their parent lesson. The edit screen is still reachable
- * via a direct URL because `show_ui` stays `true`. Hidden from `wp/v2`;
- * the Nuxt frontend reads topics through the `vl/v1/*` controllers.
+ * Exposed in the wp-admin sidebar alongside the other LMS CPTs; the
+ * lesson edit screen also surfaces an "Додати тему" affordance through
+ * {@see \VL\LMS\Admin\MetaBoxes\ChildList\TopicListMetaBox} so editors
+ * can create a topic in the context of its parent lesson. Hidden from
+ * `wp/v2`; the Nuxt frontend reads topics through the `vl/v1/*`
+ * controllers.
  *
  * @author Tymofii Synianskyi
  */
@@ -45,8 +47,8 @@ final class TopicType extends AbstractCptRegistrar {
 		return [ 'title', 'editor', 'custom-fields', 'page-attributes' ];
 	}
 
-	protected function menu_icon(): ?string {
-		return null;
+	protected function menu_icon(): string {
+		return 'dashicons-list-view';
 	}
 
 	protected function hierarchical(): bool {
@@ -54,7 +56,7 @@ final class TopicType extends AbstractCptRegistrar {
 	}
 
 	protected function show_in_menu(): bool {
-		return false;
+		return true;
 	}
 
 	/**

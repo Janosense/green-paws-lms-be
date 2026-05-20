@@ -63,16 +63,16 @@ final class TopicTypeTest extends TestCase {
 		self::assertNotContains( 'author', $supports );
 	}
 
-	public function test_menu_icon_is_null(): void {
-		self::assertNull( $this->invoke_protected( 'menu_icon' ) );
+	public function test_menu_icon_is_dashicon(): void {
+		self::assertSame( 'dashicons-list-view', $this->invoke_protected( 'menu_icon' ) );
 	}
 
 	public function test_hierarchical_returns_false(): void {
 		self::assertFalse( $this->invoke_protected( 'hierarchical' ) );
 	}
 
-	public function test_show_in_menu_returns_false(): void {
-		self::assertFalse( $this->invoke_protected( 'show_in_menu' ) );
+	public function test_show_in_menu_returns_true(): void {
+		self::assertTrue( $this->invoke_protected( 'show_in_menu' ) );
 	}
 
 	public function test_meta_fields_contain_exactly_three_documented_keys(): void {
