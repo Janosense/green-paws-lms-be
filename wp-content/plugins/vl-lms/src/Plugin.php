@@ -20,6 +20,7 @@ use VL\LMS\Admin\Groups\GroupDetailPage;
 use VL\LMS\Admin\Groups\GroupFormHandler;
 use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
+use VL\LMS\Admin\Students\StudentsListPage;
 use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\LessonListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\ModuleListMetaBox;
@@ -2931,6 +2932,19 @@ final class Plugin {
 		);
 
 		$container->set(
+			StudentsListPage::class,
+			static function ( Container $c ): StudentsListPage {
+				$groups = $c->get( GroupRepository::class );
+				assert( $groups instanceof GroupRepository );
+				$members = $c->get( GroupMemberRepository::class );
+				assert( $members instanceof GroupMemberRepository );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				return new StudentsListPage( $groups, $members, $enrollments );
+			}
+		);
+
+		$container->set(
 			AdminMenuProvider::class,
 			static function ( Container $c ): AdminMenuProvider {
 				$dashboard = $c->get( InstructorDashboardPage::class );
@@ -2945,13 +2959,16 @@ final class Plugin {
 				assert( $settings_page instanceof SettingsPage );
 				$groups_page = $c->get( GroupsListPage::class );
 				assert( $groups_page instanceof GroupsListPage );
+				$students_page = $c->get( StudentsListPage::class );
+				assert( $students_page instanceof StudentsListPage );
 				return new AdminMenuProvider(
 					$dashboard,
 					$orders_page,
 					$analytics_page,
 					$grading_page,
 					$settings_page,
-					$groups_page
+					$groups_page,
+					$students_page
 				);
 			}
 		);

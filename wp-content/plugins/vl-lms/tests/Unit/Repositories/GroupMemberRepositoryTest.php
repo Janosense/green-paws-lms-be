@@ -127,6 +127,51 @@ final class GroupMemberRepositoryTest extends TestCase {
 		self::assertSame( 4, $this->repo->count_active_members( 42 ) );
 	}
 
+	public function test_list_active_for_users_short_circuits_on_empty_input(): void {
+		$this->wpdb->shouldNotReceive( 'prepare' );
+		$this->wpdb->shouldNotReceive( 'get_results' );
+
+		self::assertSame( [], $this->repo->list_active_for_users( [] ) );
+	}
+
+	public function test_list_active_for_users_returns_keyed_map_of_members(): void {
+		$captured_sql  = null;
+		$captured_args = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, $args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn(
+			[
+				self::row( 1, 11, 7 ),
+				self::row( 2, 22, 7 ),
+				self::row( 3, 33, 11 ),
+			]
+		);
+
+		$result = $this->repo->list_active_for_users( [ 7, 11, 99 ] );
+
+		self::assertStringContainsString( 'WHERE user_id IN (%d, %d, %d)', $captured_sql );
+		self::assertStringContainsString( 'left_at IS NULL', $captured_sql );
+		self::assertSame( [ 7, 11, 99 ], $captured_args );
+		self::assertCount( 2, $result[7] );
+		self::assertCount( 1, $result[11] );
+		self::assertArrayNotHasKey( 99, $result );
+	}
+
+	public function test_list_active_for_users_returns_empty_when_no_rows(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_results' )->andReturn( [] );
+
+		self::assertSame( [], $this->repo->list_active_for_users( [ 5 ] ) );
+	}
+
 	public function test_insert_auto_fills_joined_at_when_absent(): void {
 		$captured_data = null;
 

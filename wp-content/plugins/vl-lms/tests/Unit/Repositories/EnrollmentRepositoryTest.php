@@ -192,6 +192,62 @@ final class EnrollmentRepositoryTest extends TestCase {
 		self::assertStringContainsString( 'course_id = %d', $captured_sql );
 	}
 
+	public function test_count_completed_for_users_short_circuits_on_empty_input(): void {
+		$this->wpdb->shouldNotReceive( 'prepare' );
+		$this->wpdb->shouldNotReceive( 'get_results' );
+
+		self::assertSame( [], $this->repo->count_completed_for_users( [] ) );
+	}
+
+	public function test_count_completed_for_users_returns_keyed_map(): void {
+		$captured_sql  = null;
+		$captured_args = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, $args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn(
+			[
+				[
+					'user_id' => '7',
+					'total'   => '3',
+				],
+				[
+					'user_id' => '11',
+					'total'   => '1',
+				],
+			]
+		);
+
+		$result = $this->repo->count_completed_for_users( [ 7, 11, 99 ] );
+
+		self::assertStringContainsString( 'SELECT user_id, COUNT(*) AS total', $captured_sql );
+		self::assertStringContainsString( 'WHERE user_id IN (%d, %d, %d)', $captured_sql );
+		self::assertStringContainsString( 'status = %s', $captured_sql );
+		self::assertStringContainsString( 'GROUP BY user_id', $captured_sql );
+		self::assertSame( [ 7, 11, 99, 'completed' ], $captured_args );
+		self::assertSame(
+			[
+				7  => 3,
+				11 => 1,
+			],
+			$result
+		);
+	}
+
+	public function test_count_completed_for_users_omits_users_with_no_rows(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_results' )->andReturn( [] );
+
+		self::assertSame( [], $this->repo->count_completed_for_users( [ 5, 6 ] ) );
+	}
+
 	public function test_insert_auto_fills_timestamps_when_absent(): void {
 		$captured_data = null;
 

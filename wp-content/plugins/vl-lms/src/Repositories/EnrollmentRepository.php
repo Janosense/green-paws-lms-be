@@ -202,6 +202,50 @@ class EnrollmentRepository {
 	}
 
 	/**
+	 * Bulk completed-enrollment counts for the Students admin list.
+	 *
+	 * Returns a map `user_id => count` for users with at least one
+	 * completed enrollment. Callers default missing keys to 0. Empty
+	 * input short-circuits to an empty array — avoids generating a
+	 * malformed `IN ()` clause.
+	 *
+	 * @param list<int> $user_ids
+	 * @return array<int, int>
+	 */
+	public function count_completed_for_users( array $user_ids ): array {
+		if ( [] === $user_ids ) {
+			return [];
+		}
+
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$placeholders = implode( ', ', array_fill( 0, count( $user_ids ), '%d' ) );
+		$args         = array_values( $user_ids );
+		$args[]       = EnrollmentStatus::COMPLETED->value;
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $table and $placeholders are SQL fragments built locally; %d / %s placeholders for $args are valid.
+			"SELECT user_id, COUNT(*) AS total FROM {$table} WHERE user_id IN ({$placeholders}) AND status = %s GROUP BY user_id",
+			$args
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) || ! isset( $row['user_id'], $row['total'] ) ) {
+					continue;
+				}
+				$out[ (int) $row['user_id'] ] = (int) $row['total'];
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * @param array<string, mixed> $data
 	 */
 	public function insert( array $data ): int {

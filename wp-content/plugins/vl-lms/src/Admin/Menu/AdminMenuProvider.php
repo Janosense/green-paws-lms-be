@@ -10,6 +10,7 @@ use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
 use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
 use VL\LMS\Admin\Settings\SettingsPage;
+use VL\LMS\Admin\Students\StudentsListPage;
 
 /**
  * Phase 9.2 — top-level "Green Paws LMS" wp-admin menu.
@@ -32,10 +33,12 @@ class AdminMenuProvider {
 	public const string GRADING_SLUG   = 'vl-lms-grading-queue';
 	public const string SETTINGS_SLUG  = 'vl-lms-settings';
 	public const string GROUPS_SLUG    = 'vl-lms-groups';
+	public const string STUDENTS_SLUG  = 'vl-lms-students';
 	public const string CAP            = 'edit_posts';
 	public const string ORDERS_CAP     = 'vl_refund_orders';
 	public const string SETTINGS_CAP   = 'manage_vl_lms_settings';
 	public const string GROUPS_CAP     = 'vl_manage_groups';
+	public const string STUDENTS_CAP   = 'vl_view_all_enrollments';
 	public const string MENU_ICON      = 'dashicons-welcome-learn-more';
 	public const int MENU_POSITION     = 3;
 
@@ -45,7 +48,8 @@ class AdminMenuProvider {
 		private readonly ?AnalyticsPage $analytics_page = null,
 		private readonly ?GradingQueuePage $grading_page = null,
 		private readonly ?SettingsPage $settings_page = null,
-		private readonly ?GroupsListPage $groups_page = null
+		private readonly ?GroupsListPage $groups_page = null,
+		private readonly ?StudentsListPage $students_page = null
 	) {
 	}
 
@@ -103,6 +107,17 @@ class AdminMenuProvider {
 				self::CAP,
 				self::GRADING_SLUG,
 				[ $this->grading_page, 'render' ]
+			);
+		}
+
+		if ( null !== $this->students_page ) {
+			add_submenu_page(
+				self::PARENT_SLUG,
+				'Студенти',
+				'Студенти',
+				self::STUDENTS_CAP,
+				self::STUDENTS_SLUG,
+				[ $this->students_page, 'render' ]
 			);
 		}
 

@@ -80,6 +80,28 @@ final class InMemoryEnrollmentRepository extends EnrollmentRepository {
 	}
 
 	/**
+	 * @param list<int> $user_ids
+	 * @return array<int, int>
+	 */
+	public function count_completed_for_users( array $user_ids ): array {
+		if ( [] === $user_ids ) {
+			return [];
+		}
+		$out = [];
+		foreach ( $this->rows as $row ) {
+			if ( EnrollmentStatus::COMPLETED->value !== $row['status'] ) {
+				continue;
+			}
+			$user_id = (int) $row['user_id'];
+			if ( ! in_array( $user_id, $user_ids, true ) ) {
+				continue;
+			}
+			$out[ $user_id ] = ( $out[ $user_id ] ?? 0 ) + 1;
+		}
+		return $out;
+	}
+
+	/**
 	 * @param array<string, mixed> $data
 	 */
 	public function insert( array $data ): int {

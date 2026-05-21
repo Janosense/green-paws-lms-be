@@ -69,6 +69,29 @@ final class InMemoryGroupMemberRepository extends GroupMemberRepository {
 	}
 
 	/**
+	 * @param list<int> $user_ids
+	 * @return array<int, list<GroupMember>>
+	 */
+	public function list_active_for_users( array $user_ids ): array {
+		if ( [] === $user_ids ) {
+			return [];
+		}
+		$out = [];
+		foreach ( $this->rows as $row ) {
+			if ( null !== $row['left_at'] ) {
+				continue;
+			}
+			$user_id = (int) $row['user_id'];
+			if ( ! in_array( $user_id, $user_ids, true ) ) {
+				continue;
+			}
+			$out[ $user_id ] ??= [];
+			$out[ $user_id ][] = GroupMember::from_row( $row );
+		}
+		return $out;
+	}
+
+	/**
 	 * @param array<string, mixed> $data
 	 */
 	public function insert( array $data ): int {
