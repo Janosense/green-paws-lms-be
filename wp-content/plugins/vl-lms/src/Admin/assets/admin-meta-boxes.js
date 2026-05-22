@@ -187,6 +187,18 @@
 	$( document ).on( 'change', '#_vl_question_type', applyQuestionTypeVisibility );
 	$( applyQuestionTypeVisibility );
 
+	function applyCourseTypeVisibility() {
+		var $select = $( '#_vl_course_type' );
+		if ( ! $select.length ) {
+			return;
+		}
+		var isCohort = $select.val() === 'cohort';
+		$( '[data-vl-cohort-fields]' ).toggle( isCohort );
+	}
+
+	$( document ).on( 'change', '#_vl_course_type', applyCourseTypeVisibility );
+	$( applyCourseTypeVisibility );
+
 	// --- Co-instructor search ---
 	function debounce( fn, wait ) {
 		var t;

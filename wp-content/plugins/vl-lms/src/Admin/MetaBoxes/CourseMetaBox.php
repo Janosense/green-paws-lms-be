@@ -120,6 +120,7 @@ class CourseMetaBox extends AbstractMetaBox {
 			'min="0"'
 		);
 
+		echo '<div class="vl-lms-cohort-fields" data-vl-cohort-fields>';
 		$this->render_section_heading( 'Когортні налаштування' );
 		$this->render_text_row(
 			'_vl_course_enrollment_opens_at',
@@ -145,6 +146,7 @@ class CourseMetaBox extends AbstractMetaBox {
 			$this->meta_string( $post->ID, '_vl_course_ends_at' ),
 			'datetime-local'
 		);
+		echo '</div>';
 
 		$this->render_section_heading( 'Завершення' );
 		$this->render_text_row(
