@@ -95,4 +95,62 @@ final class QuizQuestionMetaBoxTest extends TestCase {
 		self::assertTrue( $decoded[0]['is_correct'] );
 		self::assertFalse( $decoded[1]['is_correct'] );
 	}
+
+	public function test_save_binds_question_to_parent_quiz(): void {
+		Functions\when( 'get_post_type' )->alias(
+			static fn ( int $id ): string => 500 === $id ? 'vl_quiz' : 'vl_quiz_question'
+		);
+		Functions\when( 'get_post_field' )->justReturn( 0 );
+
+		$captured = null;
+		Functions\when( 'wp_update_post' )->alias(
+			static function ( array $arr ) use ( &$captured ): int {
+				$captured = $arr;
+				return (int) $arr['ID'];
+			}
+		);
+
+		$_POST = [
+			self::NONCE_FIELD      => 'nonce-x',
+			'_vl_question_quiz_id' => '500',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new QuizQuestionMetaBox() )->save( 21, $post );
+
+		self::assertSame(
+			[
+				'ID'          => 21,
+				'post_parent' => 500,
+			],
+			$captured
+		);
+	}
+
+	public function test_save_does_not_rebind_when_parent_unchanged(): void {
+		Functions\when( 'get_post_type' )->alias(
+			static fn ( int $id ): string => 500 === $id ? 'vl_quiz' : 'vl_quiz_question'
+		);
+		Functions\when( 'get_post_field' )->justReturn( 500 );
+
+		$called = false;
+		Functions\when( 'wp_update_post' )->alias(
+			static function () use ( &$called ): int {
+				$called = true;
+				return 0;
+			}
+		);
+
+		$_POST = [
+			self::NONCE_FIELD      => 'nonce-x',
+			'_vl_question_quiz_id' => '500',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new QuizQuestionMetaBox() )->save( 21, $post );
+
+		self::assertFalse( $called );
+	}
 }

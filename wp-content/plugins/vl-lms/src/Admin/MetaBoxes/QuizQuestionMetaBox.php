@@ -40,6 +40,25 @@ class QuizQuestionMetaBox extends AbstractMetaBox {
 	public function render( WP_Post $post ): void {
 		$this->render_nonce();
 
+		// Bind the question to its quiz. Resubmitting the resolved id keeps the
+		// link across edits; on a fresh question opened via the quiz screen's
+		// "Додати питання" button the id comes from the `?vl_parent_id=` hint.
+		// The field name is the POST key only — never a meta key; `save()`
+		// validates it and writes `post_parent` via `wp_update_post`.
+		$parent_quiz_id = $this->resolve_parent_quiz_id( $post );
+		printf( '<input type="hidden" name="_vl_question_quiz_id" value="%d" />', absint( $parent_quiz_id ) );
+
+		if ( $parent_quiz_id > 0 ) {
+			$quiz_link = get_edit_post_link( $parent_quiz_id );
+			if ( is_string( $quiz_link ) && '' !== $quiz_link ) {
+				printf(
+					'<p class="vl-lms-row vl-lms-row--full"><a href="%1$s">%2$s</a></p>',
+					esc_url( $quiz_link ),
+					esc_html__( '← Повернутися до тесту', 'vl-lms' )
+				);
+			}
+		}
+
 		$type = $this->meta_string( $post->ID, '_vl_question_type' );
 
 		$answers_raw = (string) get_post_meta( $post->ID, '_vl_question_answers', true );
@@ -152,6 +171,23 @@ class QuizQuestionMetaBox extends AbstractMetaBox {
 			return;
 		}
 
+		// Parent quiz binding. The hidden `_vl_question_quiz_id` is validated
+		// here and written to `post_parent`; the guard against the current
+		// parent keeps the `wp_update_post` re-entry from looping. Never
+		// unparent on a 0/invalid value — questions have no detach UI.
+		$quiz_id = $this->post_int( '_vl_question_quiz_id', 0 );
+		if ( null !== $quiz_id && $quiz_id > 0 && 'vl_quiz' === get_post_type( $quiz_id ) ) {
+			$current_parent = (int) get_post_field( 'post_parent', $post_id );
+			if ( $quiz_id !== $current_parent ) {
+				wp_update_post(
+					[
+						'ID'          => $post_id,
+						'post_parent' => $quiz_id,
+					]
+				);
+			}
+		}
+
 		$type = $this->post_enum( '_vl_question_type', self::QUESTION_TYPES );
 		if ( null !== $type ) {
 			update_post_meta( $post_id, '_vl_question_type', $type );
@@ -206,5 +242,30 @@ class QuizQuestionMetaBox extends AbstractMetaBox {
 			}
 			update_post_meta( $post_id, '_vl_question_answers', wp_json_encode( $items ) );
 		}
+	}
+
+	/**
+	 * Resolve the quiz this question belongs to. Prefers the saved
+	 * `post_parent`; falls back to the `?vl_parent_id=<quiz_id>` hint the
+	 * "Додати питання" button carries for a not-yet-saved question. Returns
+	 * 0 when neither resolves to a real `vl_quiz`.
+	 */
+	private function resolve_parent_quiz_id( WP_Post $post ): int {
+		$current = (int) $post->post_parent;
+		if ( $current > 0 && 'vl_quiz' === (string) get_post_type( $current ) ) {
+			return $current;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only hint, validated on save.
+		if ( ! isset( $_GET['vl_parent_id'] ) ) {
+			return 0;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$candidate = (int) wp_unslash( $_GET['vl_parent_id'] );
+		if ( $candidate <= 0 || 'vl_quiz' !== (string) get_post_type( $candidate ) ) {
+			return 0;
+		}
+
+		return $candidate;
 	}
 }
