@@ -118,12 +118,6 @@ class WebinarMetaBox extends AbstractMetaBox {
 		);
 
 		$this->render_section_heading( 'Промо' );
-		$this->render_text_row(
-			'_vl_webinar_preview_video_url',
-			'Промо-відео (URL)',
-			$this->meta_string( $post->ID, '_vl_webinar_preview_video_url' ),
-			'url'
-		);
 		echo '<div class="vl-lms-row vl-lms-row--media"><label for="_vl_webinar_cover_image_id">Обкладинка</label>';
 		printf(
 			'<div class="vl-lms-media-control" data-target="_vl_webinar_cover_image_id">'

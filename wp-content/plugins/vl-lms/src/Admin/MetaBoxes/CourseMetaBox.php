@@ -69,13 +69,6 @@ class CourseMetaBox extends AbstractMetaBox {
 			'number',
 			'min="0" step="0.5"'
 		);
-		$this->render_text_row(
-			'_vl_course_preview_video_url',
-			'Промо-відео (URL)',
-			$this->meta_string( $post->ID, '_vl_course_preview_video_url' ),
-			'url'
-		);
-
 		// Cover image picker.
 		echo '<div class="vl-lms-row vl-lms-row--media"><label for="_vl_course_cover_image_id">Обкладинка</label>';
 		printf(
