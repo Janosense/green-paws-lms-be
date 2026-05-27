@@ -14,17 +14,28 @@ namespace VL\LMS\Slug;
  *    appear in the lesson-player surface, so silently rewriting them on
  *    rename is purely an ergonomics fix with no SEO blast radius.
  *
- * 2. **Catalog CPTs** (`vl_course`, `vl_webinar`) — transliterated only at
- *    *creation time*. The catalog detail route (`/vl/v1/catalog/courses/{slug}`)
- *    cannot resolve a Cyrillic slug if the route regex restricts to ASCII,
- *    so a brand-new course derived from a Ukrainian title would 404 on the
- *    public detail endpoint. Once the post has been saved non-`auto-draft`
- *    at least once, the slug becomes editor territory and we never silently
- *    rewrite it — that protects URLs that may already be indexed by search
- *    engines or shared externally. Editors can still rename catalog slugs
- *    by hand via the slug field in wp-admin; this filter only intervenes
- *    when WordPress would otherwise persist a Cyrillic slug for the very
- *    first save.
+ * 2. **Catalog CPTs** (`vl_course`, `vl_webinar`) — transliterated only while
+ *    the post has *no persisted slug yet*. The catalog detail route
+ *    (`/vl/v1/catalog/courses/{slug}`) cannot resolve a Cyrillic slug if the
+ *    route regex restricts to ASCII, so a brand-new course derived from a
+ *    Ukrainian title would 404 on the public detail endpoint. Once a
+ *    non-empty `post_name` has been persisted, the slug becomes editor
+ *    territory and we never silently rewrite it — that protects URLs that may
+ *    already be indexed by search engines or shared externally. Editors can
+ *    still rename catalog slugs by hand via the slug field in wp-admin; this
+ *    filter only intervenes when WordPress would otherwise persist a Cyrillic
+ *    slug for a post that never had one.
+ *
+ *    Keying on "is there a persisted slug" rather than "is the row still
+ *    `auto-draft`" is deliberate: the block editor transitions a new post
+ *    `auto-draft → draft` (via autosave) *before* the publish request that
+ *    first derives a slug from the title, so an `auto-draft`-only check
+ *    misses the common creation path and leaks the Cyrillic slug. WordPress
+ *    does not auto-generate `post_name` for `auto-draft`/`draft`/`pending`
+ *    posts — it is first generated on the publish transition — so an empty
+ *    stored slug unambiguously means "still being created" (or an editor who
+ *    never typed a custom slug), while a non-empty stored slug means the
+ *    editor owns it.
  *
  * Why `wp_insert_post_data` and not `sanitize_title`: the latter has no
  * post-type context, so a global filter would also rewrite category slugs,
@@ -59,9 +70,9 @@ final class SlugTransliterationListener {
 	];
 
 	/**
-	 * Catalog CPTs — transliterated only on creation (no DB row yet, or
-	 * existing row still in `auto-draft`). See class-level docblock for
-	 * the SEO rationale.
+	 * Catalog CPTs — transliterated only while no slug has been persisted
+	 * yet (no DB row, or existing row whose `post_name` is still empty). See
+	 * class-level docblock for the SEO rationale.
 	 *
 	 * @var list<string>
 	 */
@@ -95,7 +106,7 @@ final class SlugTransliterationListener {
 		$applies = in_array( $post_type, self::ALWAYS_POST_TYPES, true )
 			|| (
 				in_array( $post_type, self::CREATE_ONLY_POST_TYPES, true )
-				&& $this->is_creation_save( $post_id )
+				&& ! $this->has_persisted_slug( $post_id )
 			);
 
 		if ( ! $applies ) {
@@ -127,16 +138,22 @@ final class SlugTransliterationListener {
 	}
 
 	/**
-	 * A "creation save" means no DB row yet (`ID === 0`) or the existing
-	 * row is still in `auto-draft`. Both indicate the slug being processed
-	 * was derived from the title by `sanitize_title` for the first time,
-	 * not editor-typed against an already-live post.
+	 * Whether the post already has a non-empty slug persisted in the DB.
+	 *
+	 * `ID === 0` means `wp_insert_post` has no row yet, so nothing is
+	 * persisted. Otherwise we read the *stored* `post_name` (the save in
+	 * flight has not yet been written), which is empty for `auto-draft` and
+	 * for drafts that never received a custom slug, and non-empty once the
+	 * editor published or hand-typed a slug. See the class docblock for why
+	 * this beats an `auto-draft`-status check.
 	 */
-	private function is_creation_save( int $post_id ): bool {
+	private function has_persisted_slug( int $post_id ): bool {
 		if ( 0 === $post_id ) {
-			return true;
+			return false;
 		}
 
-		return 'auto-draft' === get_post_status( $post_id );
+		$existing = get_post_field( 'post_name', $post_id );
+
+		return is_string( $existing ) && '' !== $existing;
 	}
 }
