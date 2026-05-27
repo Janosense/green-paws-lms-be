@@ -55,6 +55,8 @@ class LessonMetaBox extends AbstractMetaBox {
 		} elseif ( 'vl_module' === $parent_type
 			&& isset( $modules[ (string) $selected_module_id ] ) ) {
 			$selected_course_id = (int) $modules[ (string) $selected_module_id ]['course_id'];
+		} elseif ( 0 === $current_parent ) {
+			$selected_course_id = $this->course_hint_from_query_string( $courses );
 		}
 
 		if ( $selected_course_id > 0 && ! isset( $courses[ (string) $selected_course_id ] ) ) {
@@ -179,6 +181,27 @@ class LessonMetaBox extends AbstractMetaBox {
 		if ( null !== $attachments_json ) {
 			update_post_meta( $post_id, '_vl_lesson_attachments', $attachments_json );
 		}
+	}
+
+	/**
+	 * If the editor arrived via the "Додати урок" button on a course,
+	 * the URL carries `?vl_parent_id=<course_id>`. Return that id when it
+	 * resolves to a known self-paced course — otherwise 0. Mirrors
+	 * {@see \VL\LMS\Admin\MetaBoxes\ModuleMetaBox::course_hint_from_query_string()}.
+	 *
+	 * @param array<string, string> $courses
+	 */
+	private function course_hint_from_query_string( array $courses ): int {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only hint, no state change.
+		if ( ! isset( $_GET['vl_parent_id'] ) ) {
+			return 0;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$candidate = (int) $_GET['vl_parent_id'];
+		if ( $candidate <= 0 ) {
+			return 0;
+		}
+		return isset( $courses[ (string) $candidate ] ) ? $candidate : 0;
 	}
 
 	/**

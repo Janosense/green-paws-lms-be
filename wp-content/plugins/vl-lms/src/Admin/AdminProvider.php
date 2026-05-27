@@ -6,6 +6,7 @@ namespace VL\LMS\Admin;
 
 use VL\LMS\Admin\Groups\GroupFormHandler;
 use VL\LMS\Admin\Groups\GroupsListPage;
+use VL\LMS\Admin\Lessons\LessonPickerAjaxHandler;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\MetaBoxes\AbstractMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox;
@@ -66,6 +67,8 @@ class AdminProvider {
 
 	private ModulePickerAjaxHandler $module_picker;
 
+	private LessonPickerAjaxHandler $lesson_picker;
+
 	private ?AdminMenuProvider $menu_provider;
 
 	/**
@@ -77,12 +80,14 @@ class AdminProvider {
 		array $child_list_boxes = [],
 		?ReorderAjaxHandler $reorder_handler = null,
 		?AdminMenuProvider $menu_provider = null,
-		?ModulePickerAjaxHandler $module_picker = null
+		?ModulePickerAjaxHandler $module_picker = null,
+		?LessonPickerAjaxHandler $lesson_picker = null
 	) {
 		$this->meta_boxes       = $meta_boxes;
 		$this->child_list_boxes = $child_list_boxes;
 		$this->reorder_handler  = $reorder_handler ?? new ReorderAjaxHandler();
 		$this->module_picker    = $module_picker ?? new ModulePickerAjaxHandler();
+		$this->lesson_picker    = $lesson_picker ?? new LessonPickerAjaxHandler();
 		$this->menu_provider    = $menu_provider;
 	}
 
@@ -96,6 +101,9 @@ class AdminProvider {
 		add_action( 'wp_ajax_' . ModulePickerAjaxHandler::SEARCH_ACTION, [ $this->module_picker, 'search' ] );
 		add_action( 'wp_ajax_' . ModulePickerAjaxHandler::ATTACH_ACTION, [ $this->module_picker, 'attach' ] );
 		add_action( 'wp_ajax_' . ModulePickerAjaxHandler::DETACH_ACTION, [ $this->module_picker, 'detach' ] );
+		add_action( 'wp_ajax_' . LessonPickerAjaxHandler::SEARCH_ACTION, [ $this->lesson_picker, 'search' ] );
+		add_action( 'wp_ajax_' . LessonPickerAjaxHandler::ATTACH_ACTION, [ $this->lesson_picker, 'attach' ] );
+		add_action( 'wp_ajax_' . LessonPickerAjaxHandler::DETACH_ACTION, [ $this->lesson_picker, 'detach' ] );
 		if ( null !== $this->menu_provider ) {
 			add_action( 'admin_menu', [ $this->menu_provider, 'register' ], 20 );
 		}
@@ -189,6 +197,24 @@ class AdminProvider {
 					'i18n'    => [
 						'noModules'     => __( 'Модулів не знайдено', 'vl-lms' ),
 						'confirmUnlink' => __( 'Відкріпити модуль від цього курсу?', 'vl-lms' ),
+						'edit'          => __( 'Редагувати', 'vl-lms' ),
+						'unlink'        => __( 'Відкріпити', 'vl-lms' ),
+					],
+				],
+				'lessons' => [
+					'actions' => [
+						'search' => LessonPickerAjaxHandler::SEARCH_ACTION,
+						'attach' => LessonPickerAjaxHandler::ATTACH_ACTION,
+						'detach' => LessonPickerAjaxHandler::DETACH_ACTION,
+					],
+					'nonces'  => [
+						'search' => wp_create_nonce( LessonPickerAjaxHandler::SEARCH_ACTION ),
+						'attach' => wp_create_nonce( LessonPickerAjaxHandler::ATTACH_ACTION ),
+						'detach' => wp_create_nonce( LessonPickerAjaxHandler::DETACH_ACTION ),
+					],
+					'i18n'    => [
+						'noLessons'     => __( 'Уроків не знайдено', 'vl-lms' ),
+						'confirmUnlink' => __( 'Відкріпити урок від цього курсу?', 'vl-lms' ),
 						'edit'          => __( 'Редагувати', 'vl-lms' ),
 						'unlink'        => __( 'Відкріпити', 'vl-lms' ),
 					],

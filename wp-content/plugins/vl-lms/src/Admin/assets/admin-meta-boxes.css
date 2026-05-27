@@ -161,23 +161,27 @@
 	background: #f0f6fc;
 }
 
-/* Existing-module picker (course edit screen) */
-.vl-lms-module-search {
+/* Existing-module / existing-lesson picker (course edit screen) */
+.vl-lms-module-search,
+.vl-lms-lesson-search {
 	position: relative;
 	margin-top: 8px;
 }
 
-.vl-lms-module-search label {
+.vl-lms-module-search label,
+.vl-lms-lesson-search label {
 	display: block;
 	margin-bottom: 4px;
 	color: #50575e;
 }
 
-.vl-lms-module-search input[type="text"] {
+.vl-lms-module-search input[type="text"],
+.vl-lms-lesson-search input[type="text"] {
 	width: 100%;
 }
 
-.vl-lms-module-search-results {
+.vl-lms-module-search-results,
+.vl-lms-lesson-search-results {
 	position: absolute;
 	z-index: 10;
 	background: #fff;
@@ -191,17 +195,21 @@
 	list-style: none;
 }
 
-.vl-lms-module-search-results li {
+.vl-lms-module-search-results li,
+.vl-lms-lesson-search-results li {
 	padding: 6px 10px;
 	cursor: pointer;
 }
 
 .vl-lms-module-search-results li:hover,
-.vl-lms-module-search-results li.is-active {
+.vl-lms-module-search-results li.is-active,
+.vl-lms-lesson-search-results li:hover,
+.vl-lms-lesson-search-results li.is-active {
 	background: #f0f6fc;
 }
 
-.vl-lms-module-unlink {
+.vl-lms-module-unlink,
+.vl-lms-lesson-unlink {
 	color: #b32d2e;
 }
 

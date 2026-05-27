@@ -194,8 +194,10 @@
 		}
 		var isCohort = $select.val() === 'cohort';
 		$( '[data-vl-cohort-fields]' ).toggle( isCohort );
-		// Cohort courses are built from live sessions; self-paced from modules.
+		// Cohort courses are built from live sessions; self-paced from
+		// modules and/or course-direct lessons.
 		$( '#vl_lms_module_list' ).toggle( ! isCohort );
+		$( '#vl_lms_course_lesson_list' ).toggle( ! isCohort );
 		$( '#vl_lms_session_list' ).toggle( isCohort );
 	}
 
@@ -415,6 +417,141 @@
 	$( document ).on( 'click', function ( ev ) {
 		if ( ! $( ev.target ).closest( '.vl-lms-module-search' ).length ) {
 			$( '.vl-lms-module-search-results' ).empty().attr( 'hidden', true );
+		}
+	} );
+
+	// --- Existing-lesson picker (course edit screen) ---
+	function lessonsConfig() {
+		if ( typeof VL_LMS_ADMIN === 'undefined' || ! VL_LMS_ADMIN.lessons ) {
+			return null;
+		}
+		return VL_LMS_ADMIN.lessons;
+	}
+
+	function renderLessonResults( $list, results ) {
+		$list.empty();
+		if ( ! results.length ) {
+			$list.attr( 'hidden', true );
+			return;
+		}
+		$.each( results, function ( _i, lesson ) {
+			$( '<li/>' )
+				.attr( 'data-lesson-id', lesson.id )
+				.attr( 'data-title', lesson.title )
+				.text( lesson.title )
+				.appendTo( $list );
+		} );
+		$list.removeAttr( 'hidden' );
+	}
+
+	$( document ).on( 'input', '#vl-lms-lesson-search-input', debounce( function () {
+		var cfg = lessonsConfig();
+		var $list = $( '.vl-lms-lesson-search-results' );
+		var query = $( this ).val();
+		if ( ! cfg || ! query || query.length < 2 ) {
+			$list.empty().attr( 'hidden', true );
+			return;
+		}
+		$.ajax( {
+			url: VL_LMS_ADMIN.ajaxUrl,
+			method: 'GET',
+			data: {
+				action: cfg.actions.search,
+				nonce: cfg.nonces.search,
+				q: query
+			}
+		} ).done( function ( resp ) {
+			if ( resp && resp.success && Array.isArray( resp.data ) ) {
+				renderLessonResults( $list, resp.data );
+			}
+		} );
+	}, 250 ) );
+
+	function renderLessonRow( cfg, lesson ) {
+		var $row = $(
+			'<li>'
+			+ '<span class="vl-sortable-handle">⋮⋮</span> '
+			+ '<span class="vl-sortable-title"></span> '
+			+ '<a class="vl-sortable-edit"></a> '
+			+ '<button type="button" class="button-link vl-lms-lesson-unlink"></button>'
+			+ '</li>'
+		).attr( 'data-id', lesson.id );
+		$row.find( '.vl-sortable-title' ).text( lesson.title );
+		$row.find( '.vl-sortable-edit' ).attr( 'href', lesson.editLink || '#' ).text( cfg.i18n.edit );
+		$row.find( '.vl-lms-lesson-unlink' ).attr( 'data-id', lesson.id ).text( cfg.i18n.unlink );
+		return $row;
+	}
+
+	$( document ).on( 'click', '.vl-lms-lesson-search-results li', function ( ev ) {
+		ev.preventDefault();
+		var cfg = lessonsConfig();
+		var $picker = $( '.vl-lms-lesson-search' );
+		var courseId = parseInt( $picker.attr( 'data-course-id' ), 10 );
+		var lessonId = parseInt( $( this ).attr( 'data-lesson-id' ), 10 );
+		if ( ! cfg || ! courseId || ! lessonId ) {
+			return;
+		}
+		$.ajax( {
+			url: VL_LMS_ADMIN.ajaxUrl,
+			method: 'POST',
+			data: {
+				action: cfg.actions.attach,
+				nonce: cfg.nonces.attach,
+				course_id: courseId,
+				lesson_id: lessonId
+			}
+		} ).done( function ( resp ) {
+			if ( ! resp || ! resp.success || ! resp.data ) {
+				return;
+			}
+			var $list = $( '#vl_lms_course_lesson_list ul.vl-sortable-list' );
+			$list.append( renderLessonRow( cfg, resp.data ) ).removeAttr( 'hidden' );
+			$( '#vl_lms_course_lesson_list .vl-lms-empty' ).attr( 'hidden', true );
+			if ( $list.data( 'uiSortable' ) ) {
+				$list.sortable( 'refresh' );
+			}
+			$( '#vl-lms-lesson-search-input' ).val( '' );
+			$( '.vl-lms-lesson-search-results' ).empty().attr( 'hidden', true );
+		} );
+	} );
+
+	$( document ).on( 'click', '.vl-lms-lesson-unlink', function ( ev ) {
+		ev.preventDefault();
+		var cfg = lessonsConfig();
+		var $btn = $( this );
+		var lessonId = parseInt( $btn.attr( 'data-id' ), 10 );
+		if ( ! cfg || ! lessonId ) {
+			return;
+		}
+		// eslint-disable-next-line no-alert
+		if ( ! window.confirm( cfg.i18n.confirmUnlink ) ) {
+			return;
+		}
+		$.ajax( {
+			url: VL_LMS_ADMIN.ajaxUrl,
+			method: 'POST',
+			data: {
+				action: cfg.actions.detach,
+				nonce: cfg.nonces.detach,
+				lesson_id: lessonId
+			}
+		} ).done( function ( resp ) {
+			if ( ! resp || ! resp.success ) {
+				return;
+			}
+			var $list = $( '#vl_lms_course_lesson_list ul.vl-sortable-list' );
+			$btn.closest( 'li' ).remove();
+			if ( ! $list.children( 'li' ).length ) {
+				$list.attr( 'hidden', true );
+				$( '#vl_lms_course_lesson_list .vl-lms-empty' ).removeAttr( 'hidden' );
+			}
+		} );
+	} );
+
+	// Close the results dropdown when clicking outside the picker.
+	$( document ).on( 'click', function ( ev ) {
+		if ( ! $( ev.target ).closest( '.vl-lms-lesson-search' ).length ) {
+			$( '.vl-lms-lesson-search-results' ).empty().attr( 'hidden', true );
 		}
 	} );
 

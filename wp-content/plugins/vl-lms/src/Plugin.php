@@ -22,6 +22,8 @@ use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\Students\StudentsListPage;
 use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
+use VL\LMS\Admin\Lessons\LessonPickerAjaxHandler;
+use VL\LMS\Admin\MetaBoxes\ChildList\CourseLessonListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\LessonListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\ModuleListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\SessionListMetaBox;
@@ -2826,9 +2828,11 @@ final class Plugin {
 		$container->set( ModuleListMetaBox::class, static fn (): ModuleListMetaBox => new ModuleListMetaBox() );
 		$container->set( SessionListMetaBox::class, static fn (): SessionListMetaBox => new SessionListMetaBox() );
 		$container->set( LessonListMetaBox::class, static fn (): LessonListMetaBox => new LessonListMetaBox() );
+		$container->set( CourseLessonListMetaBox::class, static fn (): CourseLessonListMetaBox => new CourseLessonListMetaBox() );
 		$container->set( TopicListMetaBox::class, static fn (): TopicListMetaBox => new TopicListMetaBox() );
 		$container->set( QuestionListMetaBox::class, static fn (): QuestionListMetaBox => new QuestionListMetaBox() );
 		$container->set( ReorderAjaxHandler::class, static fn (): ReorderAjaxHandler => new ReorderAjaxHandler() );
+		$container->set( LessonPickerAjaxHandler::class, static fn (): LessonPickerAjaxHandler => new LessonPickerAjaxHandler() );
 
 		$container->set(
 			AdminProvider::class,
@@ -2847,6 +2851,7 @@ final class Plugin {
 				];
 				$child_list_boxes = [
 					$c->get( ModuleListMetaBox::class ),
+					$c->get( CourseLessonListMetaBox::class ),
 					$c->get( SessionListMetaBox::class ),
 					$c->get( LessonListMetaBox::class ),
 					$c->get( TopicListMetaBox::class ),
@@ -2856,9 +2861,11 @@ final class Plugin {
 				assert( $reorder_handler instanceof ReorderAjaxHandler );
 				$menu_provider = $c->get( AdminMenuProvider::class );
 				assert( $menu_provider instanceof AdminMenuProvider );
+				$lesson_picker = $c->get( LessonPickerAjaxHandler::class );
+				assert( $lesson_picker instanceof LessonPickerAjaxHandler );
 				/** @var list<\VL\LMS\Admin\MetaBoxes\AbstractMetaBox> $boxes */
 				/** @var list<\VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox> $child_list_boxes */
-				return new AdminProvider( $boxes, $child_list_boxes, $reorder_handler, $menu_provider );
+				return new AdminProvider( $boxes, $child_list_boxes, $reorder_handler, $menu_provider, null, $lesson_picker );
 			}
 		);
 
