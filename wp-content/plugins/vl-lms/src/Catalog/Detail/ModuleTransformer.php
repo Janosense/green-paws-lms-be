@@ -30,25 +30,14 @@ final class ModuleTransformer {
 	 * @return array{
 	 *     id: int,
 	 *     title: string,
-	 *     duration_minutes: int,
-	 *     passing_threshold: int|null,
-	 *     intro_video_url: string,
 	 *     lessons: list<array{id: int, title: string, duration_seconds: int, is_preview: bool}>
 	 * }
 	 */
 	public function transform( WP_Post $module, array $lessons ): array {
-		$module_id = (int) $module->ID;
-
-		$threshold     = (int) get_post_meta( $module_id, '_vl_module_passing_threshold', true );
-		$threshold_out = $threshold > 0 ? $threshold : null;
-
 		return [
-			'id'                => $module_id,
-			'title'             => (string) get_the_title( $module ),
-			'duration_minutes'  => (int) get_post_meta( $module_id, '_vl_module_duration_minutes', true ),
-			'passing_threshold' => $threshold_out,
-			'intro_video_url'   => (string) get_post_meta( $module_id, '_vl_module_intro_video_url', true ),
-			'lessons'           => array_map(
+			'id'      => (int) $module->ID,
+			'title'   => (string) get_the_title( $module ),
+			'lessons' => array_map(
 				fn ( WP_Post $lesson ): array => $this->lesson_summary->transform( $lesson ),
 				$lessons
 			),

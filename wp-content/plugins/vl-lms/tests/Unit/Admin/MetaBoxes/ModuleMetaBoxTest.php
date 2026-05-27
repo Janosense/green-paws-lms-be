@@ -99,9 +99,11 @@ final class ModuleMetaBoxTest extends TestCase {
 		self::assertStringContainsString( '<option value="77" selected>', $html );
 	}
 
-	public function test_save_clamps_passing_threshold_above_100(): void {
+	public function test_save_does_not_write_removed_parameter_fields(): void {
 		$_POST = [
 			self::NONCE_FIELD              => 'nonce-x',
+			'_vl_module_intro_video_url'   => 'https://example.test/intro',
+			'_vl_module_duration_minutes'  => '42',
 			'_vl_module_passing_threshold' => '150',
 		];
 
@@ -109,14 +111,7 @@ final class ModuleMetaBoxTest extends TestCase {
 		assert( $post instanceof WP_Post );
 		( new ModuleMetaBox() )->save( 7, $post );
 
-		$threshold_writes = array_values(
-			array_filter(
-				$this->writes,
-				static fn ( array $row ): bool => '_vl_module_passing_threshold' === $row[1]
-			)
-		);
-		self::assertCount( 1, $threshold_writes );
-		self::assertSame( 100, $threshold_writes[0][2] );
+		self::assertSame( [], $this->writes );
 	}
 
 	public function test_save_updates_post_parent_when_course_id_changes(): void {

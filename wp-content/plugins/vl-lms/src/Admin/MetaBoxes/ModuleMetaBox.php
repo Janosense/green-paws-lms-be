@@ -9,13 +9,10 @@ use WP_Post;
 /**
  * Meta-box for `vl_module` posts.
  *
- * Surfaces a parent-course picker (self-paced `vl_course` posts) and
- * three content fields: optional intro-video URL, total duration, and
- * a passing-threshold percentage that the runtime uses when surfacing
- * module-level completion. Because `vl_module` is `hierarchical: false`,
- * WordPress does not render a Parent dropdown of its own — the course
- * selection is written back via `wp_update_post()` (mirroring
- * {@see SessionMetaBox}).
+ * Surfaces a parent-course picker (self-paced `vl_course` posts).
+ * Because `vl_module` is `hierarchical: false`, WordPress does not render
+ * a Parent dropdown of its own — the course selection is written back via
+ * `wp_update_post()` (mirroring {@see SessionMetaBox}).
  *
  * @author Tymofii Synianskyi
  */
@@ -59,28 +56,6 @@ class ModuleMetaBox extends AbstractMetaBox {
 			(string) $parent_id,
 			$options
 		);
-
-		$this->render_section_heading( 'Параметри' );
-		$this->render_text_row(
-			'_vl_module_intro_video_url',
-			'Вступне відео (URL)',
-			$this->meta_string( $post->ID, '_vl_module_intro_video_url' ),
-			'url'
-		);
-		$this->render_text_row(
-			'_vl_module_duration_minutes',
-			'Тривалість (хв)',
-			(string) $this->meta_int( $post->ID, '_vl_module_duration_minutes' ),
-			'number',
-			'min="0"'
-		);
-		$this->render_text_row(
-			'_vl_module_passing_threshold',
-			'Поріг проходження (%)',
-			(string) $this->meta_int( $post->ID, '_vl_module_passing_threshold' ),
-			'number',
-			'min="0" max="100"'
-		);
 		echo '</div>';
 	}
 
@@ -104,21 +79,6 @@ class ModuleMetaBox extends AbstractMetaBox {
 					);
 				}
 			}
-		}
-
-		$url = $this->post_raw( '_vl_module_intro_video_url' );
-		if ( null !== $url ) {
-			update_post_meta( $post_id, '_vl_module_intro_video_url', esc_url_raw( $url ) );
-		}
-
-		$duration = $this->post_int( '_vl_module_duration_minutes', 0 );
-		if ( null !== $duration ) {
-			update_post_meta( $post_id, '_vl_module_duration_minutes', $duration );
-		}
-
-		$threshold = $this->post_int( '_vl_module_passing_threshold', 0, 100 );
-		if ( null !== $threshold ) {
-			update_post_meta( $post_id, '_vl_module_passing_threshold', $threshold );
 		}
 	}
 

@@ -41,16 +41,13 @@ final class ModuleTransformerTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_emits_meta_fields_and_lessons(): void {
+	public function test_emits_id_title_and_lessons(): void {
 		$this->meta = [
-			'_vl_module_duration_minutes'  => [ 45 => 180 ],
-			'_vl_module_passing_threshold' => [ 45 => 70 ],
-			'_vl_module_intro_video_url'   => [ 45 => 'https://intro.test/video' ],
-			'_vl_lesson_duration_seconds'  => [
+			'_vl_lesson_duration_seconds' => [
 				51 => 600,
 				52 => 900,
 			],
-			'_vl_lesson_is_preview'        => [ 51 => true ],
+			'_vl_lesson_is_preview'       => [ 51 => true ],
 		];
 
 		$result = $this->transformer->transform(
@@ -63,32 +60,9 @@ final class ModuleTransformerTest extends TestCase {
 
 		self::assertSame( 45, $result['id'] );
 		self::assertSame( 'Module 1', $result['title'] );
-		self::assertSame( 180, $result['duration_minutes'] );
-		self::assertSame( 70, $result['passing_threshold'] );
-		self::assertSame( 'https://intro.test/video', $result['intro_video_url'] );
 		self::assertCount( 2, $result['lessons'] );
 		self::assertSame( 51, $result['lessons'][0]['id'] );
 		self::assertTrue( $result['lessons'][0]['is_preview'] );
-	}
-
-	public function test_zero_passing_threshold_emits_null(): void {
-		$this->meta = [
-			'_vl_module_passing_threshold' => [ 45 => 0 ],
-		];
-
-		$result = $this->transformer->transform( $this->module( 45, 'M' ), [] );
-
-		self::assertNull( $result['passing_threshold'] );
-	}
-
-	public function test_positive_passing_threshold_passes_through(): void {
-		$this->meta = [
-			'_vl_module_passing_threshold' => [ 45 => 80 ],
-		];
-
-		$result = $this->transformer->transform( $this->module( 45, 'M' ), [] );
-
-		self::assertSame( 80, $result['passing_threshold'] );
 	}
 
 	public function test_empty_lesson_list_emits_empty_array(): void {
