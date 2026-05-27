@@ -42,6 +42,8 @@ final class CurriculumListColumnsTest extends TestCase {
 	}
 
 	public function test_boot_registers_filters_and_actions(): void {
+		Filters\expectAdded( 'manage_vl_course_posts_columns' )->once();
+		Actions\expectAdded( 'manage_vl_course_posts_custom_column' )->once();
 		Filters\expectAdded( 'manage_vl_module_posts_columns' )->once();
 		Actions\expectAdded( 'manage_vl_module_posts_custom_column' )->once();
 		Filters\expectAdded( 'manage_vl_lesson_posts_columns' )->once();
@@ -54,6 +56,47 @@ final class CurriculumListColumnsTest extends TestCase {
 		Actions\expectAdded( 'parse_query' )->once();
 
 		( new CurriculumListColumns() )->boot();
+	}
+
+	public function test_course_columns_adds_type_and_removes_tags_taxonomy(): void {
+		$columns = [
+			'cb'                   => '',
+			'title'                => 'Title',
+			'taxonomy-vl_category' => 'Categories',
+			'taxonomy-vl_tag'      => 'Tags',
+			'date'                 => 'Date',
+		];
+
+		$result = ( new CurriculumListColumns() )->course_columns( $columns );
+
+		self::assertSame(
+			[ 'cb', 'title', 'taxonomy-vl_category', 'vl_course_type', 'date' ],
+			array_keys( $result )
+		);
+		self::assertArrayNotHasKey( 'taxonomy-vl_tag', $result );
+		self::assertSame( 'Тип курсу', $result['vl_course_type'] );
+	}
+
+	public function test_render_course_column_outputs_cohort_label(): void {
+		Functions\when( 'get_post_meta' )->justReturn( 'cohort' );
+
+		ob_start();
+		( new CurriculumListColumns() )->render_course_column( 'vl_course_type', 7 );
+		self::assertSame( 'Когортний', (string) ob_get_clean() );
+	}
+
+	public function test_render_course_column_defaults_to_self_paced_when_meta_missing(): void {
+		Functions\when( 'get_post_meta' )->justReturn( '' );
+
+		ob_start();
+		( new CurriculumListColumns() )->render_course_column( 'vl_course_type', 7 );
+		self::assertSame( 'Самостійний', (string) ob_get_clean() );
+	}
+
+	public function test_render_course_column_ignores_unrelated_columns(): void {
+		ob_start();
+		( new CurriculumListColumns() )->render_course_column( 'date', 7 );
+		self::assertSame( '', (string) ob_get_clean() );
 	}
 
 	public function test_module_columns_inserts_course_and_lesson_count_before_date(): void {

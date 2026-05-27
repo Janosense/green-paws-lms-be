@@ -8,13 +8,16 @@ use WP_Query;
 
 /**
  * Adds parent-context columns to the wp-admin list tables for the flat
- * course-bound CPTs `vl_module`, `vl_lesson`, `vl_topic`, and `vl_session`.
+ * course-bound CPTs `vl_module`, `vl_lesson`, `vl_topic`, and `vl_session`,
+ * plus a course-type column on `vl_course` itself.
  *
  * The CPTs are flat (`hierarchical: false`); their relationships live in
  * `post_parent`. Without these columns an editor opening "Lessons" sees only
  * titles and dates and has no way to tell which course or module a lesson
  * belongs to without clicking through. The columns surface:
  *
+ *  - `vl_course` : Type (`_vl_course_type`); also drops the noisy `vl_tag`
+ *                  ("Tags") taxonomy column from the list table.
  *  - `vl_module` : Course, Lessons (count)
  *  - `vl_lesson` : Course, Module, Topics (count)
  *  - `vl_topic`  : Course (resolved via the parent lesson), Lesson
@@ -35,6 +38,9 @@ class CurriculumListColumns {
 	private const string MODULE_COURSE_FILTER_PARAM = 'vl_course_id';
 
 	public function boot(): void {
+		add_filter( 'manage_vl_course_posts_columns', [ $this, 'course_columns' ] );
+		add_action( 'manage_vl_course_posts_custom_column', [ $this, 'render_course_column' ], 10, 2 );
+
 		add_filter( 'manage_vl_module_posts_columns', [ $this, 'module_columns' ] );
 		add_action( 'manage_vl_module_posts_custom_column', [ $this, 'render_module_column' ], 10, 2 );
 
@@ -49,6 +55,24 @@ class CurriculumListColumns {
 
 		add_action( 'restrict_manage_posts', [ $this, 'render_module_course_filter' ] );
 		add_action( 'parse_query', [ $this, 'apply_module_course_filter' ] );
+	}
+
+	/**
+	 * Add a "Type" column to the `vl_course` list table and drop the
+	 * `vl_tag` ("Tags") taxonomy column (registered with
+	 * `show_admin_column`), which is noise on the course overview.
+	 *
+	 * @param array<string, string> $columns
+	 * @return array<string, string>
+	 */
+	public function course_columns( array $columns ): array {
+		unset( $columns['taxonomy-vl_tag'] );
+
+		return self::insert_before(
+			$columns,
+			'date',
+			[ 'vl_course_type' => 'Тип курсу' ]
+		);
 	}
 
 	/**
@@ -110,6 +134,28 @@ class CurriculumListColumns {
 				'vl_session_delivery' => __( 'Date of delivery', 'vl-lms' ),
 			]
 		);
+	}
+
+	public function render_course_column( string $column, int $post_id ): void {
+		if ( 'vl_course_type' !== $column ) {
+			return;
+		}
+		echo esc_html( $this->course_type_label( $post_id ) );
+	}
+
+	/**
+	 * Human label for the `_vl_course_type` meta. Missing / unknown meta is
+	 * treated as self-paced, mirroring the curriculum read path where a
+	 * course is cohort only when the meta is exactly `cohort`.
+	 *
+	 * Labels are hardcoded in Ukrainian to match the `CourseMetaBox`
+	 * type dropdown — wp-admin has no `.mo` loaded for this text domain,
+	 * so `__()` would surface the English source verbatim.
+	 */
+	private function course_type_label( int $post_id ): string {
+		$type = (string) get_post_meta( $post_id, '_vl_course_type', true );
+
+		return 'cohort' === $type ? 'Когортний' : 'Самостійний';
 	}
 
 	public function render_module_column( string $column, int $post_id ): void {
