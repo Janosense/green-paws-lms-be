@@ -24,6 +24,7 @@ use VL\LMS\Admin\Students\StudentsListPage;
 use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\LessonListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\ModuleListMetaBox;
+use VL\LMS\Admin\MetaBoxes\ChildList\SessionListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\QuestionListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\TopicListMetaBox;
 use VL\LMS\Admin\MetaBoxes\CourseInstructorsMetaBox;
@@ -2823,6 +2824,7 @@ final class Plugin {
 		// --- Phase 9.1 — drag-drop reorder ---
 
 		$container->set( ModuleListMetaBox::class, static fn (): ModuleListMetaBox => new ModuleListMetaBox() );
+		$container->set( SessionListMetaBox::class, static fn (): SessionListMetaBox => new SessionListMetaBox() );
 		$container->set( LessonListMetaBox::class, static fn (): LessonListMetaBox => new LessonListMetaBox() );
 		$container->set( TopicListMetaBox::class, static fn (): TopicListMetaBox => new TopicListMetaBox() );
 		$container->set( QuestionListMetaBox::class, static fn (): QuestionListMetaBox => new QuestionListMetaBox() );
@@ -2845,6 +2847,7 @@ final class Plugin {
 				];
 				$child_list_boxes = [
 					$c->get( ModuleListMetaBox::class ),
+					$c->get( SessionListMetaBox::class ),
 					$c->get( LessonListMetaBox::class ),
 					$c->get( TopicListMetaBox::class ),
 					$c->get( QuestionListMetaBox::class ),
