@@ -69,6 +69,36 @@ final class ModuleMetaBoxTest extends TestCase {
 		parent::tearDown();
 	}
 
+	public function test_render_preselects_course_from_query_string_hint(): void {
+		Functions\when( 'wp_nonce_field' )->justReturn( '' );
+		Functions\when( 'esc_attr' )->returnArg();
+		Functions\when( 'esc_html' )->returnArg();
+		Functions\when( 'get_post_meta' )->justReturn( '' );
+		Functions\when( 'get_the_title' )->justReturn( '' );
+		Functions\when( 'selected' )->alias(
+			static fn ( $a, $b ): string => (string) $a === (string) $b ? ' selected' : ''
+		);
+		$course             = Mockery::mock( 'WP_Post' );
+		$course->ID         = 77;
+		$course->post_title = 'Self-paced course';
+		Functions\when( 'get_posts' )->justReturn( [ $course ] );
+
+		$_GET = [ 'vl_parent_id' => '77' ];
+
+		$post              = Mockery::mock( 'WP_Post' );
+		$post->ID          = 0;
+		$post->post_parent = 0;
+		assert( $post instanceof WP_Post );
+
+		ob_start();
+		( new ModuleMetaBox() )->render( $post );
+		$html = (string) ob_get_clean();
+
+		$_GET = [];
+
+		self::assertStringContainsString( '<option value="77" selected>', $html );
+	}
+
 	public function test_save_clamps_passing_threshold_above_100(): void {
 		$_POST = [
 			self::NONCE_FIELD              => 'nonce-x',

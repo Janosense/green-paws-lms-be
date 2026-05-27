@@ -283,6 +283,141 @@
 		$( this ).closest( '.vl-lms-co-item' ).remove();
 	} );
 
+	// --- Existing-module picker (course edit screen) ---
+	function modulesConfig() {
+		if ( typeof VL_LMS_ADMIN === 'undefined' || ! VL_LMS_ADMIN.modules ) {
+			return null;
+		}
+		return VL_LMS_ADMIN.modules;
+	}
+
+	function renderModuleResults( $list, results ) {
+		$list.empty();
+		if ( ! results.length ) {
+			$list.attr( 'hidden', true );
+			return;
+		}
+		$.each( results, function ( _i, mod ) {
+			$( '<li/>' )
+				.attr( 'data-module-id', mod.id )
+				.attr( 'data-title', mod.title )
+				.text( mod.title )
+				.appendTo( $list );
+		} );
+		$list.removeAttr( 'hidden' );
+	}
+
+	$( document ).on( 'input', '#vl-lms-module-search-input', debounce( function () {
+		var cfg = modulesConfig();
+		var $list = $( '.vl-lms-module-search-results' );
+		var query = $( this ).val();
+		if ( ! cfg || ! query || query.length < 2 ) {
+			$list.empty().attr( 'hidden', true );
+			return;
+		}
+		$.ajax( {
+			url: VL_LMS_ADMIN.ajaxUrl,
+			method: 'GET',
+			data: {
+				action: cfg.actions.search,
+				nonce: cfg.nonces.search,
+				q: query
+			}
+		} ).done( function ( resp ) {
+			if ( resp && resp.success && Array.isArray( resp.data ) ) {
+				renderModuleResults( $list, resp.data );
+			}
+		} );
+	}, 250 ) );
+
+	function renderModuleRow( cfg, mod ) {
+		var $row = $(
+			'<li>'
+			+ '<span class="vl-sortable-handle">⋮⋮</span> '
+			+ '<span class="vl-sortable-title"></span> '
+			+ '<a class="vl-sortable-edit"></a> '
+			+ '<button type="button" class="button-link vl-lms-module-unlink"></button>'
+			+ '</li>'
+		).attr( 'data-id', mod.id );
+		$row.find( '.vl-sortable-title' ).text( mod.title );
+		$row.find( '.vl-sortable-edit' ).attr( 'href', mod.editLink || '#' ).text( cfg.i18n.edit );
+		$row.find( '.vl-lms-module-unlink' ).attr( 'data-id', mod.id ).text( cfg.i18n.unlink );
+		return $row;
+	}
+
+	$( document ).on( 'click', '.vl-lms-module-search-results li', function ( ev ) {
+		ev.preventDefault();
+		var cfg = modulesConfig();
+		var $picker = $( '.vl-lms-module-search' );
+		var courseId = parseInt( $picker.attr( 'data-course-id' ), 10 );
+		var moduleId = parseInt( $( this ).attr( 'data-module-id' ), 10 );
+		if ( ! cfg || ! courseId || ! moduleId ) {
+			return;
+		}
+		$.ajax( {
+			url: VL_LMS_ADMIN.ajaxUrl,
+			method: 'POST',
+			data: {
+				action: cfg.actions.attach,
+				nonce: cfg.nonces.attach,
+				course_id: courseId,
+				module_id: moduleId
+			}
+		} ).done( function ( resp ) {
+			if ( ! resp || ! resp.success || ! resp.data ) {
+				return;
+			}
+			var $list = $( '#vl_lms_module_list ul.vl-sortable-list' );
+			$list.append( renderModuleRow( cfg, resp.data ) ).removeAttr( 'hidden' );
+			$( '#vl_lms_module_list .vl-lms-empty' ).attr( 'hidden', true );
+			if ( $list.data( 'uiSortable' ) ) {
+				$list.sortable( 'refresh' );
+			}
+			$( '#vl-lms-module-search-input' ).val( '' );
+			$( '.vl-lms-module-search-results' ).empty().attr( 'hidden', true );
+		} );
+	} );
+
+	$( document ).on( 'click', '.vl-lms-module-unlink', function ( ev ) {
+		ev.preventDefault();
+		var cfg = modulesConfig();
+		var $btn = $( this );
+		var moduleId = parseInt( $btn.attr( 'data-id' ), 10 );
+		if ( ! cfg || ! moduleId ) {
+			return;
+		}
+		// eslint-disable-next-line no-alert
+		if ( ! window.confirm( cfg.i18n.confirmUnlink ) ) {
+			return;
+		}
+		$.ajax( {
+			url: VL_LMS_ADMIN.ajaxUrl,
+			method: 'POST',
+			data: {
+				action: cfg.actions.detach,
+				nonce: cfg.nonces.detach,
+				module_id: moduleId
+			}
+		} ).done( function ( resp ) {
+			if ( ! resp || ! resp.success ) {
+				return;
+			}
+			var $list = $( '#vl_lms_module_list ul.vl-sortable-list' );
+			$btn.closest( 'li' ).remove();
+			if ( ! $list.children( 'li' ).length ) {
+				$list.attr( 'hidden', true );
+				$( '#vl_lms_module_list .vl-lms-empty' ).removeAttr( 'hidden' );
+			}
+		} );
+	} );
+
+	// Close the results dropdown when clicking outside the picker.
+	$( document ).on( 'click', function ( ev ) {
+		if ( ! $( ev.target ).closest( '.vl-lms-module-search' ).length ) {
+			$( '.vl-lms-module-search-results' ).empty().attr( 'hidden', true );
+		}
+	} );
+
 	// --- Phase 9.1 — drag-drop reorder ---
 	function postReorder( $list ) {
 		var ids = $list.children( 'li' ).map( function () {

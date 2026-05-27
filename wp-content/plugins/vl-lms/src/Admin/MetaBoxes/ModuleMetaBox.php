@@ -40,6 +40,9 @@ class ModuleMetaBox extends AbstractMetaBox {
 		$this->render_section_heading( 'Курс' );
 		$courses   = $this->query_self_paced_courses();
 		$parent_id = (int) $post->post_parent;
+		if ( 0 === $parent_id ) {
+			$parent_id = $this->course_hint_from_query_string( $courses );
+		}
 		if ( $parent_id > 0 && ! isset( $courses[ (string) $parent_id ] ) ) {
 			$current_title = (string) get_the_title( $parent_id );
 			if ( '' !== $current_title ) {
@@ -117,6 +120,26 @@ class ModuleMetaBox extends AbstractMetaBox {
 		if ( null !== $threshold ) {
 			update_post_meta( $post_id, '_vl_module_passing_threshold', $threshold );
 		}
+	}
+
+	/**
+	 * If the editor arrived via the "Додати модуль" button on a course,
+	 * the URL carries `?vl_parent_id=<course_id>`. Return that id when it
+	 * resolves to a known self-paced course — otherwise 0.
+	 *
+	 * @param array<string, string> $courses
+	 */
+	private function course_hint_from_query_string( array $courses ): int {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only hint, no state change.
+		if ( ! isset( $_GET['vl_parent_id'] ) ) {
+			return 0;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$candidate = (int) $_GET['vl_parent_id'];
+		if ( $candidate <= 0 ) {
+			return 0;
+		}
+		return isset( $courses[ (string) $candidate ] ) ? $candidate : 0;
 	}
 
 	/**

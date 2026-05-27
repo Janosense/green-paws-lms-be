@@ -9,6 +9,7 @@ use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\MetaBoxes\AbstractMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox;
+use VL\LMS\Admin\Modules\ModulePickerAjaxHandler;
 use VL\LMS\Admin\Reorder\ReorderAjaxHandler;
 use WP_Post;
 use WP_Screen;
@@ -63,6 +64,8 @@ class AdminProvider {
 
 	private ReorderAjaxHandler $reorder_handler;
 
+	private ModulePickerAjaxHandler $module_picker;
+
 	private ?AdminMenuProvider $menu_provider;
 
 	/**
@@ -73,11 +76,13 @@ class AdminProvider {
 		array $meta_boxes,
 		array $child_list_boxes = [],
 		?ReorderAjaxHandler $reorder_handler = null,
-		?AdminMenuProvider $menu_provider = null
+		?AdminMenuProvider $menu_provider = null,
+		?ModulePickerAjaxHandler $module_picker = null
 	) {
 		$this->meta_boxes       = $meta_boxes;
 		$this->child_list_boxes = $child_list_boxes;
 		$this->reorder_handler  = $reorder_handler ?? new ReorderAjaxHandler();
+		$this->module_picker    = $module_picker ?? new ModulePickerAjaxHandler();
 		$this->menu_provider    = $menu_provider;
 	}
 
@@ -88,6 +93,9 @@ class AdminProvider {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		add_action( 'wp_ajax_' . self::AJAX_ACTION, [ $this, 'handle_instructor_search' ] );
 		add_action( 'wp_ajax_vl_lms_reorder', [ $this->reorder_handler, 'handle' ] );
+		add_action( 'wp_ajax_' . ModulePickerAjaxHandler::SEARCH_ACTION, [ $this->module_picker, 'search' ] );
+		add_action( 'wp_ajax_' . ModulePickerAjaxHandler::ATTACH_ACTION, [ $this->module_picker, 'attach' ] );
+		add_action( 'wp_ajax_' . ModulePickerAjaxHandler::DETACH_ACTION, [ $this->module_picker, 'detach' ] );
 		if ( null !== $this->menu_provider ) {
 			add_action( 'admin_menu', [ $this->menu_provider, 'register' ], 20 );
 		}
@@ -167,6 +175,24 @@ class AdminProvider {
 				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 				'action'  => self::AJAX_ACTION,
 				'nonce'   => wp_create_nonce( self::AJAX_NONCE ),
+				'modules' => [
+					'actions' => [
+						'search' => ModulePickerAjaxHandler::SEARCH_ACTION,
+						'attach' => ModulePickerAjaxHandler::ATTACH_ACTION,
+						'detach' => ModulePickerAjaxHandler::DETACH_ACTION,
+					],
+					'nonces'  => [
+						'search' => wp_create_nonce( ModulePickerAjaxHandler::SEARCH_ACTION ),
+						'attach' => wp_create_nonce( ModulePickerAjaxHandler::ATTACH_ACTION ),
+						'detach' => wp_create_nonce( ModulePickerAjaxHandler::DETACH_ACTION ),
+					],
+					'i18n'    => [
+						'noModules'     => __( 'Модулів не знайдено', 'vl-lms' ),
+						'confirmUnlink' => __( 'Відкріпити модуль від цього курсу?', 'vl-lms' ),
+						'edit'          => __( 'Редагувати', 'vl-lms' ),
+						'unlink'        => __( 'Відкріпити', 'vl-lms' ),
+					],
+				],
 			]
 		);
 	}

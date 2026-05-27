@@ -19,9 +19,24 @@ final class ModuleListMetaBoxTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
-		Functions\when( 'esc_attr' )->returnArg();
+		Functions\when( 'admin_url' )->alias(
+			static fn ( string $path ): string => 'https://admin.test/wp-admin/' . ltrim( $path, '/' )
+		);
+		Functions\when( 'add_query_arg' )->alias(
+			static function ( array $args, string $url ): string {
+				return $url . '?' . http_build_query( $args );
+			}
+		);
+		Functions\when( 'esc_url' )->returnArg();
 		Functions\when( 'esc_html' )->returnArg();
+		Functions\when( 'esc_attr' )->returnArg();
+		Functions\when( 'esc_html__' )->returnArg();
+		Functions\when( 'esc_attr__' )->returnArg();
 		Functions\when( 'wp_create_nonce' )->justReturn( 'nonce-x' );
+		Functions\when( 'get_edit_post_link' )->alias(
+			static fn ( int $id ): string => 'https://admin.test/wp-admin/post.php?post=' . $id . '&action=edit'
+		);
+		Functions\when( 'get_posts' )->justReturn( [] );
 	}
 
 	protected function tearDown(): void {
@@ -45,23 +60,50 @@ final class ModuleListMetaBoxTest extends TestCase {
 		self::assertSame( 'vl_course', $captured[0][3] );
 	}
 
-	public function test_render_outputs_no_children_message_when_empty(): void {
-		$box = new class() extends ModuleListMetaBox {
-			protected function query_children( int $parent_id ): array {
-				unset( $parent_id );
-				return [];
-			}
-		};
+	public function test_render_shows_add_button_and_picker_even_when_empty(): void {
+		Functions\when( 'get_posts' )->justReturn( [] );
 
 		$post     = Mockery::mock( 'WP_Post' );
 		$post->ID = 42;
 		assert( $post instanceof WP_Post );
 
 		ob_start();
-		$box->render( $post );
-		$out = (string) ob_get_clean();
+		( new ModuleListMetaBox() )->render( $post );
+		$html = (string) ob_get_clean();
 
-		self::assertStringContainsString( 'Немає елементів', $out );
-		self::assertStringNotContainsString( 'vl-sortable-list', $out );
+		// The container is always rendered (hidden) so the JS picker has
+		// a stable target to append attached modules into.
+		self::assertStringContainsString( 'vl-sortable-list', $html );
+		self::assertStringContainsString( 'Немає елементів', $html );
+		self::assertStringContainsString( 'Додати модуль', $html );
+		self::assertStringContainsString( 'post-new.php?post_type=vl_module', $html );
+		self::assertStringContainsString( 'vl_parent_id=42', $html );
+		self::assertStringContainsString( 'vl-lms-module-search', $html );
+		self::assertStringContainsString( 'data-course-id="42"', $html );
+	}
+
+	public function test_render_links_each_module_row_to_edit_and_unlink(): void {
+		$module     = Mockery::mock( 'WP_Post' );
+		$module->ID = 9;
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		$module->post_title = 'Sample module';
+		assert( $module instanceof WP_Post );
+
+		Functions\when( 'get_posts' )->justReturn( [ $module ] );
+
+		$course     = Mockery::mock( 'WP_Post' );
+		$course->ID = 42;
+		assert( $course instanceof WP_Post );
+
+		ob_start();
+		( new ModuleListMetaBox() )->render( $course );
+		$html = (string) ob_get_clean();
+
+		self::assertStringContainsString( 'Sample module', $html );
+		self::assertStringContainsString( 'post.php?post=9&action=edit', $html );
+		self::assertStringContainsString( 'Редагувати', $html );
+		self::assertStringContainsString( 'vl-lms-module-unlink', $html );
+		self::assertStringContainsString( 'Відкріпити', $html );
+		self::assertStringContainsString( 'data-id="9"', $html );
 	}
 }
