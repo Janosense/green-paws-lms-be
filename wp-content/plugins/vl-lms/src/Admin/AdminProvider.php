@@ -11,6 +11,7 @@ use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\MetaBoxes\AbstractMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox;
 use VL\LMS\Admin\Modules\ModulePickerAjaxHandler;
+use VL\LMS\Admin\Questions\QuestionPickerAjaxHandler;
 use VL\LMS\Admin\Reorder\ReorderAjaxHandler;
 use VL\LMS\Admin\Topics\TopicPickerAjaxHandler;
 use WP_Post;
@@ -72,6 +73,8 @@ class AdminProvider {
 
 	private TopicPickerAjaxHandler $topic_picker;
 
+	private QuestionPickerAjaxHandler $question_picker;
+
 	private ?AdminMenuProvider $menu_provider;
 
 	/**
@@ -85,7 +88,8 @@ class AdminProvider {
 		?AdminMenuProvider $menu_provider = null,
 		?ModulePickerAjaxHandler $module_picker = null,
 		?LessonPickerAjaxHandler $lesson_picker = null,
-		?TopicPickerAjaxHandler $topic_picker = null
+		?TopicPickerAjaxHandler $topic_picker = null,
+		?QuestionPickerAjaxHandler $question_picker = null
 	) {
 		$this->meta_boxes       = $meta_boxes;
 		$this->child_list_boxes = $child_list_boxes;
@@ -93,6 +97,7 @@ class AdminProvider {
 		$this->module_picker    = $module_picker ?? new ModulePickerAjaxHandler();
 		$this->lesson_picker    = $lesson_picker ?? new LessonPickerAjaxHandler();
 		$this->topic_picker     = $topic_picker ?? new TopicPickerAjaxHandler();
+		$this->question_picker  = $question_picker ?? new QuestionPickerAjaxHandler();
 		$this->menu_provider    = $menu_provider;
 	}
 
@@ -112,6 +117,9 @@ class AdminProvider {
 		add_action( 'wp_ajax_' . TopicPickerAjaxHandler::SEARCH_ACTION, [ $this->topic_picker, 'search' ] );
 		add_action( 'wp_ajax_' . TopicPickerAjaxHandler::ATTACH_ACTION, [ $this->topic_picker, 'attach' ] );
 		add_action( 'wp_ajax_' . TopicPickerAjaxHandler::DETACH_ACTION, [ $this->topic_picker, 'detach' ] );
+		add_action( 'wp_ajax_' . QuestionPickerAjaxHandler::SEARCH_ACTION, [ $this->question_picker, 'search' ] );
+		add_action( 'wp_ajax_' . QuestionPickerAjaxHandler::ATTACH_ACTION, [ $this->question_picker, 'attach' ] );
+		add_action( 'wp_ajax_' . QuestionPickerAjaxHandler::DETACH_ACTION, [ $this->question_picker, 'detach' ] );
 		if ( null !== $this->menu_provider ) {
 			add_action( 'admin_menu', [ $this->menu_provider, 'register' ], 20 );
 		}
@@ -213,7 +221,7 @@ class AdminProvider {
 				// (lesson + topic lists). Looked up by the `data-entity`
 				// attribute the JS reads off each picker.
 				'pickers' => [
-					'lesson' => [
+					'lesson'   => [
 						'actions' => [
 							'search' => LessonPickerAjaxHandler::SEARCH_ACTION,
 							'attach' => LessonPickerAjaxHandler::ATTACH_ACTION,
@@ -230,7 +238,7 @@ class AdminProvider {
 							'unlink'        => __( 'Відкріпити', 'vl-lms' ),
 						],
 					],
-					'topic'  => [
+					'topic'    => [
 						'actions' => [
 							'search' => TopicPickerAjaxHandler::SEARCH_ACTION,
 							'attach' => TopicPickerAjaxHandler::ATTACH_ACTION,
@@ -243,6 +251,23 @@ class AdminProvider {
 						],
 						'i18n'    => [
 							'confirmUnlink' => __( 'Відкріпити цю тему?', 'vl-lms' ),
+							'edit'          => __( 'Редагувати', 'vl-lms' ),
+							'unlink'        => __( 'Відкріпити', 'vl-lms' ),
+						],
+					],
+					'question' => [
+						'actions' => [
+							'search' => QuestionPickerAjaxHandler::SEARCH_ACTION,
+							'attach' => QuestionPickerAjaxHandler::ATTACH_ACTION,
+							'detach' => QuestionPickerAjaxHandler::DETACH_ACTION,
+						],
+						'nonces'  => [
+							'search' => wp_create_nonce( QuestionPickerAjaxHandler::SEARCH_ACTION ),
+							'attach' => wp_create_nonce( QuestionPickerAjaxHandler::ATTACH_ACTION ),
+							'detach' => wp_create_nonce( QuestionPickerAjaxHandler::DETACH_ACTION ),
+						],
+						'i18n'    => [
+							'confirmUnlink' => __( 'Відкріпити це питання?', 'vl-lms' ),
 							'edit'          => __( 'Редагувати', 'vl-lms' ),
 							'unlink'        => __( 'Відкріпити', 'vl-lms' ),
 						],

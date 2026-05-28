@@ -19,6 +19,25 @@ final class QuestionListMetaBoxTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		Functions\when( 'admin_url' )->alias(
+			static fn ( string $path ): string => 'https://admin.test/wp-admin/' . ltrim( $path, '/' )
+		);
+		Functions\when( 'add_query_arg' )->alias(
+			static function ( array $args, string $url ): string {
+				return $url . '?' . http_build_query( $args );
+			}
+		);
+		Functions\when( 'esc_url' )->returnArg();
+		Functions\when( 'esc_html' )->returnArg();
+		Functions\when( 'esc_attr' )->returnArg();
+		Functions\when( 'esc_html__' )->returnArg();
+		Functions\when( 'esc_attr__' )->returnArg();
+		Functions\when( '__' )->returnArg();
+		Functions\when( 'wp_create_nonce' )->justReturn( 'nonce-x' );
+		Functions\when( 'get_edit_post_link' )->alias(
+			static fn ( int $id ): string => 'https://admin.test/wp-admin/post.php?post=' . $id . '&action=edit'
+		);
+		Functions\when( 'get_posts' )->justReturn( [] );
 	}
 
 	protected function tearDown(): void {
@@ -42,78 +61,48 @@ final class QuestionListMetaBoxTest extends TestCase {
 		self::assertSame( 'vl_quiz', $captured[0][3] );
 	}
 
-	public function test_render_outputs_add_question_button_bound_to_parent(): void {
-		Functions\when( 'esc_url' )->returnArg();
-		Functions\when( 'esc_html' )->returnArg();
-		Functions\when( 'esc_html__' )->returnArg();
-		Functions\when( 'esc_attr' )->returnArg();
-		Functions\when( 'wp_create_nonce' )->justReturn( 'nonce-x' );
-		Functions\when( 'admin_url' )->alias(
-			static fn ( string $path ): string => 'https://example.test/wp-admin/' . $path
-		);
-		Functions\when( 'add_query_arg' )->alias(
-			static function ( array $args, string $url ): string {
-				return $url . '?' . http_build_query( $args );
-			}
-		);
-
-		$box = new class() extends QuestionListMetaBox {
-			protected function query_children( int $parent_id ): array {
-				unset( $parent_id );
-				return [];
-			}
-		};
+	public function test_render_shows_add_button_and_picker_even_when_empty(): void {
+		Functions\when( 'get_posts' )->justReturn( [] );
 
 		$post     = Mockery::mock( 'WP_Post' );
 		$post->ID = 77;
 		assert( $post instanceof WP_Post );
 
 		ob_start();
-		$box->render( $post );
-		$out = (string) ob_get_clean();
+		( new QuestionListMetaBox() )->render( $post );
+		$html = (string) ob_get_clean();
 
-		self::assertStringContainsString( 'Додати питання', $out );
-		self::assertStringContainsString( 'post_type=vl_quiz_question', $out );
-		self::assertStringContainsString( 'vl_parent_id=77', $out );
+		self::assertStringContainsString( 'Немає елементів', $html );
+		self::assertStringContainsString( 'Додати питання', $html );
+		self::assertStringContainsString( 'post-new.php?post_type=vl_quiz_question', $html );
+		self::assertStringContainsString( 'vl_parent_id=77', $html );
+		self::assertStringContainsString( 'vl-lms-entity-search', $html );
+		self::assertStringContainsString( 'data-entity="question"', $html );
+		self::assertStringContainsString( 'data-parent-id="77"', $html );
 	}
 
-	public function test_render_links_each_question_to_its_editor(): void {
-		Functions\when( 'esc_url' )->returnArg();
-		Functions\when( 'esc_html' )->returnArg();
-		Functions\when( 'esc_html__' )->returnArg();
-		Functions\when( 'esc_attr' )->returnArg();
-		Functions\when( 'wp_create_nonce' )->justReturn( 'nonce-x' );
-		Functions\when( 'admin_url' )->alias( static fn ( string $p ): string => $p );
-		Functions\when( 'add_query_arg' )->justReturn( 'post-new.php' );
-		Functions\when( 'get_edit_post_link' )->alias(
-			static fn ( int $id ): string => 'https://example.test/wp-admin/post.php?post=' . $id . '&action=edit'
-		);
+	public function test_render_links_each_question_row_to_edit_and_unlink(): void {
+		$question     = Mockery::mock( 'WP_Post' );
+		$question->ID = 9;
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		$question->post_title = 'Питання 1';
+		assert( $question instanceof WP_Post );
 
-		$child             = Mockery::mock( 'WP_Post' );
-		$child->ID         = 9;
-		$child->post_title = 'Питання 1';
-		assert( $child instanceof WP_Post );
+		Functions\when( 'get_posts' )->justReturn( [ $question ] );
 
-		$box = new class( $child ) extends QuestionListMetaBox {
-			public function __construct( private readonly WP_Post $child ) {
-				parent::__construct();
-			}
-
-			protected function query_children( int $parent_id ): array {
-				unset( $parent_id );
-				return [ $this->child ];
-			}
-		};
-
-		$post     = Mockery::mock( 'WP_Post' );
-		$post->ID = 77;
-		assert( $post instanceof WP_Post );
+		$quiz     = Mockery::mock( 'WP_Post' );
+		$quiz->ID = 77;
+		assert( $quiz instanceof WP_Post );
 
 		ob_start();
-		$box->render( $post );
-		$out = (string) ob_get_clean();
+		( new QuestionListMetaBox() )->render( $quiz );
+		$html = (string) ob_get_clean();
 
-		self::assertStringContainsString( 'post.php?post=9&action=edit', $out );
-		self::assertStringContainsString( 'Редагувати', $out );
+		self::assertStringContainsString( 'Питання 1', $html );
+		self::assertStringContainsString( 'post.php?post=9&action=edit', $html );
+		self::assertStringContainsString( 'Редагувати', $html );
+		self::assertStringContainsString( 'vl-lms-entity-unlink', $html );
+		self::assertStringContainsString( 'Відкріпити', $html );
+		self::assertStringContainsString( 'data-id="9"', $html );
 	}
 }
