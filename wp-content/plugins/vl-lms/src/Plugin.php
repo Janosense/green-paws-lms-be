@@ -20,6 +20,8 @@ use VL\LMS\Admin\Groups\GroupDetailPage;
 use VL\LMS\Admin\Groups\GroupFormHandler;
 use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
+use VL\LMS\Admin\Students\StudentDetailPage;
+use VL\LMS\Admin\Students\StudentEnrollmentFormHandler;
 use VL\LMS\Admin\Students\StudentsListPage;
 use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
 use VL\LMS\Admin\Lessons\LessonPickerAjaxHandler;
@@ -228,6 +230,7 @@ use VL\LMS\Services\Progress\ProgressService;
 use VL\LMS\Services\Progress\SessionAttendanceProgressListener;
 use VL\LMS\Mail\CertificateIssuedMailer;
 use VL\LMS\Mail\HtmlMailSender;
+use VL\LMS\Mail\CourseAccessGrantedMailer;
 use VL\LMS\Mail\OrderFailedMailer;
 use VL\LMS\Mail\OrderPaidMailer;
 use VL\LMS\Mail\OrderRefundedMailer;
@@ -495,6 +498,13 @@ final class Plugin {
 		$group_form_handler = $this->container->get( GroupFormHandler::class );
 		if ( $group_form_handler instanceof GroupFormHandler ) {
 			$group_form_handler->register();
+		}
+
+		// Per-student detail page grant/revoke handlers (admin_post_*),
+		// gated on vl_manage_enrollments inside the handler.
+		$student_enrollment_handler = $this->container->get( StudentEnrollmentFormHandler::class );
+		if ( $student_enrollment_handler instanceof StudentEnrollmentFormHandler ) {
+			$student_enrollment_handler->register();
 		}
 
 		// Phase 8.3 — wire the order-refund revocation listener. Subscribes
@@ -2450,6 +2460,19 @@ final class Plugin {
 		);
 
 		$container->set(
+			CourseAccessGrantedMailer::class,
+			static function ( Container $c ): CourseAccessGrantedMailer {
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				$resolver = $c->get( AppUrlResolver::class );
+				assert( $resolver instanceof AppUrlResolver );
+				$sender = $c->get( HtmlMailSender::class );
+				assert( $sender instanceof HtmlMailSender );
+				return new CourseAccessGrantedMailer( $logger, $resolver, $sender );
+			}
+		);
+
+		$container->set(
 			OrderPaidListener::class,
 			static function ( Container $c ): OrderPaidListener {
 				$mailer = $c->get( OrderPaidMailer::class );
@@ -2950,6 +2973,30 @@ final class Plugin {
 		);
 
 		$container->set(
+			StudentDetailPage::class,
+			static function ( Container $c ): StudentDetailPage {
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				$certificates = $c->get( CertificateRepository::class );
+				assert( $certificates instanceof CertificateRepository );
+				return new StudentDetailPage( $enrollments, $certificates );
+			}
+		);
+
+		$container->set(
+			StudentEnrollmentFormHandler::class,
+			static function ( Container $c ): StudentEnrollmentFormHandler {
+				$service = $c->get( EnrollmentService::class );
+				assert( $service instanceof EnrollmentService );
+				$repository = $c->get( EnrollmentRepository::class );
+				assert( $repository instanceof EnrollmentRepository );
+				$mailer = $c->get( CourseAccessGrantedMailer::class );
+				assert( $mailer instanceof CourseAccessGrantedMailer );
+				return new StudentEnrollmentFormHandler( $service, $repository, $mailer );
+			}
+		);
+
+		$container->set(
 			StudentsListPage::class,
 			static function ( Container $c ): StudentsListPage {
 				$groups = $c->get( GroupRepository::class );
@@ -2958,7 +3005,9 @@ final class Plugin {
 				assert( $members instanceof GroupMemberRepository );
 				$enrollments = $c->get( EnrollmentRepository::class );
 				assert( $enrollments instanceof EnrollmentRepository );
-				return new StudentsListPage( $groups, $members, $enrollments );
+				$detail = $c->get( StudentDetailPage::class );
+				assert( $detail instanceof StudentDetailPage );
+				return new StudentsListPage( $groups, $members, $enrollments, $detail );
 			}
 		);
 

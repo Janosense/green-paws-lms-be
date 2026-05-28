@@ -215,10 +215,23 @@ class StudentsListTable extends \WP_List_Table {
 
 	public function column_first_name( WP_User $user ): string {
 		$value = (string) get_user_meta( $user->ID, 'first_name', true );
-		if ( '' === $value ) {
-			return '<em>—</em>';
-		}
-		return esc_html( $value );
+		$label = '' === $value ? (string) $user->display_name : $value;
+		$label = '' === $label ? '—' : $label;
+
+		$url = add_query_arg(
+			[
+				'page'   => self::PAGE_SLUG,
+				'action' => 'view',
+				'id'     => (int) $user->ID,
+			],
+			admin_url( 'admin.php' )
+		);
+
+		return sprintf(
+			'<strong><a href="%s">%s</a></strong>',
+			esc_url( $url ),
+			esc_html( $label )
+		);
 	}
 
 	public function column_last_name( WP_User $user ): string {

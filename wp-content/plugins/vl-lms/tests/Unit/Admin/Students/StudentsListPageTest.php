@@ -8,10 +8,13 @@ use Brain\Monkey;
 use Brain\Monkey\Functions;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
+use VL\LMS\Admin\Students\StudentDetailPage;
+use VL\LMS\Tests\Fixtures\InMemoryCertificateRepository;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use VL\LMS\Tests\Fixtures\InMemoryGroupAccessRepository;
 use VL\LMS\Tests\Fixtures\InMemoryGroupMemberRepository;
 use VL\LMS\Tests\Fixtures\InMemoryGroupRepository;
+use WP_User;
 
 final class StudentsListPageTest extends TestCase {
 
@@ -45,6 +48,8 @@ final class StudentsListPageTest extends TestCase {
 		);
 		Functions\when( 'submit_button' )->justReturn( null );
 		Functions\when( 'update_meta_cache' )->justReturn( true );
+		Functions\when( 'sanitize_key' )->returnArg();
+		Functions\when( 'get_user_meta' )->justReturn( '' );
 		$_GET     = [];
 		$_REQUEST = [];
 
@@ -60,13 +65,21 @@ final class StudentsListPageTest extends TestCase {
 		parent::tearDown();
 	}
 
+	private function make_detail_page(): StudentDetailPage {
+		return new StudentDetailPage(
+			new InMemoryEnrollmentRepository(),
+			new InMemoryCertificateRepository()
+		);
+	}
+
 	public function test_render_calls_forbidden_when_cap_missing(): void {
 		Functions\when( 'current_user_can' )->justReturn( false );
 
 		$page = new TestableStudentsListPage(
 			new InMemoryGroupRepository(),
 			new InMemoryGroupMemberRepository(),
-			new InMemoryEnrollmentRepository()
+			new InMemoryEnrollmentRepository(),
+			$this->make_detail_page()
 		);
 
 		ob_start();
@@ -76,13 +89,45 @@ final class StudentsListPageTest extends TestCase {
 		self::assertTrue( $page->forbidden_called );
 	}
 
+	public function test_render_dispatches_to_detail_page_on_view_action(): void {
+		Functions\when( 'current_user_can' )->justReturn( true );
+		$_GET = [
+			'action' => 'view',
+			'id'     => '7',
+		];
+		Functions\when( 'get_userdata' )->alias(
+			static function (): WP_User {
+				$user        = new WP_User();
+				$user->ID    = 7;
+				$user->roles = [ 'student' ];
+				return $user;
+			}
+		);
+
+		$page = new TestableStudentsListPage(
+			new InMemoryGroupRepository(),
+			new InMemoryGroupMemberRepository(),
+			new InMemoryEnrollmentRepository(),
+			$this->make_detail_page()
+		);
+
+		ob_start();
+		$page->render();
+		$output = (string) ob_get_clean();
+
+		// Detail page renders the tab wrapper; the list does not.
+		self::assertStringContainsString( 'nav-tab-wrapper', $output );
+		self::assertStringContainsString( 'Аналітика', $output );
+	}
+
 	public function test_render_outputs_wrap_with_heading_and_search_form(): void {
 		Functions\when( 'current_user_can' )->justReturn( true );
 
 		$page = new TestableStudentsListPage(
 			new InMemoryGroupRepository(),
 			new InMemoryGroupMemberRepository(),
-			new InMemoryEnrollmentRepository()
+			new InMemoryEnrollmentRepository(),
+			$this->make_detail_page()
 		);
 
 		$table                = new TestableStudentsListTable(

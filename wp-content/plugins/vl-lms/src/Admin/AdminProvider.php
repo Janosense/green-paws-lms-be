@@ -6,6 +6,7 @@ namespace VL\LMS\Admin;
 
 use VL\LMS\Admin\Groups\GroupFormHandler;
 use VL\LMS\Admin\Groups\GroupsListPage;
+use VL\LMS\Admin\Students\StudentsListPage;
 use VL\LMS\Admin\Lessons\LessonPickerAjaxHandler;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\MetaBoxes\AbstractMetaBox;
@@ -156,7 +157,7 @@ class AdminProvider {
 	}
 
 	public function enqueue_assets( string $hook ): void {
-		if ( $this->is_groups_admin_hook( $hook ) ) {
+		if ( $this->is_groups_admin_hook( $hook ) || $this->is_students_detail_hook( $hook ) ) {
 			$this->enqueue_groups_assets();
 			return;
 		}
@@ -285,6 +286,21 @@ class AdminProvider {
 	 */
 	private function is_groups_admin_hook( string $hook ): bool {
 		return str_ends_with( $hook, '_page_' . GroupsListPage::PAGE_SLUG );
+	}
+
+	/**
+	 * The per-student detail screen reuses the Groups course-search picker
+	 * for its grant-access form, so load the same assets there — but only on
+	 * the detail view (`action=view`), not the list, to keep them off the
+	 * read-only table.
+	 */
+	private function is_students_detail_hook( string $hook ): bool {
+		if ( ! str_ends_with( $hook, '_page_' . StudentsListPage::PAGE_SLUG ) ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only routing param for asset gating.
+		$action = isset( $_GET['action'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['action'] ) ) : '';
+		return 'view' === $action;
 	}
 
 	private function enqueue_groups_assets(): void {

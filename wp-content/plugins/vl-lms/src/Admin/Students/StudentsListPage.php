@@ -28,13 +28,21 @@ class StudentsListPage {
 	public function __construct(
 		private readonly GroupRepository $groups,
 		private readonly GroupMemberRepository $members,
-		private readonly EnrollmentRepository $enrollments
+		private readonly EnrollmentRepository $enrollments,
+		private readonly StudentDetailPage $detail_page
 	) {
 	}
 
 	public function render(): void {
 		if ( ! current_user_can( self::CAPABILITY ) ) {
 			$this->forbidden();
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only routing param.
+		$action = isset( $_GET['action'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['action'] ) ) : '';
+		if ( 'view' === $action ) {
+			$this->detail_page->render();
 			return;
 		}
 
