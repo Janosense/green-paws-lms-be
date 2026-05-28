@@ -26,11 +26,11 @@ final class CourseType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Course';
+		return 'Курс';
 	}
 
 	protected function plural_label(): string {
-		return 'Courses';
+		return 'Курси';
 	}
 
 	protected function capability_type(): array {

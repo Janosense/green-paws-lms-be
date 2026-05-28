@@ -46,11 +46,11 @@ final class AssignmentType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Assignment';
+		return 'Завдання';
 	}
 
 	protected function plural_label(): string {
-		return 'Assignments';
+		return 'Завдання';
 	}
 
 	protected function capability_type(): array {

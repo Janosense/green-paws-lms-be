@@ -28,11 +28,11 @@ final class LessonType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Lesson';
+		return 'Урок';
 	}
 
 	protected function plural_label(): string {
-		return 'Lessons';
+		return 'Уроки';
 	}
 
 	protected function capability_type(): array {

@@ -27,11 +27,11 @@ final class ModuleType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Module';
+		return 'Модуль';
 	}
 
 	protected function plural_label(): string {
-		return 'Modules';
+		return 'Модулі';
 	}
 
 	protected function capability_type(): array {

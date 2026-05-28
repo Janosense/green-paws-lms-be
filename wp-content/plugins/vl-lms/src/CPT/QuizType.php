@@ -36,11 +36,11 @@ final class QuizType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Quiz';
+		return 'Тест';
 	}
 
 	protected function plural_label(): string {
-		return 'Quizzes';
+		return 'Тести';
 	}
 
 	protected function capability_type(): array {

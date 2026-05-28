@@ -33,11 +33,11 @@ final class QuizQuestionType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Question';
+		return 'Питання';
 	}
 
 	protected function plural_label(): string {
-		return 'Questions';
+		return 'Питання';
 	}
 
 	protected function capability_type(): array {

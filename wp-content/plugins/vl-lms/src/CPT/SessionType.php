@@ -33,11 +33,11 @@ final class SessionType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Session';
+		return 'Сесія';
 	}
 
 	protected function plural_label(): string {
-		return 'Sessions';
+		return 'Сесії';
 	}
 
 	protected function capability_type(): array {

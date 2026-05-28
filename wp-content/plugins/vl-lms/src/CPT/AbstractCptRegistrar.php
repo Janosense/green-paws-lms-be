@@ -124,9 +124,14 @@ abstract class AbstractCptRegistrar {
 	/**
 	 * Build the standard WP labels array for wp-admin.
 	 *
-	 * Each user-visible label is wrapped in `__()` with the `vl-lms` text
-	 * domain. Translators see per-slot strings rather than sprintf
-	 * templates so they can tailor each label.
+	 * Labels are Ukrainian (the product's admin language — matching the
+	 * meta-box titles and the `AdminMenuProvider` menu). Each composite
+	 * label is still wrapped in `__()` with the `vl-lms` text domain so
+	 * `wp i18n make-pot` extracts it and a future locale could override
+	 * it. The singular/plural noun is interpolated after a colon
+	 * (nominative case) so one generic template stays grammatically
+	 * correct across masculine, feminine and neuter post-type names —
+	 * Ukrainian declension would otherwise need a per-type string.
 	 *
 	 * @return array<string, string>
 	 */
@@ -140,83 +145,84 @@ abstract class AbstractCptRegistrar {
 			'menu_name'             => $plural,
 			'name_admin_bar'        => $singular,
 			'all_items'             => $plural,
+			'add_new'               => __( 'Додати', 'vl-lms' ),
 			'add_new_item'          => sprintf(
 				/* translators: %s: singular post type label */
-				__( 'Add New %s', 'vl-lms' ),
+				__( 'Додати: %s', 'vl-lms' ),
 				$singular
 			),
 			'edit_item'             => sprintf(
 				/* translators: %s: singular post type label */
-				__( 'Edit %s', 'vl-lms' ),
+				__( 'Редагувати: %s', 'vl-lms' ),
 				$singular
 			),
 			'new_item'              => sprintf(
 				/* translators: %s: singular post type label */
-				__( 'New %s', 'vl-lms' ),
+				__( 'Новий запис: %s', 'vl-lms' ),
 				$singular
 			),
 			'view_item'             => sprintf(
 				/* translators: %s: singular post type label */
-				__( 'View %s', 'vl-lms' ),
+				__( 'Переглянути: %s', 'vl-lms' ),
 				$singular
 			),
 			'search_items'          => sprintf(
 				/* translators: %s: plural post type label */
-				__( 'Search %s', 'vl-lms' ),
+				__( 'Пошук: %s', 'vl-lms' ),
 				$plural
 			),
 			'not_found'             => sprintf(
-				/* translators: %s: plural post type label (lowercase) */
-				__( 'No %s found.', 'vl-lms' ),
-				strtolower( $plural )
+				/* translators: %s: plural post type label */
+				__( '%s не знайдено.', 'vl-lms' ),
+				$plural
 			),
 			'not_found_in_trash'    => sprintf(
-				/* translators: %s: plural post type label (lowercase) */
-				__( 'No %s found in Trash.', 'vl-lms' ),
-				strtolower( $plural )
+				/* translators: %s: plural post type label */
+				__( '%s не знайдено в кошику.', 'vl-lms' ),
+				$plural
 			),
 			'archives'              => sprintf(
 				/* translators: %s: singular post type label */
-				__( '%s Archives', 'vl-lms' ),
+				__( 'Архів: %s', 'vl-lms' ),
 				$singular
 			),
 			'insert_into_item'      => sprintf(
-				/* translators: %s: singular post type label (lowercase) */
-				__( 'Insert into %s', 'vl-lms' ),
-				strtolower( $singular )
+				/* translators: %s: singular post type label */
+				__( 'Вставити: %s', 'vl-lms' ),
+				$singular
 			),
 			'uploaded_to_this_item' => sprintf(
-				/* translators: %s: singular post type label (lowercase) */
-				__( 'Uploaded to this %s', 'vl-lms' ),
-				strtolower( $singular )
+				/* translators: %s: singular post type label */
+				__( 'Завантажено до: %s', 'vl-lms' ),
+				$singular
 			),
-			'featured_image'        => __( 'Featured image', 'vl-lms' ),
-			'set_featured_image'    => __( 'Set featured image', 'vl-lms' ),
-			'remove_featured_image' => __( 'Remove featured image', 'vl-lms' ),
-			'use_featured_image'    => __( 'Use as featured image', 'vl-lms' ),
+			'featured_image'        => __( 'Головне зображення', 'vl-lms' ),
+			'set_featured_image'    => __( 'Встановити головне зображення', 'vl-lms' ),
+			'remove_featured_image' => __( 'Видалити головне зображення', 'vl-lms' ),
+			'use_featured_image'    => __( 'Використати як головне зображення', 'vl-lms' ),
 			'filter_items_list'     => sprintf(
-				/* translators: %s: plural post type label (lowercase) */
-				__( 'Filter %s list', 'vl-lms' ),
-				strtolower( $plural )
+				/* translators: %s: plural post type label */
+				__( 'Фільтр: %s', 'vl-lms' ),
+				$plural
 			),
 			'items_list_navigation' => sprintf(
 				/* translators: %s: plural post type label */
-				__( '%s list navigation', 'vl-lms' ),
+				__( 'Навігація списком: %s', 'vl-lms' ),
 				$plural
 			),
 			'items_list'            => sprintf(
 				/* translators: %s: plural post type label */
-				__( '%s list', 'vl-lms' ),
+				__( 'Список: %s', 'vl-lms' ),
 				$plural
 			),
 			'attributes'            => sprintf(
 				/* translators: %s: singular post type label */
-				__( '%s attributes', 'vl-lms' ),
+				__( 'Атрибути: %s', 'vl-lms' ),
 				$singular
 			),
 			'parent_item_colon'     => sprintf(
 				/* translators: %s: singular post type label */
-				__( 'Parent %s:', 'vl-lms' ),
+				__( 'Батьківський запис: %s', 'vl-lms' ),
 				$singular
 			),
 		];

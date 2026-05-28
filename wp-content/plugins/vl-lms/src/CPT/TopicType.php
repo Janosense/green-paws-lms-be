@@ -32,11 +32,11 @@ final class TopicType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Topic';
+		return 'Тема';
 	}
 
 	protected function plural_label(): string {
-		return 'Topics';
+		return 'Теми';
 	}
 
 	protected function capability_type(): array {

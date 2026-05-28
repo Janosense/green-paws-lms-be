@@ -33,11 +33,11 @@ final class WebinarType extends AbstractCptRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Webinar';
+		return 'Вебінар';
 	}
 
 	protected function plural_label(): string {
-		return 'Webinars';
+		return 'Вебінари';
 	}
 
 	protected function capability_type(): array {
