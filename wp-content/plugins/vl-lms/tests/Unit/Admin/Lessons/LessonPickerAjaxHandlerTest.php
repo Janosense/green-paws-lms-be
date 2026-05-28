@@ -153,7 +153,7 @@ final class LessonPickerAjaxHandlerTest extends TestCase {
 		$_REQUEST = [ 'nonce' => 'good' ];
 		$_POST    = [
 			'nonce'     => 'good',
-			'course_id' => '42',
+			'parent_id' => '42',
 			'lesson_id' => '9',
 		];
 
@@ -161,6 +161,25 @@ final class LessonPickerAjaxHandlerTest extends TestCase {
 
 		self::assertCount( 1, $this->error_calls );
 		self::assertSame( 409, $this->error_calls[0][1] );
+		self::assertSame( [], $this->update_calls );
+	}
+
+	public function test_attach_rejects_parent_that_is_not_course_or_module(): void {
+		Functions\when( 'wp_verify_nonce' )->justReturn( 1 );
+		Functions\when( 'current_user_can' )->justReturn( true );
+		Functions\when( 'get_post_type' )->justReturn( 'vl_lesson' );
+
+		$_REQUEST = [ 'nonce' => 'good' ];
+		$_POST    = [
+			'nonce'     => 'good',
+			'parent_id' => '42',
+			'lesson_id' => '9',
+		];
+
+		$this->invoke( fn () => ( new LessonPickerAjaxHandler() )->attach() );
+
+		self::assertCount( 1, $this->error_calls );
+		self::assertSame( 400, $this->error_calls[0][1] );
 		self::assertSame( [], $this->update_calls );
 	}
 
@@ -176,7 +195,7 @@ final class LessonPickerAjaxHandlerTest extends TestCase {
 		$_REQUEST = [ 'nonce' => 'good' ];
 		$_POST    = [
 			'nonce'     => 'good',
-			'course_id' => '42',
+			'parent_id' => '42',
 			'lesson_id' => '9',
 		];
 
@@ -187,7 +206,7 @@ final class LessonPickerAjaxHandlerTest extends TestCase {
 		self::assertSame( [], $this->update_calls );
 	}
 
-	public function test_attach_writes_parent_and_menu_order(): void {
+	public function test_attach_writes_parent_and_menu_order_for_course(): void {
 		Functions\when( 'wp_verify_nonce' )->justReturn( 1 );
 		Functions\when( 'current_user_can' )->justReturn( true );
 		Functions\when( 'get_post_type' )->justReturn( 'vl_course' );
@@ -199,7 +218,7 @@ final class LessonPickerAjaxHandlerTest extends TestCase {
 		$_REQUEST = [ 'nonce' => 'good' ];
 		$_POST    = [
 			'nonce'     => 'good',
-			'course_id' => '42',
+			'parent_id' => '42',
 			'lesson_id' => '9',
 		];
 
@@ -212,6 +231,28 @@ final class LessonPickerAjaxHandlerTest extends TestCase {
 		self::assertSame( 4, $this->update_calls[0]['menu_order'] );
 		self::assertCount( 1, $this->success_calls );
 		self::assertSame( 9, $this->success_calls[0]['id'] );
+	}
+
+	public function test_attach_writes_parent_for_module(): void {
+		Functions\when( 'wp_verify_nonce' )->justReturn( 1 );
+		Functions\when( 'current_user_can' )->justReturn( true );
+		Functions\when( 'get_post_type' )->justReturn( 'vl_module' );
+		Functions\when( 'get_post' )->justReturn( self::fakeLesson( 9, 0, 'Free lesson' ) );
+		Functions\when( 'get_posts' )->justReturn( [] );
+
+		$_REQUEST = [ 'nonce' => 'good' ];
+		$_POST    = [
+			'nonce'     => 'good',
+			'parent_id' => '77',
+			'lesson_id' => '9',
+		];
+
+		$this->invoke( fn () => ( new LessonPickerAjaxHandler() )->attach() );
+
+		self::assertSame( [], $this->error_calls );
+		self::assertCount( 1, $this->update_calls );
+		self::assertSame( 77, $this->update_calls[0]['post_parent'] );
+		self::assertSame( 0, $this->update_calls[0]['menu_order'] );
 	}
 
 	public function test_detach_zeroes_parent(): void {

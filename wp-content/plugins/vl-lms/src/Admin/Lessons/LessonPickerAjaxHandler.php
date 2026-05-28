@@ -7,19 +7,21 @@ namespace VL\LMS\Admin\Lessons;
 use WP_Post;
 
 /**
- * AJAX backend for the "pick an existing lesson" feature on the course
- * edit screen ({@see \VL\LMS\Admin\MetaBoxes\ChildList\CourseLessonListMetaBox}).
+ * AJAX backend for the "pick an existing lesson" feature shared by the
+ * course edit screen ({@see \VL\LMS\Admin\MetaBoxes\ChildList\CourseLessonListMetaBox})
+ * and the module edit screen ({@see \VL\LMS\Admin\MetaBoxes\ChildList\LessonListMetaBox}).
  *
- * Course-direct lessons ("orphan lessons") are `vl_lesson` posts whose
- * `post_parent` is the course itself rather than a module
- * ({@see \VL\LMS\Learn\CurriculumTransformer::query_orphan_lessons()}).
+ * A lesson can hang directly off a `vl_course` (course-direct, see
+ * {@see \VL\LMS\Learn\CurriculumTransformer::query_orphan_lessons()}) or
+ * off a `vl_module`, so `attach` accepts either parent type via a single
+ * `parent_id` field.
  *
  * Three verbs, each on its own nonce action:
  *  - `search`  → list unattached (`post_parent = 0`) `vl_lesson` posts
  *                matching a title query, so attaching one never steals it
  *                from another course or module.
- *  - `attach`  → re-parent an unattached lesson to a course and place it
- *                at the end of the list (`menu_order = max + 1`).
+ *  - `attach`  → re-parent an unattached lesson to a course or module and
+ *                place it at the end of the list (`menu_order = max + 1`).
  *  - `detach`  → unlink a lesson (`post_parent = 0`) without deleting it.
  *
  * Mirrors {@see \VL\LMS\Admin\Modules\ModulePickerAjaxHandler}: explicit
@@ -38,6 +40,9 @@ class LessonPickerAjaxHandler {
 	public const string DETACH_ACTION = 'vl_lms_lesson_detach';
 
 	private const int MAX_RESULTS = 10;
+
+	/** @var list<string> */
+	private const array PARENT_TYPES = [ 'vl_course', 'vl_module' ];
 
 	public function search(): void {
 		$this->require_nonce( self::SEARCH_ACTION );
@@ -86,16 +91,16 @@ class LessonPickerAjaxHandler {
 		$this->require_nonce( self::ATTACH_ACTION );
 
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Nonce verified above.
-		$course_id = isset( $_POST['course_id'] ) ? absint( wp_unslash( $_POST['course_id'] ) ) : 0;
+		$parent_id = isset( $_POST['parent_id'] ) ? absint( wp_unslash( $_POST['parent_id'] ) ) : 0;
 		$lesson_id = isset( $_POST['lesson_id'] ) ? absint( wp_unslash( $_POST['lesson_id'] ) ) : 0;
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
-		if ( $course_id <= 0 || $lesson_id <= 0 ) {
+		if ( $parent_id <= 0 || $lesson_id <= 0 ) {
 			wp_send_json_error( [ 'message' => 'missing_ids' ], 400 );
 		}
 
-		if ( 'vl_course' !== get_post_type( $course_id ) ) {
-			wp_send_json_error( [ 'message' => 'invalid_course' ], 400 );
+		if ( ! in_array( (string) get_post_type( $parent_id ), self::PARENT_TYPES, true ) ) {
+			wp_send_json_error( [ 'message' => 'invalid_parent' ], 400 );
 		}
 
 		$lesson = get_post( $lesson_id );
@@ -109,15 +114,15 @@ class LessonPickerAjaxHandler {
 			wp_send_json_error( [ 'message' => 'already_attached' ], 409 );
 		}
 
-		if ( ! current_user_can( 'edit_post', $lesson_id ) || ! current_user_can( 'edit_post', $course_id ) ) {
+		if ( ! current_user_can( 'edit_post', $lesson_id ) || ! current_user_can( 'edit_post', $parent_id ) ) {
 			wp_send_json_error( [ 'message' => 'forbidden' ], 403 );
 		}
 
 		wp_update_post(
 			[
 				'ID'          => $lesson_id,
-				'post_parent' => $course_id,
-				'menu_order'  => $this->next_menu_order( $course_id ),
+				'post_parent' => $parent_id,
+				'menu_order'  => $this->next_menu_order( $parent_id ),
 			]
 		);
 
@@ -171,14 +176,15 @@ class LessonPickerAjaxHandler {
 	}
 
 	/**
-	 * Next `menu_order` for a course's direct-lesson list — one past the
-	 * current maximum so an attached lesson lands at the bottom.
+	 * Next `menu_order` for a parent's lesson list — one past the current
+	 * maximum so an attached lesson lands at the bottom. The parent is a
+	 * `vl_course` (course-direct) or a `vl_module`.
 	 */
-	private function next_menu_order( int $course_id ): int {
+	private function next_menu_order( int $parent_id ): int {
 		$siblings = get_posts(
 			[
 				'post_type'      => 'vl_lesson',
-				'post_parent'    => $course_id,
+				'post_parent'    => $parent_id,
 				'post_status'    => 'any',
 				'posts_per_page' => 1,
 				'orderby'        => 'menu_order',

@@ -56,7 +56,16 @@ class LessonMetaBox extends AbstractMetaBox {
 			&& isset( $modules[ (string) $selected_module_id ] ) ) {
 			$selected_course_id = (int) $modules[ (string) $selected_module_id ]['course_id'];
 		} elseif ( 0 === $current_parent ) {
-			$selected_course_id = $this->course_hint_from_query_string( $courses );
+			// Fresh lesson opened via a "Додати урок" button — the URL
+			// carries ?vl_parent_id=<course|module id>. A module hint also
+			// pins its parent course; a course hint stands alone.
+			$hint = $this->parent_hint_from_query_string();
+			if ( isset( $modules[ (string) $hint ] ) ) {
+				$selected_module_id = $hint;
+				$selected_course_id = (int) $modules[ (string) $hint ]['course_id'];
+			} elseif ( $hint > 0 && isset( $courses[ (string) $hint ] ) ) {
+				$selected_course_id = $hint;
+			}
 		}
 
 		if ( $selected_course_id > 0 && ! isset( $courses[ (string) $selected_course_id ] ) ) {
@@ -184,24 +193,19 @@ class LessonMetaBox extends AbstractMetaBox {
 	}
 
 	/**
-	 * If the editor arrived via the "Додати урок" button on a course,
-	 * the URL carries `?vl_parent_id=<course_id>`. Return that id when it
-	 * resolves to a known self-paced course — otherwise 0. Mirrors
-	 * {@see \VL\LMS\Admin\MetaBoxes\ModuleMetaBox::course_hint_from_query_string()}.
-	 *
-	 * @param array<string, string> $courses
+	 * Raw `?vl_parent_id=` hint from a "Додати урок" button — a `vl_course`
+	 * id (course-direct list) or a `vl_module` id (module list). The caller
+	 * resolves which by looking the id up in its course / module maps.
+	 * Returns 0 when absent or non-positive.
 	 */
-	private function course_hint_from_query_string( array $courses ): int {
+	private function parent_hint_from_query_string(): int {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only hint, no state change.
 		if ( ! isset( $_GET['vl_parent_id'] ) ) {
 			return 0;
 		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$candidate = (int) $_GET['vl_parent_id'];
-		if ( $candidate <= 0 ) {
-			return 0;
-		}
-		return isset( $courses[ (string) $candidate ] ) ? $candidate : 0;
+		return $candidate > 0 ? $candidate : 0;
 	}
 
 	/**

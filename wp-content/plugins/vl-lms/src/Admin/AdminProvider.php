@@ -214,7 +214,7 @@ class AdminProvider {
 					],
 					'i18n'    => [
 						'noLessons'     => __( 'Уроків не знайдено', 'vl-lms' ),
-						'confirmUnlink' => __( 'Відкріпити урок від цього курсу?', 'vl-lms' ),
+						'confirmUnlink' => __( 'Відкріпити цей урок?', 'vl-lms' ),
 						'edit'          => __( 'Редагувати', 'vl-lms' ),
 						'unlink'        => __( 'Відкріпити', 'vl-lms' ),
 					],

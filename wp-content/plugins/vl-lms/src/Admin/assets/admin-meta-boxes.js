@@ -420,7 +420,9 @@
 		}
 	} );
 
-	// --- Existing-lesson picker (course edit screen) ---
+	// --- Existing-lesson picker (course + module edit screens) ---
+	// Scoped to the enclosing .postbox so the one handler drives both the
+	// course screen's "Уроки курсу" box and the module screen's "Уроки" box.
 	function lessonsConfig() {
 		if ( typeof VL_LMS_ADMIN === 'undefined' || ! VL_LMS_ADMIN.lessons ) {
 			return null;
@@ -444,9 +446,9 @@
 		$list.removeAttr( 'hidden' );
 	}
 
-	$( document ).on( 'input', '#vl-lms-lesson-search-input', debounce( function () {
+	$( document ).on( 'input', '.vl-lms-lesson-search input[type="text"]', debounce( function () {
 		var cfg = lessonsConfig();
-		var $list = $( '.vl-lms-lesson-search-results' );
+		var $list = $( this ).closest( '.vl-lms-lesson-search' ).find( '.vl-lms-lesson-search-results' );
 		var query = $( this ).val();
 		if ( ! cfg || ! query || query.length < 2 ) {
 			$list.empty().attr( 'hidden', true );
@@ -485,10 +487,11 @@
 	$( document ).on( 'click', '.vl-lms-lesson-search-results li', function ( ev ) {
 		ev.preventDefault();
 		var cfg = lessonsConfig();
-		var $picker = $( '.vl-lms-lesson-search' );
-		var courseId = parseInt( $picker.attr( 'data-course-id' ), 10 );
+		var $picker = $( this ).closest( '.vl-lms-lesson-search' );
+		var $box = $picker.closest( '.postbox' );
+		var parentId = parseInt( $picker.attr( 'data-parent-id' ), 10 );
 		var lessonId = parseInt( $( this ).attr( 'data-lesson-id' ), 10 );
-		if ( ! cfg || ! courseId || ! lessonId ) {
+		if ( ! cfg || ! parentId || ! lessonId ) {
 			return;
 		}
 		$.ajax( {
@@ -497,21 +500,21 @@
 			data: {
 				action: cfg.actions.attach,
 				nonce: cfg.nonces.attach,
-				course_id: courseId,
+				parent_id: parentId,
 				lesson_id: lessonId
 			}
 		} ).done( function ( resp ) {
 			if ( ! resp || ! resp.success || ! resp.data ) {
 				return;
 			}
-			var $list = $( '#vl_lms_course_lesson_list ul.vl-sortable-list' );
+			var $list = $box.find( 'ul.vl-sortable-list' );
 			$list.append( renderLessonRow( cfg, resp.data ) ).removeAttr( 'hidden' );
-			$( '#vl_lms_course_lesson_list .vl-lms-empty' ).attr( 'hidden', true );
+			$box.find( '.vl-lms-empty' ).attr( 'hidden', true );
 			if ( $list.data( 'uiSortable' ) ) {
 				$list.sortable( 'refresh' );
 			}
-			$( '#vl-lms-lesson-search-input' ).val( '' );
-			$( '.vl-lms-lesson-search-results' ).empty().attr( 'hidden', true );
+			$picker.find( 'input[type="text"]' ).val( '' );
+			$picker.find( '.vl-lms-lesson-search-results' ).empty().attr( 'hidden', true );
 		} );
 	} );
 
@@ -519,6 +522,7 @@
 		ev.preventDefault();
 		var cfg = lessonsConfig();
 		var $btn = $( this );
+		var $box = $btn.closest( '.postbox' );
 		var lessonId = parseInt( $btn.attr( 'data-id' ), 10 );
 		if ( ! cfg || ! lessonId ) {
 			return;
@@ -539,11 +543,11 @@
 			if ( ! resp || ! resp.success ) {
 				return;
 			}
-			var $list = $( '#vl_lms_course_lesson_list ul.vl-sortable-list' );
+			var $list = $box.find( 'ul.vl-sortable-list' );
 			$btn.closest( 'li' ).remove();
 			if ( ! $list.children( 'li' ).length ) {
 				$list.attr( 'hidden', true );
-				$( '#vl_lms_course_lesson_list .vl-lms-empty' ).removeAttr( 'hidden' );
+				$box.find( '.vl-lms-empty' ).removeAttr( 'hidden' );
 			}
 		} );
 	} );

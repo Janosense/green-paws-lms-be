@@ -79,7 +79,7 @@ final class CourseLessonListMetaBoxTest extends TestCase {
 		self::assertStringContainsString( 'post-new.php?post_type=vl_lesson', $html );
 		self::assertStringContainsString( 'vl_parent_id=42', $html );
 		self::assertStringContainsString( 'vl-lms-lesson-search', $html );
-		self::assertStringContainsString( 'data-course-id="42"', $html );
+		self::assertStringContainsString( 'data-parent-id="42"', $html );
 	}
 
 	public function test_render_links_each_lesson_row_to_edit_and_unlink(): void {
