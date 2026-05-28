@@ -32,6 +32,9 @@ final class ModuleTransformerTest extends TestCase {
 		Functions\when( 'get_post_meta' )->alias(
 			fn ( int $post_id, string $key ): mixed => $this->meta[ $key ][ $post_id ] ?? ''
 		);
+		Functions\when( 'apply_filters' )->alias(
+			static fn ( string $hook, mixed $value ): string => '<p>' . $value . '</p>'
+		);
 
 		$this->transformer = new ModuleTransformer( new LessonSummaryTransformer() );
 	}
@@ -51,7 +54,7 @@ final class ModuleTransformerTest extends TestCase {
 		];
 
 		$result = $this->transformer->transform(
-			$this->module( 45, 'Module 1' ),
+			$this->module( 45, 'Module 1', 'Intro text' ),
 			[
 				$this->lesson( 51, 'Lesson 1' ),
 				$this->lesson( 52, 'Lesson 2' ),
@@ -60,6 +63,7 @@ final class ModuleTransformerTest extends TestCase {
 
 		self::assertSame( 45, $result['id'] );
 		self::assertSame( 'Module 1', $result['title'] );
+		self::assertSame( '<p>Intro text</p>', $result['content'] );
 		self::assertCount( 2, $result['lessons'] );
 		self::assertSame( 51, $result['lessons'][0]['id'] );
 		self::assertTrue( $result['lessons'][0]['is_preview'] );
@@ -71,11 +75,18 @@ final class ModuleTransformerTest extends TestCase {
 		self::assertSame( [], $result['lessons'] );
 	}
 
-	private function module( int $id, string $title ): WP_Post {
-		$post             = Mockery::mock( 'WP_Post' );
-		$post->ID         = $id;
-		$post->post_title = $title;
-		$post->post_type  = 'vl_module';
+	public function test_blank_content_emits_empty_string_without_rendering(): void {
+		$result = $this->transformer->transform( $this->module( 45, 'M', '   ' ), [] );
+
+		self::assertSame( '', $result['content'] );
+	}
+
+	private function module( int $id, string $title, string $content = '' ): WP_Post {
+		$post               = Mockery::mock( 'WP_Post' );
+		$post->ID           = $id;
+		$post->post_title   = $title;
+		$post->post_content = $content;
+		$post->post_type    = 'vl_module';
 		return $post;
 	}
 

@@ -198,13 +198,14 @@ final class CurriculumTransformerTest extends TestCase {
 	}
 
 	private function module( int $id, string $title, int $parent ): WP_Post {
-		$post              = Mockery::mock( 'WP_Post' );
-		$post->ID          = $id;
-		$post->post_title  = $title;
-		$post->post_type   = 'vl_module';
-		$post->post_status = 'publish';
-		$post->post_parent = $parent;
-		$post->menu_order  = 0;
+		$post               = Mockery::mock( 'WP_Post' );
+		$post->ID           = $id;
+		$post->post_title   = $title;
+		$post->post_content = '';
+		$post->post_type    = 'vl_module';
+		$post->post_status  = 'publish';
+		$post->post_parent  = $parent;
+		$post->menu_order   = 0;
 		return $post;
 	}
 

@@ -30,13 +30,18 @@ final class ModuleTransformer {
 	 * @return array{
 	 *     id: int,
 	 *     title: string,
+	 *     content: string,
 	 *     lessons: list<array{id: int, title: string, duration_seconds: int, is_preview: bool}>
 	 * }
 	 */
 	public function transform( WP_Post $module, array $lessons ): array {
+		$raw_content = (string) $module->post_content;
+
 		return [
 			'id'      => (int) $module->ID,
 			'title'   => (string) get_the_title( $module ),
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Invoking WP core's `the_content` filter so wpautop / shortcodes run on the post body.
+			'content' => '' === trim( $raw_content ) ? '' : (string) apply_filters( 'the_content', $raw_content ),
 			'lessons' => array_map(
 				fn ( WP_Post $lesson ): array => $this->lesson_summary->transform( $lesson ),
 				$lessons
