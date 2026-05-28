@@ -32,6 +32,7 @@ final class CourseLessonListMetaBoxTest extends TestCase {
 		Functions\when( 'esc_attr' )->returnArg();
 		Functions\when( 'esc_html__' )->returnArg();
 		Functions\when( 'esc_attr__' )->returnArg();
+		Functions\when( '__' )->returnArg();
 		Functions\when( 'wp_create_nonce' )->justReturn( 'nonce-x' );
 		Functions\when( 'get_edit_post_link' )->alias(
 			static fn ( int $id ): string => 'https://admin.test/wp-admin/post.php?post=' . $id . '&action=edit'
@@ -78,7 +79,8 @@ final class CourseLessonListMetaBoxTest extends TestCase {
 		self::assertStringContainsString( 'Додати урок', $html );
 		self::assertStringContainsString( 'post-new.php?post_type=vl_lesson', $html );
 		self::assertStringContainsString( 'vl_parent_id=42', $html );
-		self::assertStringContainsString( 'vl-lms-lesson-search', $html );
+		self::assertStringContainsString( 'vl-lms-entity-search', $html );
+		self::assertStringContainsString( 'data-entity="lesson"', $html );
 		self::assertStringContainsString( 'data-parent-id="42"', $html );
 	}
 
@@ -102,7 +104,7 @@ final class CourseLessonListMetaBoxTest extends TestCase {
 		self::assertStringContainsString( 'Sample lesson', $html );
 		self::assertStringContainsString( 'post.php?post=9&action=edit', $html );
 		self::assertStringContainsString( 'Редагувати', $html );
-		self::assertStringContainsString( 'vl-lms-lesson-unlink', $html );
+		self::assertStringContainsString( 'vl-lms-entity-unlink', $html );
 		self::assertStringContainsString( 'Відкріпити', $html );
 		self::assertStringContainsString( 'data-id="9"', $html );
 	}

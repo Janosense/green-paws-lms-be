@@ -31,6 +31,8 @@ final class TopicListMetaBoxTest extends TestCase {
 		Functions\when( 'esc_html' )->returnArg();
 		Functions\when( 'esc_attr' )->returnArg();
 		Functions\when( 'esc_html__' )->returnArg();
+		Functions\when( 'esc_attr__' )->returnArg();
+		Functions\when( '__' )->returnArg();
 		Functions\when( 'wp_create_nonce' )->justReturn( 'nonce-stub' );
 		Functions\when( 'get_edit_post_link' )->alias(
 			static fn ( int $id ): string => 'https://admin.test/wp-admin/post.php?post=' . $id . '&action=edit'
@@ -59,7 +61,7 @@ final class TopicListMetaBoxTest extends TestCase {
 		self::assertSame( 'vl_lesson', $captured[0][3] );
 	}
 
-	public function test_render_shows_add_new_button_even_when_no_topics(): void {
+	public function test_render_shows_add_button_and_picker_even_when_no_topics(): void {
 		Functions\when( 'get_posts' )->justReturn( [] );
 
 		$post     = Mockery::mock( 'WP_Post' );
@@ -74,9 +76,12 @@ final class TopicListMetaBoxTest extends TestCase {
 		self::assertStringContainsString( 'Додати тему', $html );
 		self::assertStringContainsString( 'post-new.php?post_type=vl_topic', $html );
 		self::assertStringContainsString( 'vl_parent_id=42', $html );
+		self::assertStringContainsString( 'vl-lms-entity-search', $html );
+		self::assertStringContainsString( 'data-entity="topic"', $html );
+		self::assertStringContainsString( 'data-parent-id="42"', $html );
 	}
 
-	public function test_render_links_each_topic_row_to_edit_screen(): void {
+	public function test_render_links_each_topic_row_to_edit_and_unlink(): void {
 		$topic     = Mockery::mock( 'WP_Post' );
 		$topic->ID = 9;
 		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
@@ -97,5 +102,8 @@ final class TopicListMetaBoxTest extends TestCase {
 		self::assertStringContainsString( 'post.php?post=9&action=edit', $html );
 		self::assertStringContainsString( 'Редагувати', $html );
 		self::assertStringContainsString( 'Додати тему', $html );
+		self::assertStringContainsString( 'vl-lms-entity-unlink', $html );
+		self::assertStringContainsString( 'Відкріпити', $html );
+		self::assertStringContainsString( 'data-id="9"', $html );
 	}
 }

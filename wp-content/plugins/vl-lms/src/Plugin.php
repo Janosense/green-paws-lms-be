@@ -23,6 +23,7 @@ use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\Students\StudentsListPage;
 use VL\LMS\Admin\MetaBoxes\AssignmentMetaBox;
 use VL\LMS\Admin\Lessons\LessonPickerAjaxHandler;
+use VL\LMS\Admin\Topics\TopicPickerAjaxHandler;
 use VL\LMS\Admin\MetaBoxes\ChildList\CourseLessonListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\LessonListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\ModuleListMetaBox;
@@ -2833,6 +2834,7 @@ final class Plugin {
 		$container->set( QuestionListMetaBox::class, static fn (): QuestionListMetaBox => new QuestionListMetaBox() );
 		$container->set( ReorderAjaxHandler::class, static fn (): ReorderAjaxHandler => new ReorderAjaxHandler() );
 		$container->set( LessonPickerAjaxHandler::class, static fn (): LessonPickerAjaxHandler => new LessonPickerAjaxHandler() );
+		$container->set( TopicPickerAjaxHandler::class, static fn (): TopicPickerAjaxHandler => new TopicPickerAjaxHandler() );
 
 		$container->set(
 			AdminProvider::class,
@@ -2863,9 +2865,11 @@ final class Plugin {
 				assert( $menu_provider instanceof AdminMenuProvider );
 				$lesson_picker = $c->get( LessonPickerAjaxHandler::class );
 				assert( $lesson_picker instanceof LessonPickerAjaxHandler );
+				$topic_picker = $c->get( TopicPickerAjaxHandler::class );
+				assert( $topic_picker instanceof TopicPickerAjaxHandler );
 				/** @var list<\VL\LMS\Admin\MetaBoxes\AbstractMetaBox> $boxes */
 				/** @var list<\VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox> $child_list_boxes */
-				return new AdminProvider( $boxes, $child_list_boxes, $reorder_handler, $menu_provider, null, $lesson_picker );
+				return new AdminProvider( $boxes, $child_list_boxes, $reorder_handler, $menu_provider, null, $lesson_picker, $topic_picker );
 			}
 		);
 

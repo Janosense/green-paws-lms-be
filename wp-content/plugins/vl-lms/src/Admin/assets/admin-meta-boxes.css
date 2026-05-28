@@ -161,27 +161,28 @@
 	background: #f0f6fc;
 }
 
-/* Existing-module / existing-lesson picker (course edit screen) */
+/* Existing-entity pickers: modules (course screen) + the generic
+   lesson / topic picker (course / module / lesson screens) */
 .vl-lms-module-search,
-.vl-lms-lesson-search {
+.vl-lms-entity-search {
 	position: relative;
 	margin-top: 8px;
 }
 
 .vl-lms-module-search label,
-.vl-lms-lesson-search label {
+.vl-lms-entity-search label {
 	display: block;
 	margin-bottom: 4px;
 	color: #50575e;
 }
 
 .vl-lms-module-search input[type="text"],
-.vl-lms-lesson-search input[type="text"] {
+.vl-lms-entity-search input[type="text"] {
 	width: 100%;
 }
 
 .vl-lms-module-search-results,
-.vl-lms-lesson-search-results {
+.vl-lms-entity-search-results {
 	position: absolute;
 	z-index: 10;
 	background: #fff;
@@ -196,20 +197,20 @@
 }
 
 .vl-lms-module-search-results li,
-.vl-lms-lesson-search-results li {
+.vl-lms-entity-search-results li {
 	padding: 6px 10px;
 	cursor: pointer;
 }
 
 .vl-lms-module-search-results li:hover,
 .vl-lms-module-search-results li.is-active,
-.vl-lms-lesson-search-results li:hover,
-.vl-lms-lesson-search-results li.is-active {
+.vl-lms-entity-search-results li:hover,
+.vl-lms-entity-search-results li.is-active {
 	background: #f0f6fc;
 }
 
 .vl-lms-module-unlink,
-.vl-lms-lesson-unlink {
+.vl-lms-entity-unlink {
 	color: #b32d2e;
 }
 

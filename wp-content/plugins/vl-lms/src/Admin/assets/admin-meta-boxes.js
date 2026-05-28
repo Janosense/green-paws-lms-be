@@ -420,35 +420,37 @@
 		}
 	} );
 
-	// --- Existing-lesson picker (course + module edit screens) ---
-	// Scoped to the enclosing .postbox so the one handler drives both the
-	// course screen's "Уроки курсу" box and the module screen's "Уроки" box.
-	function lessonsConfig() {
-		if ( typeof VL_LMS_ADMIN === 'undefined' || ! VL_LMS_ADMIN.lessons ) {
+	// --- Generic add / unlink picker (lesson + topic lists) ---
+	// One handler set drives every screen: the picker carries data-entity
+	// (lesson|topic) selecting its config in VL_LMS_ADMIN.pickers, and it
+	// is scoped to the enclosing .postbox so the right list is updated.
+	function pickerConfig( entity ) {
+		if ( typeof VL_LMS_ADMIN === 'undefined' || ! VL_LMS_ADMIN.pickers ) {
 			return null;
 		}
-		return VL_LMS_ADMIN.lessons;
+		return VL_LMS_ADMIN.pickers[ entity ] || null;
 	}
 
-	function renderLessonResults( $list, results ) {
+	function renderPickerResults( $list, results ) {
 		$list.empty();
 		if ( ! results.length ) {
 			$list.attr( 'hidden', true );
 			return;
 		}
-		$.each( results, function ( _i, lesson ) {
+		$.each( results, function ( _i, item ) {
 			$( '<li/>' )
-				.attr( 'data-lesson-id', lesson.id )
-				.attr( 'data-title', lesson.title )
-				.text( lesson.title )
+				.attr( 'data-child-id', item.id )
+				.attr( 'data-title', item.title )
+				.text( item.title )
 				.appendTo( $list );
 		} );
 		$list.removeAttr( 'hidden' );
 	}
 
-	$( document ).on( 'input', '.vl-lms-lesson-search input[type="text"]', debounce( function () {
-		var cfg = lessonsConfig();
-		var $list = $( this ).closest( '.vl-lms-lesson-search' ).find( '.vl-lms-lesson-search-results' );
+	$( document ).on( 'input', '.vl-lms-entity-search input[type="text"]', debounce( function () {
+		var $picker = $( this ).closest( '.vl-lms-entity-search' );
+		var cfg = pickerConfig( $picker.attr( 'data-entity' ) );
+		var $list = $picker.find( '.vl-lms-entity-search-results' );
 		var query = $( this ).val();
 		if ( ! cfg || ! query || query.length < 2 ) {
 			$list.empty().attr( 'hidden', true );
@@ -464,81 +466,85 @@
 			}
 		} ).done( function ( resp ) {
 			if ( resp && resp.success && Array.isArray( resp.data ) ) {
-				renderLessonResults( $list, resp.data );
+				renderPickerResults( $list, resp.data );
 			}
 		} );
 	}, 250 ) );
 
-	function renderLessonRow( cfg, lesson ) {
+	function renderPickerRow( cfg, entity, item ) {
 		var $row = $(
 			'<li>'
 			+ '<span class="vl-sortable-handle">⋮⋮</span> '
 			+ '<span class="vl-sortable-title"></span> '
 			+ '<a class="vl-sortable-edit"></a> '
-			+ '<button type="button" class="button-link vl-lms-lesson-unlink"></button>'
+			+ '<button type="button" class="button-link vl-lms-entity-unlink"></button>'
 			+ '</li>'
-		).attr( 'data-id', lesson.id );
-		$row.find( '.vl-sortable-title' ).text( lesson.title );
-		$row.find( '.vl-sortable-edit' ).attr( 'href', lesson.editLink || '#' ).text( cfg.i18n.edit );
-		$row.find( '.vl-lms-lesson-unlink' ).attr( 'data-id', lesson.id ).text( cfg.i18n.unlink );
+		).attr( 'data-id', item.id );
+		$row.find( '.vl-sortable-title' ).text( item.title );
+		$row.find( '.vl-sortable-edit' ).attr( 'href', item.editLink || '#' ).text( cfg.i18n.edit );
+		$row.find( '.vl-lms-entity-unlink' ).attr( { 'data-id': item.id, 'data-entity': entity } ).text( cfg.i18n.unlink );
 		return $row;
 	}
 
-	$( document ).on( 'click', '.vl-lms-lesson-search-results li', function ( ev ) {
+	$( document ).on( 'click', '.vl-lms-entity-search-results li', function ( ev ) {
 		ev.preventDefault();
-		var cfg = lessonsConfig();
-		var $picker = $( this ).closest( '.vl-lms-lesson-search' );
+		var $picker = $( this ).closest( '.vl-lms-entity-search' );
+		var entity = $picker.attr( 'data-entity' );
+		var cfg = pickerConfig( entity );
 		var $box = $picker.closest( '.postbox' );
 		var parentId = parseInt( $picker.attr( 'data-parent-id' ), 10 );
-		var lessonId = parseInt( $( this ).attr( 'data-lesson-id' ), 10 );
-		if ( ! cfg || ! parentId || ! lessonId ) {
+		var childId = parseInt( $( this ).attr( 'data-child-id' ), 10 );
+		if ( ! cfg || ! parentId || ! childId ) {
 			return;
 		}
+		var payload = {
+			action: cfg.actions.attach,
+			nonce: cfg.nonces.attach,
+			parent_id: parentId
+		};
+		payload[ entity + '_id' ] = childId;
 		$.ajax( {
 			url: VL_LMS_ADMIN.ajaxUrl,
 			method: 'POST',
-			data: {
-				action: cfg.actions.attach,
-				nonce: cfg.nonces.attach,
-				parent_id: parentId,
-				lesson_id: lessonId
-			}
+			data: payload
 		} ).done( function ( resp ) {
 			if ( ! resp || ! resp.success || ! resp.data ) {
 				return;
 			}
 			var $list = $box.find( 'ul.vl-sortable-list' );
-			$list.append( renderLessonRow( cfg, resp.data ) ).removeAttr( 'hidden' );
+			$list.append( renderPickerRow( cfg, entity, resp.data ) ).removeAttr( 'hidden' );
 			$box.find( '.vl-lms-empty' ).attr( 'hidden', true );
 			if ( $list.data( 'uiSortable' ) ) {
 				$list.sortable( 'refresh' );
 			}
 			$picker.find( 'input[type="text"]' ).val( '' );
-			$picker.find( '.vl-lms-lesson-search-results' ).empty().attr( 'hidden', true );
+			$picker.find( '.vl-lms-entity-search-results' ).empty().attr( 'hidden', true );
 		} );
 	} );
 
-	$( document ).on( 'click', '.vl-lms-lesson-unlink', function ( ev ) {
+	$( document ).on( 'click', '.vl-lms-entity-unlink', function ( ev ) {
 		ev.preventDefault();
-		var cfg = lessonsConfig();
 		var $btn = $( this );
+		var entity = $btn.attr( 'data-entity' );
+		var cfg = pickerConfig( entity );
 		var $box = $btn.closest( '.postbox' );
-		var lessonId = parseInt( $btn.attr( 'data-id' ), 10 );
-		if ( ! cfg || ! lessonId ) {
+		var childId = parseInt( $btn.attr( 'data-id' ), 10 );
+		if ( ! cfg || ! childId ) {
 			return;
 		}
 		// eslint-disable-next-line no-alert
 		if ( ! window.confirm( cfg.i18n.confirmUnlink ) ) {
 			return;
 		}
+		var payload = {
+			action: cfg.actions.detach,
+			nonce: cfg.nonces.detach
+		};
+		payload[ entity + '_id' ] = childId;
 		$.ajax( {
 			url: VL_LMS_ADMIN.ajaxUrl,
 			method: 'POST',
-			data: {
-				action: cfg.actions.detach,
-				nonce: cfg.nonces.detach,
-				lesson_id: lessonId
-			}
+			data: payload
 		} ).done( function ( resp ) {
 			if ( ! resp || ! resp.success ) {
 				return;
@@ -554,8 +560,8 @@
 
 	// Close the results dropdown when clicking outside the picker.
 	$( document ).on( 'click', function ( ev ) {
-		if ( ! $( ev.target ).closest( '.vl-lms-lesson-search' ).length ) {
-			$( '.vl-lms-lesson-search-results' ).empty().attr( 'hidden', true );
+		if ( ! $( ev.target ).closest( '.vl-lms-entity-search' ).length ) {
+			$( '.vl-lms-entity-search-results' ).empty().attr( 'hidden', true );
 		}
 	} );
 

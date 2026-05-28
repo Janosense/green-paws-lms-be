@@ -12,6 +12,7 @@ use VL\LMS\Admin\MetaBoxes\AbstractMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox;
 use VL\LMS\Admin\Modules\ModulePickerAjaxHandler;
 use VL\LMS\Admin\Reorder\ReorderAjaxHandler;
+use VL\LMS\Admin\Topics\TopicPickerAjaxHandler;
 use WP_Post;
 use WP_Screen;
 use WP_User;
@@ -69,6 +70,8 @@ class AdminProvider {
 
 	private LessonPickerAjaxHandler $lesson_picker;
 
+	private TopicPickerAjaxHandler $topic_picker;
+
 	private ?AdminMenuProvider $menu_provider;
 
 	/**
@@ -81,13 +84,15 @@ class AdminProvider {
 		?ReorderAjaxHandler $reorder_handler = null,
 		?AdminMenuProvider $menu_provider = null,
 		?ModulePickerAjaxHandler $module_picker = null,
-		?LessonPickerAjaxHandler $lesson_picker = null
+		?LessonPickerAjaxHandler $lesson_picker = null,
+		?TopicPickerAjaxHandler $topic_picker = null
 	) {
 		$this->meta_boxes       = $meta_boxes;
 		$this->child_list_boxes = $child_list_boxes;
 		$this->reorder_handler  = $reorder_handler ?? new ReorderAjaxHandler();
 		$this->module_picker    = $module_picker ?? new ModulePickerAjaxHandler();
 		$this->lesson_picker    = $lesson_picker ?? new LessonPickerAjaxHandler();
+		$this->topic_picker     = $topic_picker ?? new TopicPickerAjaxHandler();
 		$this->menu_provider    = $menu_provider;
 	}
 
@@ -104,6 +109,9 @@ class AdminProvider {
 		add_action( 'wp_ajax_' . LessonPickerAjaxHandler::SEARCH_ACTION, [ $this->lesson_picker, 'search' ] );
 		add_action( 'wp_ajax_' . LessonPickerAjaxHandler::ATTACH_ACTION, [ $this->lesson_picker, 'attach' ] );
 		add_action( 'wp_ajax_' . LessonPickerAjaxHandler::DETACH_ACTION, [ $this->lesson_picker, 'detach' ] );
+		add_action( 'wp_ajax_' . TopicPickerAjaxHandler::SEARCH_ACTION, [ $this->topic_picker, 'search' ] );
+		add_action( 'wp_ajax_' . TopicPickerAjaxHandler::ATTACH_ACTION, [ $this->topic_picker, 'attach' ] );
+		add_action( 'wp_ajax_' . TopicPickerAjaxHandler::DETACH_ACTION, [ $this->topic_picker, 'detach' ] );
 		if ( null !== $this->menu_provider ) {
 			add_action( 'admin_menu', [ $this->menu_provider, 'register' ], 20 );
 		}
@@ -201,22 +209,43 @@ class AdminProvider {
 						'unlink'        => __( 'Відкріпити', 'vl-lms' ),
 					],
 				],
-				'lessons' => [
-					'actions' => [
-						'search' => LessonPickerAjaxHandler::SEARCH_ACTION,
-						'attach' => LessonPickerAjaxHandler::ATTACH_ACTION,
-						'detach' => LessonPickerAjaxHandler::DETACH_ACTION,
+				// Entity-keyed config for the generic add / unlink picker
+				// (lesson + topic lists). Looked up by the `data-entity`
+				// attribute the JS reads off each picker.
+				'pickers' => [
+					'lesson' => [
+						'actions' => [
+							'search' => LessonPickerAjaxHandler::SEARCH_ACTION,
+							'attach' => LessonPickerAjaxHandler::ATTACH_ACTION,
+							'detach' => LessonPickerAjaxHandler::DETACH_ACTION,
+						],
+						'nonces'  => [
+							'search' => wp_create_nonce( LessonPickerAjaxHandler::SEARCH_ACTION ),
+							'attach' => wp_create_nonce( LessonPickerAjaxHandler::ATTACH_ACTION ),
+							'detach' => wp_create_nonce( LessonPickerAjaxHandler::DETACH_ACTION ),
+						],
+						'i18n'    => [
+							'confirmUnlink' => __( 'Відкріпити цей урок?', 'vl-lms' ),
+							'edit'          => __( 'Редагувати', 'vl-lms' ),
+							'unlink'        => __( 'Відкріпити', 'vl-lms' ),
+						],
 					],
-					'nonces'  => [
-						'search' => wp_create_nonce( LessonPickerAjaxHandler::SEARCH_ACTION ),
-						'attach' => wp_create_nonce( LessonPickerAjaxHandler::ATTACH_ACTION ),
-						'detach' => wp_create_nonce( LessonPickerAjaxHandler::DETACH_ACTION ),
-					],
-					'i18n'    => [
-						'noLessons'     => __( 'Уроків не знайдено', 'vl-lms' ),
-						'confirmUnlink' => __( 'Відкріпити цей урок?', 'vl-lms' ),
-						'edit'          => __( 'Редагувати', 'vl-lms' ),
-						'unlink'        => __( 'Відкріпити', 'vl-lms' ),
+					'topic'  => [
+						'actions' => [
+							'search' => TopicPickerAjaxHandler::SEARCH_ACTION,
+							'attach' => TopicPickerAjaxHandler::ATTACH_ACTION,
+							'detach' => TopicPickerAjaxHandler::DETACH_ACTION,
+						],
+						'nonces'  => [
+							'search' => wp_create_nonce( TopicPickerAjaxHandler::SEARCH_ACTION ),
+							'attach' => wp_create_nonce( TopicPickerAjaxHandler::ATTACH_ACTION ),
+							'detach' => wp_create_nonce( TopicPickerAjaxHandler::DETACH_ACTION ),
+						],
+						'i18n'    => [
+							'confirmUnlink' => __( 'Відкріпити цю тему?', 'vl-lms' ),
+							'edit'          => __( 'Редагувати', 'vl-lms' ),
+							'unlink'        => __( 'Відкріпити', 'vl-lms' ),
+						],
 					],
 				],
 			]
