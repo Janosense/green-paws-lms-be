@@ -63,8 +63,7 @@ class StudentsListTable extends \WP_List_Table {
 	 */
 	public function get_columns(): array {
 		return [
-			'first_name'      => "Ім'я",
-			'last_name'       => 'Прізвище',
+			'name'            => 'Прізвище та ім\'я',
 			'email'           => 'Email',
 			'groups'          => 'Групи',
 			'completed_count' => 'Завершено курсів',
@@ -213,9 +212,14 @@ class StudentsListTable extends \WP_List_Table {
 		return '';
 	}
 
-	public function column_first_name( WP_User $user ): string {
-		$value = (string) get_user_meta( $user->ID, 'first_name', true );
-		$label = '' === $value ? (string) $user->display_name : $value;
+	public function column_name( WP_User $user ): string {
+		$last  = (string) get_user_meta( $user->ID, 'last_name', true );
+		$first = (string) get_user_meta( $user->ID, 'first_name', true );
+		$label = trim( $last . ' ' . $first );
+		if ( '' === $label ) {
+			// Fall back to display_name so the row still has *some* identifier.
+			$label = (string) $user->display_name;
+		}
 		$label = '' === $label ? '—' : $label;
 
 		$url = add_query_arg(
@@ -232,18 +236,6 @@ class StudentsListTable extends \WP_List_Table {
 			esc_url( $url ),
 			esc_html( $label )
 		);
-	}
-
-	public function column_last_name( WP_User $user ): string {
-		$value = (string) get_user_meta( $user->ID, 'last_name', true );
-		if ( '' === $value ) {
-			// Fall back to display_name so the row still has *some* identifier.
-			$fallback = (string) $user->display_name;
-			return '' === $fallback
-				? '<em>—</em>'
-				: '<em>' . esc_html( $fallback ) . '</em>';
-		}
-		return esc_html( $value );
 	}
 
 	public function column_email( WP_User $user ): string {

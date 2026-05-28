@@ -68,13 +68,31 @@ final class StudentsListTableTest extends TestCase {
 		return new TestableStudentsListTable( $this->groups, $this->members, $this->enrollments );
 	}
 
-	public function test_get_columns_lists_the_documented_five(): void {
+	public function test_get_columns_lists_the_documented_four(): void {
 		$table = $this->makeTable();
 
 		self::assertSame(
-			[ 'first_name', 'last_name', 'email', 'groups', 'completed_count' ],
+			[ 'name', 'email', 'groups', 'completed_count' ],
 			array_keys( $table->get_columns() )
 		);
+	}
+
+	public function test_column_name_renders_last_then_first_linked_to_detail(): void {
+		$user             = new WP_User();
+		$user->ID         = 7;
+		$user->user_email = 'a@b.c';
+
+		Functions\when( 'get_user_meta' )->alias(
+			static function ( $id, string $key ): string {
+				return 'last_name' === $key ? 'Kovalenko' : ( 'first_name' === $key ? 'Olena' : '' );
+			}
+		);
+
+		$out = $this->makeTable()->column_name( $user );
+
+		self::assertStringContainsString( 'Kovalenko Olena', $out );
+		self::assertStringContainsString( 'action=view', $out );
+		self::assertStringContainsString( 'id=7', $out );
 	}
 
 	public function test_prepare_items_with_no_filters_builds_role_sorted_query(): void {
