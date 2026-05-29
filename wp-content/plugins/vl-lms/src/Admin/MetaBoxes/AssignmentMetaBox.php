@@ -17,8 +17,12 @@ use WP_Post;
  */
 class AssignmentMetaBox extends AbstractMetaBox {
 
+	use CurriculumParentPickerTrait;
+
 	/** @var list<string> */
 	private const array SUBMISSION_TYPES = [ 'text', 'file', 'both' ];
+
+	private const string PARENT_PREFIX = '_vl_assignment_parent';
 
 	public function __construct() {
 		parent::__construct( 'vl_assignment' );
@@ -35,6 +39,10 @@ class AssignmentMetaBox extends AbstractMetaBox {
 	public function render( WP_Post $post ): void {
 		$this->render_nonce();
 		echo '<div class="vl-lms-meta-box">';
+
+		$this->render_curriculum_parent_picker( $post, self::PARENT_PREFIX, 'assignment' );
+
+		$this->render_section_heading( 'Параметри' );
 
 		$this->render_select_row(
 			'_vl_assignment_submission_type',
@@ -92,6 +100,8 @@ class AssignmentMetaBox extends AbstractMetaBox {
 		if ( ! $this->verified( $post_id ) ) {
 			return;
 		}
+
+		$this->save_curriculum_parent( $post_id, self::PARENT_PREFIX );
 
 		$type = $this->post_enum( '_vl_assignment_submission_type', self::SUBMISSION_TYPES );
 		if ( null !== $type ) {

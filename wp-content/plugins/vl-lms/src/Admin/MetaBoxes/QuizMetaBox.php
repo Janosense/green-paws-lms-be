@@ -16,8 +16,12 @@ use WP_Post;
  */
 class QuizMetaBox extends AbstractMetaBox {
 
+	use CurriculumParentPickerTrait;
+
 	/** @var list<string> */
 	private const array SHOW_CORRECT_OPTIONS = [ 'never', 'after_submit', 'after_pass' ];
+
+	private const string PARENT_PREFIX = '_vl_quiz_parent';
 
 	public function __construct() {
 		parent::__construct( 'vl_quiz' );
@@ -34,6 +38,10 @@ class QuizMetaBox extends AbstractMetaBox {
 	public function render( WP_Post $post ): void {
 		$this->render_nonce();
 		echo '<div class="vl-lms-meta-box">';
+
+		$this->render_curriculum_parent_picker( $post, self::PARENT_PREFIX, 'quiz' );
+
+		$this->render_section_heading( 'Параметри' );
 
 		$this->render_text_row(
 			'_vl_quiz_time_limit_seconds',
@@ -90,6 +98,8 @@ class QuizMetaBox extends AbstractMetaBox {
 		if ( ! $this->verified( $post_id ) ) {
 			return;
 		}
+
+		$this->save_curriculum_parent( $post_id, self::PARENT_PREFIX );
 
 		$time_limit = $this->post_int( '_vl_quiz_time_limit_seconds', 0 );
 		if ( null !== $time_limit ) {

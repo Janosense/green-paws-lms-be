@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin;
 
+use VL\LMS\Admin\Assignments\AssignmentPickerAjaxHandler;
 use VL\LMS\Admin\Groups\GroupFormHandler;
 use VL\LMS\Admin\Groups\GroupsListPage;
 use VL\LMS\Admin\Students\StudentsListPage;
@@ -13,6 +14,7 @@ use VL\LMS\Admin\MetaBoxes\AbstractMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\AbstractChildListMetaBox;
 use VL\LMS\Admin\Modules\ModulePickerAjaxHandler;
 use VL\LMS\Admin\Questions\QuestionPickerAjaxHandler;
+use VL\LMS\Admin\Quizzes\QuizPickerAjaxHandler;
 use VL\LMS\Admin\Reorder\ReorderAjaxHandler;
 use VL\LMS\Admin\Topics\TopicPickerAjaxHandler;
 use WP_Post;
@@ -76,6 +78,10 @@ class AdminProvider {
 
 	private QuestionPickerAjaxHandler $question_picker;
 
+	private QuizPickerAjaxHandler $quiz_picker;
+
+	private AssignmentPickerAjaxHandler $assignment_picker;
+
 	private ?AdminMenuProvider $menu_provider;
 
 	/**
@@ -90,16 +96,20 @@ class AdminProvider {
 		?ModulePickerAjaxHandler $module_picker = null,
 		?LessonPickerAjaxHandler $lesson_picker = null,
 		?TopicPickerAjaxHandler $topic_picker = null,
-		?QuestionPickerAjaxHandler $question_picker = null
+		?QuestionPickerAjaxHandler $question_picker = null,
+		?QuizPickerAjaxHandler $quiz_picker = null,
+		?AssignmentPickerAjaxHandler $assignment_picker = null
 	) {
-		$this->meta_boxes       = $meta_boxes;
-		$this->child_list_boxes = $child_list_boxes;
-		$this->reorder_handler  = $reorder_handler ?? new ReorderAjaxHandler();
-		$this->module_picker    = $module_picker ?? new ModulePickerAjaxHandler();
-		$this->lesson_picker    = $lesson_picker ?? new LessonPickerAjaxHandler();
-		$this->topic_picker     = $topic_picker ?? new TopicPickerAjaxHandler();
-		$this->question_picker  = $question_picker ?? new QuestionPickerAjaxHandler();
-		$this->menu_provider    = $menu_provider;
+		$this->meta_boxes        = $meta_boxes;
+		$this->child_list_boxes  = $child_list_boxes;
+		$this->reorder_handler   = $reorder_handler ?? new ReorderAjaxHandler();
+		$this->module_picker     = $module_picker ?? new ModulePickerAjaxHandler();
+		$this->lesson_picker     = $lesson_picker ?? new LessonPickerAjaxHandler();
+		$this->topic_picker      = $topic_picker ?? new TopicPickerAjaxHandler();
+		$this->question_picker   = $question_picker ?? new QuestionPickerAjaxHandler();
+		$this->quiz_picker       = $quiz_picker ?? new QuizPickerAjaxHandler();
+		$this->assignment_picker = $assignment_picker ?? new AssignmentPickerAjaxHandler();
+		$this->menu_provider     = $menu_provider;
 	}
 
 	public function boot(): void {
@@ -121,6 +131,12 @@ class AdminProvider {
 		add_action( 'wp_ajax_' . QuestionPickerAjaxHandler::SEARCH_ACTION, [ $this->question_picker, 'search' ] );
 		add_action( 'wp_ajax_' . QuestionPickerAjaxHandler::ATTACH_ACTION, [ $this->question_picker, 'attach' ] );
 		add_action( 'wp_ajax_' . QuestionPickerAjaxHandler::DETACH_ACTION, [ $this->question_picker, 'detach' ] );
+		add_action( 'wp_ajax_' . QuizPickerAjaxHandler::SEARCH_ACTION, [ $this->quiz_picker, 'search' ] );
+		add_action( 'wp_ajax_' . QuizPickerAjaxHandler::ATTACH_ACTION, [ $this->quiz_picker, 'attach' ] );
+		add_action( 'wp_ajax_' . QuizPickerAjaxHandler::DETACH_ACTION, [ $this->quiz_picker, 'detach' ] );
+		add_action( 'wp_ajax_' . AssignmentPickerAjaxHandler::SEARCH_ACTION, [ $this->assignment_picker, 'search' ] );
+		add_action( 'wp_ajax_' . AssignmentPickerAjaxHandler::ATTACH_ACTION, [ $this->assignment_picker, 'attach' ] );
+		add_action( 'wp_ajax_' . AssignmentPickerAjaxHandler::DETACH_ACTION, [ $this->assignment_picker, 'detach' ] );
 		if ( null !== $this->menu_provider ) {
 			add_action( 'admin_menu', [ $this->menu_provider, 'register' ], 20 );
 		}
@@ -269,6 +285,40 @@ class AdminProvider {
 						],
 						'i18n'    => [
 							'confirmUnlink' => __( 'Відкріпити це питання?', 'vl-lms' ),
+							'edit'          => __( 'Редагувати', 'vl-lms' ),
+							'unlink'        => __( 'Відкріпити', 'vl-lms' ),
+						],
+					],
+					'quiz'       => [
+						'actions' => [
+							'search' => QuizPickerAjaxHandler::SEARCH_ACTION,
+							'attach' => QuizPickerAjaxHandler::ATTACH_ACTION,
+							'detach' => QuizPickerAjaxHandler::DETACH_ACTION,
+						],
+						'nonces'  => [
+							'search' => wp_create_nonce( QuizPickerAjaxHandler::SEARCH_ACTION ),
+							'attach' => wp_create_nonce( QuizPickerAjaxHandler::ATTACH_ACTION ),
+							'detach' => wp_create_nonce( QuizPickerAjaxHandler::DETACH_ACTION ),
+						],
+						'i18n'    => [
+							'confirmUnlink' => __( 'Відкріпити цей тест?', 'vl-lms' ),
+							'edit'          => __( 'Редагувати', 'vl-lms' ),
+							'unlink'        => __( 'Відкріпити', 'vl-lms' ),
+						],
+					],
+					'assignment' => [
+						'actions' => [
+							'search' => AssignmentPickerAjaxHandler::SEARCH_ACTION,
+							'attach' => AssignmentPickerAjaxHandler::ATTACH_ACTION,
+							'detach' => AssignmentPickerAjaxHandler::DETACH_ACTION,
+						],
+						'nonces'  => [
+							'search' => wp_create_nonce( AssignmentPickerAjaxHandler::SEARCH_ACTION ),
+							'attach' => wp_create_nonce( AssignmentPickerAjaxHandler::ATTACH_ACTION ),
+							'detach' => wp_create_nonce( AssignmentPickerAjaxHandler::DETACH_ACTION ),
+						],
+						'i18n'    => [
+							'confirmUnlink' => __( 'Відкріпити це завдання?', 'vl-lms' ),
 							'edit'          => __( 'Редагувати', 'vl-lms' ),
 							'unlink'        => __( 'Відкріпити', 'vl-lms' ),
 						],
