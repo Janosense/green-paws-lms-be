@@ -17,11 +17,14 @@ use VL\LMS\Learn\LessonNodeTransformer;
 use VL\LMS\Learn\ModuleNodeTransformer;
 use VL\LMS\Learn\NextEntityResolver;
 use VL\LMS\Learn\ProgressOverlay;
+use VL\LMS\Learn\QuizNodeTransformer;
+use VL\LMS\Learn\QuizStatusOverlay;
 use VL\LMS\Learn\SessionNodeTransformer;
 use VL\LMS\Learn\TopicNodeTransformer;
 use VL\LMS\Domain\Progress\Progress;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\ProgressRepository;
+use VL\LMS\Repositories\QuizAttemptRepository;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use WP_Post;
 
@@ -43,6 +46,12 @@ final class CurriculumTransformerTest extends TestCase {
 
 	/** @var array<int, list<WP_Post>> Keyed by course ID. */
 	private array $sessions_by_course = [];
+
+	/** @var array<int, list<WP_Post>> Keyed by parent post ID (course/module/lesson/session). */
+	private array $quizzes_by_parent = [];
+
+	/** @var array<int, array{passed: bool, in_progress: bool, submitted_count: int, best_pct: float|null}> Keyed by quiz ID. */
+	private array $quiz_status_map = [];
 
 	/** @var array<int, bool> */
 	private array $cohort_courses = [];
@@ -69,6 +78,8 @@ final class CurriculumTransformerTest extends TestCase {
 		$this->lessons_by_parent        = [];
 		$this->topics_by_lesson         = [];
 		$this->sessions_by_course       = [];
+		$this->quizzes_by_parent        = [];
+		$this->quiz_status_map          = [];
 		$this->cohort_courses           = [];
 		$this->session_attendance       = [];
 		$this->progress_rows            = [];
@@ -105,15 +116,17 @@ final class CurriculumTransformerTest extends TestCase {
 
 	private function makeTransformer(): CurriculumTransformer {
 		$topic_transformer = new TopicNodeTransformer();
+		$quiz_transformer  = $this->quizTransformer();
 
-		$lesson_transformer = new class( $topic_transformer, $this->topics_by_lesson ) extends LessonNodeTransformer {
+		$lesson_transformer = new class( $topic_transformer, $quiz_transformer, $this->topics_by_lesson ) extends LessonNodeTransformer {
 
 			/** @param array<int, list<WP_Post>> $topics_by_lesson */
 			public function __construct(
 				TopicNodeTransformer $topic_transformer,
+				QuizNodeTransformer $quiz_transformer,
 				private array $topics_by_lesson
 			) {
-				parent::__construct( $topic_transformer );
+				parent::__construct( $topic_transformer, $quiz_transformer );
 			}
 
 			protected function query_child_topics( int $lesson_id ): array {
@@ -121,14 +134,15 @@ final class CurriculumTransformerTest extends TestCase {
 			}
 		};
 
-		$module_transformer = new class( $lesson_transformer, $this->lessons_by_parent ) extends ModuleNodeTransformer {
+		$module_transformer = new class( $lesson_transformer, $quiz_transformer, $this->lessons_by_parent ) extends ModuleNodeTransformer {
 
 			/** @param array<int, list<WP_Post>> $lessons_by_parent */
 			public function __construct(
 				LessonNodeTransformer $lesson_transformer,
+				QuizNodeTransformer $quiz_transformer,
 				private array $lessons_by_parent
 			) {
-				parent::__construct( $lesson_transformer );
+				parent::__construct( $lesson_transformer, $quiz_transformer );
 			}
 
 			protected function query_child_lessons( int $parent_id ): array {
@@ -136,15 +150,18 @@ final class CurriculumTransformerTest extends TestCase {
 			}
 		};
 
-		$session_transformer = new class( $this->session_attendance ) extends SessionNodeTransformer {
+		$session_transformer = new class( $quiz_transformer, $this->session_attendance ) extends SessionNodeTransformer {
 
 			/** @param array<int, int> $session_attendance */
-			public function __construct( private array $session_attendance ) {
+			public function __construct(
+				private QuizNodeTransformer $quiz_seam,
+				private array $session_attendance
+			) {
 				// Skip parent constructor — the test seam doesn't use the
-				// repository or the clock.
+				// attendance repository directly.
 			}
 
-			public function transform( WP_Post $session, int $user_id, ProgressOverlay $overlay ): array {
+			public function transform( WP_Post $session, int $user_id, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay ): array {
 				unset( $overlay );
 				$session_id = (int) $session->ID;
 				$count      = $this->session_attendance[ $session_id ] ?? 0;
@@ -160,20 +177,28 @@ final class CurriculumTransformerTest extends TestCase {
 					'is_completed'       => $count > 0,
 					'join_url_path'      => '/vl/v1/learn/sessions/' . $session->post_name . '/join',
 					'recording_url_path' => null,
+					'quizzes'            => $this->quiz_seam->transform_children( $session_id, $quiz_overlay ),
 				];
 			}
 		};
+
+		$quiz_attempts = Mockery::mock( QuizAttemptRepository::class );
+		$status_map    = $this->quiz_status_map;
+		$quiz_attempts->shouldReceive( 'status_map_for_user_in_course' )->andReturn( $status_map );
 
 		return new class(
 			$module_transformer,
 			$lesson_transformer,
 			$session_transformer,
+			$quiz_transformer,
 			new NextEntityResolver(),
 			$this->progress,
+			$quiz_attempts,
 			$this->enrollments,
 			$this->modules_by_course,
 			$this->lessons_by_parent,
 			$this->sessions_by_course,
+			$this->quizzes_by_parent,
 			$this->cohort_courses
 		) extends CurriculumTransformer {
 
@@ -181,26 +206,32 @@ final class CurriculumTransformerTest extends TestCase {
 			 * @param array<int, list<WP_Post>> $modules_by_course
 			 * @param array<int, list<WP_Post>> $lessons_by_parent
 			 * @param array<int, list<WP_Post>> $sessions_by_course
+			 * @param array<int, list<WP_Post>> $quizzes_by_parent
 			 * @param array<int, bool>          $cohort_courses
 			 */
 			public function __construct(
 				ModuleNodeTransformer $module_transformer,
 				LessonNodeTransformer $lesson_transformer,
 				SessionNodeTransformer $session_transformer,
+				QuizNodeTransformer $quiz_transformer,
 				NextEntityResolver $next_resolver,
 				ProgressRepository $progress,
+				QuizAttemptRepository $quiz_attempts,
 				EnrollmentRepository $enrollments,
 				private array $modules_by_course,
 				private array $lessons_by_parent,
 				private array $sessions_by_course,
+				private array $quizzes_by_parent,
 				private array $cohort_courses
 			) {
 				parent::__construct(
 					$module_transformer,
 					$lesson_transformer,
 					$session_transformer,
+					$quiz_transformer,
 					$next_resolver,
 					$progress,
+					$quiz_attempts,
 					$enrollments
 				);
 			}
@@ -219,6 +250,23 @@ final class CurriculumTransformerTest extends TestCase {
 
 			protected function is_cohort_course( int $course_id ): bool {
 				return $this->cohort_courses[ $course_id ] ?? false;
+			}
+		};
+	}
+
+	/**
+	 * Quiz transformer test seam shared by every node level — its child
+	 * query reads from {@see self::$quizzes_by_parent} keyed by parent post ID.
+	 */
+	private function quizTransformer(): QuizNodeTransformer {
+		return new class( $this->quizzes_by_parent ) extends QuizNodeTransformer {
+
+			/** @param array<int, list<WP_Post>> $quizzes_by_parent */
+			public function __construct( private array $quizzes_by_parent ) {
+			}
+
+			protected function query_child_quizzes( int $parent_id ): array {
+				return $this->quizzes_by_parent[ $parent_id ] ?? [];
 			}
 		};
 	}
@@ -473,5 +521,54 @@ final class CurriculumTransformerTest extends TestCase {
 		self::assertNotNull( $payload['next_entity'] );
 		self::assertSame( 'session', $payload['next_entity']['type'] );
 		self::assertSame( 'session-1', $payload['next_entity']['slug'] );
+	}
+
+	public function test_course_level_quizzes_surface_and_next_entity_points_at_unpassed_final_exam(): void {
+		$course     = $this->post( 100, 'vl_course', 'c', 'Course' );
+		$lesson     = $this->post( 200, 'vl_lesson', 'lesson-1', 'Lesson 1' );
+		$final_exam = $this->post( 700, 'vl_quiz', 'final-exam', 'Final Exam', 1 );
+
+		$this->lessons_by_parent[100]              = [ $lesson ];
+		$this->quizzes_by_parent[100]              = [ $final_exam ];
+		$this->meta['_vl_quiz_is_final_exam'][700] = '1';
+
+		$completed_at          = new \DateTimeImmutable( '2026-04-01 10:00:00', new \DateTimeZone( 'UTC' ) );
+		$this->progress_rows[] = $this->row( EntityType::LESSON, 200, ProgressStatus::COMPLETED, null, $completed_at );
+
+		// No attempt rows → final exam is not passed.
+		$payload = $this->makeTransformer()->transform( $course, 5 );
+
+		self::assertCount( 1, $payload['course_quizzes'] );
+		self::assertSame( 700, $payload['course_quizzes'][0]['id'] );
+		self::assertTrue( $payload['course_quizzes'][0]['is_final_exam'] );
+		self::assertSame( 'not_started', $payload['course_quizzes'][0]['status'] );
+
+		self::assertSame(
+			[
+				'type' => 'quiz',
+				'id'   => 700,
+				'slug' => 'final-exam',
+			],
+			$payload['next_entity']
+		);
+	}
+
+	public function test_passed_course_quiz_is_skipped_by_next_entity(): void {
+		$course     = $this->post( 100, 'vl_course', 'c', 'Course' );
+		$final_exam = $this->post( 700, 'vl_quiz', 'final-exam', 'Final Exam', 1 );
+
+		$this->quizzes_by_parent[100] = [ $final_exam ];
+		$this->quiz_status_map[700]   = [
+			'passed'          => true,
+			'in_progress'     => false,
+			'submitted_count' => 1,
+			'best_pct'        => 92.0,
+		];
+
+		$payload = $this->makeTransformer()->transform( $course, 5 );
+
+		self::assertSame( 'passed', $payload['course_quizzes'][0]['status'] );
+		self::assertSame( 92.0, $payload['course_quizzes'][0]['best_score_pct'] );
+		self::assertNull( $payload['next_entity'] );
 	}
 }

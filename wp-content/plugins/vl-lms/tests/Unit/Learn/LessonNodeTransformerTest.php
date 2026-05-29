@@ -14,6 +14,8 @@ use VL\LMS\Domain\Progress\Progress;
 use VL\LMS\Domain\Progress\ProgressStatus;
 use VL\LMS\Learn\LessonNodeTransformer;
 use VL\LMS\Learn\ProgressOverlay;
+use VL\LMS\Learn\QuizNodeTransformer;
+use VL\LMS\Learn\QuizStatusOverlay;
 use VL\LMS\Learn\TopicNodeTransformer;
 use WP_Post;
 
@@ -72,22 +74,58 @@ final class LessonNodeTransformerTest extends TestCase {
 
 	/**
 	 * @param array<int, list<WP_Post>> $topics_by_lesson_id
+	 * @param array<int, list<WP_Post>> $quizzes_by_lesson_id
 	 */
-	private function makeTransformer( array $topics_by_lesson_id = [] ): LessonNodeTransformer {
-		return new class( new TopicNodeTransformer(), $topics_by_lesson_id ) extends LessonNodeTransformer {
+	private function makeTransformer( array $topics_by_lesson_id = [], array $quizzes_by_lesson_id = [] ): LessonNodeTransformer {
+		return new class( new TopicNodeTransformer(), $this->quizTransformer( $quizzes_by_lesson_id ), $topics_by_lesson_id ) extends LessonNodeTransformer {
 
 			/** @param array<int, list<WP_Post>> $topics_by_lesson_id */
 			public function __construct(
 				TopicNodeTransformer $topic_transformer,
+				QuizNodeTransformer $quiz_transformer,
 				private array $topics_by_lesson_id
 			) {
-				parent::__construct( $topic_transformer );
+				parent::__construct( $topic_transformer, $quiz_transformer );
 			}
 
 			protected function query_child_topics( int $lesson_id ): array {
 				return $this->topics_by_lesson_id[ $lesson_id ] ?? [];
 			}
 		};
+	}
+
+	/**
+	 * Quiz transformer stub whose child query is keyed by parent post ID.
+	 *
+	 * @param array<int, list<WP_Post>> $quizzes_by_parent_id
+	 */
+	private function quizTransformer( array $quizzes_by_parent_id = [] ): QuizNodeTransformer {
+		return new class( $quizzes_by_parent_id ) extends QuizNodeTransformer {
+
+			/** @param array<int, list<WP_Post>> $quizzes_by_parent_id */
+			public function __construct( private array $quizzes_by_parent_id ) {
+			}
+
+			protected function query_child_quizzes( int $parent_id ): array {
+				return $this->quizzes_by_parent_id[ $parent_id ] ?? [];
+			}
+		};
+	}
+
+	private function quiz( int $id, string $slug, string $title, int $menu_order = 1 ): WP_Post {
+		$post              = Mockery::mock( 'WP_Post' );
+		$post->ID          = $id;
+		$post->post_type   = 'vl_quiz';
+		$post->post_name   = $slug;
+		$post->post_title  = $title;
+		$post->post_status = 'publish';
+		$post->menu_order  = $menu_order;
+		assert( $post instanceof WP_Post );
+		return $post;
+	}
+
+	private function quizOverlay(): QuizStatusOverlay {
+		return QuizStatusOverlay::fromMap( [] );
 	}
 
 	private function lesson_progress( int $entity_id, ProgressStatus $status, ?int $position = null ): Progress {
@@ -123,7 +161,7 @@ final class LessonNodeTransformerTest extends TestCase {
 			[ $this->lesson_progress( 123, ProgressStatus::IN_PROGRESS, 240 ) ]
 		);
 
-		$node = $transformer->transform( $lesson, $overlay );
+		$node = $transformer->transform( $lesson, $overlay, $this->quizOverlay() );
 
 		self::assertSame( 123, $node['id'] );
 		self::assertSame( 'intro', $node['slug'] );
@@ -139,12 +177,45 @@ final class LessonNodeTransformerTest extends TestCase {
 		self::assertSame( 240, $node['progress']['position_seconds'] );
 	}
 
+	public function test_lesson_quizzes_are_appended_in_menu_order(): void {
+		$lesson = $this->lesson( 123, 'solo', 'Solo' );
+		$this->meta['_vl_lesson_duration_seconds'][123] = 300;
+		$this->meta['_vl_quiz_passing_threshold'][701]  = 70;
+		$this->meta['_vl_quiz_is_final_exam'][701]      = '1';
+
+		$transformer = $this->makeTransformer(
+			[],
+			[ 123 => [ $this->quiz( 701, 'lesson-quiz', 'Lesson Quiz', 1 ) ] ]
+		);
+		$overlay     = QuizStatusOverlay::fromMap(
+			[
+				701 => [
+					'passed'          => true,
+					'in_progress'     => false,
+					'submitted_count' => 2,
+					'best_pct'        => 88.0,
+				],
+			]
+		);
+
+		$node = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $overlay );
+
+		self::assertCount( 1, $node['quizzes'] );
+		self::assertSame( 'quiz', $node['quizzes'][0]['type'] );
+		self::assertSame( 701, $node['quizzes'][0]['id'] );
+		self::assertSame( 'lesson-quiz', $node['quizzes'][0]['slug'] );
+		self::assertTrue( $node['quizzes'][0]['is_final_exam'] );
+		self::assertSame( 70, $node['quizzes'][0]['passing_threshold'] );
+		self::assertSame( 'passed', $node['quizzes'][0]['status'] );
+		self::assertSame( 88.0, $node['quizzes'][0]['best_score_pct'] );
+	}
+
 	public function test_lesson_without_topics_has_empty_array(): void {
 		$lesson = $this->lesson( 123, 'solo', 'Solo' );
 		$this->meta['_vl_lesson_duration_seconds'][123] = 300;
 
 		$transformer = $this->makeTransformer();
-		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ) );
+		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay() );
 
 		self::assertFalse( $node['has_topics'] );
 		self::assertSame( [], $node['topics'] );
@@ -155,7 +226,7 @@ final class LessonNodeTransformerTest extends TestCase {
 		$this->meta['_vl_lesson_is_preview'][123] = '1';
 
 		$transformer = $this->makeTransformer();
-		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ) );
+		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay() );
 
 		self::assertTrue( $node['is_preview'] );
 	}
@@ -165,7 +236,7 @@ final class LessonNodeTransformerTest extends TestCase {
 		$this->meta['_vl_lesson_requires_completion'][123] = '1';
 
 		$transformer = $this->makeTransformer();
-		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ) );
+		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay() );
 
 		self::assertTrue( $node['requires_completion'] );
 	}
@@ -174,7 +245,7 @@ final class LessonNodeTransformerTest extends TestCase {
 		$lesson      = $this->lesson( 123, 'l', 'L' );
 		$transformer = $this->makeTransformer();
 
-		$node = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ) );
+		$node = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay() );
 
 		self::assertSame(
 			[

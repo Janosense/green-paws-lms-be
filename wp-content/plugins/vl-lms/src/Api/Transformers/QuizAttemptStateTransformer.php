@@ -51,6 +51,7 @@ class QuizAttemptStateTransformer {
 			'quiz_id'                => $attempt->quiz_id,
 			'quiz_title'             => $this->title( $attempt->quiz_id ),
 			'course_id'              => $attempt->course_id,
+			'course_slug'            => $this->course_slug( $attempt->course_id ),
 			'status'                 => $attempt->status->value,
 			'started_at'             => $attempt->started_at->format( \DateTimeInterface::ATOM ),
 			'submitted_at'           => null === $attempt->submitted_at
@@ -71,6 +72,16 @@ class QuizAttemptStateTransformer {
 
 	protected function title( int $quiz_id ): string {
 		$value = get_the_title( $quiz_id );
+		return is_string( $value ) ? $value : '';
+	}
+
+	/**
+	 * Resolves the attempt's course `post_name`, so the curriculum-rail
+	 * frontend can hydrate the surrounding course from a deep-linked quiz
+	 * page. Empty string when the course is missing (defensive).
+	 */
+	protected function course_slug( int $course_id ): string {
+		$value = get_post_field( 'post_name', $course_id );
 		return is_string( $value ) ? $value : '';
 	}
 

@@ -12,7 +12,8 @@ use WP_Query;
  * Composes the lesson node returned inside a curriculum response.
  *
  * Each lesson node carries the navigation-shape fields plus its child
- * topics (transformed in turn by {@see TopicNodeTransformer}). Detail-only
+ * topics (transformed in turn by {@see TopicNodeTransformer}) and its
+ * lesson-level quizzes (via {@see QuizNodeTransformer}). Detail-only
  * fields — content blocks, attachments, the full video payload —
  * deliberately stay out of this shape; the curriculum endpoint is a
  * navigation map, not a content read.
@@ -26,14 +27,15 @@ use WP_Query;
 class LessonNodeTransformer {
 
 	public function __construct(
-		private readonly TopicNodeTransformer $topic_transformer
+		private readonly TopicNodeTransformer $topic_transformer,
+		private readonly QuizNodeTransformer $quiz_transformer
 	) {
 	}
 
 	/**
 	 * @return array<string, mixed>
 	 */
-	public function transform( WP_Post $lesson, ProgressOverlay $overlay ): array {
+	public function transform( WP_Post $lesson, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay ): array {
 		$lesson_id = (int) $lesson->ID;
 
 		$duration   = (int) get_post_meta( $lesson_id, '_vl_lesson_duration_seconds', true );
@@ -56,6 +58,7 @@ class LessonNodeTransformer {
 			'has_topics'          => [] !== $topics,
 			'progress'            => $this->serialize_progress( $overlay->lesson( $lesson_id ) ),
 			'topics'              => $topics,
+			'quizzes'             => $this->quiz_transformer->transform_children( $lesson_id, $quiz_overlay ),
 		];
 	}
 

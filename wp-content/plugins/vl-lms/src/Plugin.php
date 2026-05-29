@@ -165,6 +165,7 @@ use VL\LMS\Learn\SessionContentTransformer;
 use VL\LMS\Learn\SessionLookup;
 use VL\LMS\Learn\SessionNodeTransformer;
 use VL\LMS\Learn\NextEntityResolver;
+use VL\LMS\Learn\QuizNodeTransformer;
 use VL\LMS\Learn\TopicContentTransformer;
 use VL\LMS\Learn\TopicNodeTransformer;
 use VL\LMS\Learn\Video\VideoPayloadBuilder;
@@ -1414,11 +1415,18 @@ final class Plugin {
 		);
 
 		$container->set(
+			QuizNodeTransformer::class,
+			static fn (): QuizNodeTransformer => new QuizNodeTransformer()
+		);
+
+		$container->set(
 			LessonNodeTransformer::class,
 			static function ( Container $c ): LessonNodeTransformer {
 				$topic = $c->get( TopicNodeTransformer::class );
 				assert( $topic instanceof TopicNodeTransformer );
-				return new LessonNodeTransformer( $topic );
+				$quiz = $c->get( QuizNodeTransformer::class );
+				assert( $quiz instanceof QuizNodeTransformer );
+				return new LessonNodeTransformer( $topic, $quiz );
 			}
 		);
 
@@ -1427,7 +1435,9 @@ final class Plugin {
 			static function ( Container $c ): ModuleNodeTransformer {
 				$lesson = $c->get( LessonNodeTransformer::class );
 				assert( $lesson instanceof LessonNodeTransformer );
-				return new ModuleNodeTransformer( $lesson );
+				$quiz = $c->get( QuizNodeTransformer::class );
+				assert( $quiz instanceof QuizNodeTransformer );
+				return new ModuleNodeTransformer( $lesson, $quiz );
 			}
 		);
 
@@ -1436,7 +1446,9 @@ final class Plugin {
 			static function ( Container $c ): SessionNodeTransformer {
 				$attendance = $c->get( SessionAttendanceRepository::class );
 				assert( $attendance instanceof SessionAttendanceRepository );
-				return new SessionNodeTransformer( $attendance );
+				$quiz = $c->get( QuizNodeTransformer::class );
+				assert( $quiz instanceof QuizNodeTransformer );
+				return new SessionNodeTransformer( $attendance, $quiz );
 			}
 		);
 
@@ -1449,13 +1461,17 @@ final class Plugin {
 				assert( $lesson instanceof LessonNodeTransformer );
 				$session = $c->get( SessionNodeTransformer::class );
 				assert( $session instanceof SessionNodeTransformer );
+				$quiz = $c->get( QuizNodeTransformer::class );
+				assert( $quiz instanceof QuizNodeTransformer );
 				$next = $c->get( NextEntityResolver::class );
 				assert( $next instanceof NextEntityResolver );
 				$progress = $c->get( ProgressRepository::class );
 				assert( $progress instanceof ProgressRepository );
+				$quiz_attempts = $c->get( QuizAttemptRepository::class );
+				assert( $quiz_attempts instanceof QuizAttemptRepository );
 				$enrollments = $c->get( EnrollmentRepository::class );
 				assert( $enrollments instanceof EnrollmentRepository );
-				return new LearnCurriculumTransformer( $module, $lesson, $session, $next, $progress, $enrollments );
+				return new LearnCurriculumTransformer( $module, $lesson, $session, $quiz, $next, $progress, $quiz_attempts, $enrollments );
 			}
 		);
 

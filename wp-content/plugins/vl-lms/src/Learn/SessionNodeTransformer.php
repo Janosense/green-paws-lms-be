@@ -27,6 +27,7 @@ class SessionNodeTransformer {
 
 	public function __construct(
 		private readonly SessionAttendanceRepository $attendance,
+		private readonly QuizNodeTransformer $quiz_transformer
 	) {
 	}
 
@@ -42,10 +43,11 @@ class SessionNodeTransformer {
 	 *     status: string,
 	 *     is_completed: bool,
 	 *     join_url_path: string,
-	 *     recording_url_path: string|null
+	 *     recording_url_path: string|null,
+	 *     quizzes: list<array<string, mixed>>
 	 * }
 	 */
-	public function transform( WP_Post $session, int $user_id, ProgressOverlay $overlay ): array {
+	public function transform( WP_Post $session, int $user_id, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay ): array {
 		// $overlay is unused — sessions live outside vl_progress. The param
 		// stays so CurriculumTransformer can dispatch by node type without
 		// signature branching.
@@ -72,6 +74,7 @@ class SessionNodeTransformer {
 			'is_completed'       => count( $attendance ) > 0,
 			'join_url_path'      => '/vl/v1/learn/sessions/' . $slug . '/join',
 			'recording_url_path' => '' === $recording_url ? null : '/vl/v1/learn/sessions/' . $slug . '/recording',
+			'quizzes'            => $this->quiz_transformer->transform_children( $session_id, $quiz_overlay ),
 		];
 	}
 

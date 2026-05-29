@@ -179,6 +179,62 @@ class QuizAttemptRepository {
 	}
 
 	/**
+	 * Per-quiz attempt summary for one user across a whole course, in a
+	 * single GROUP BY round trip. Powers the curriculum-rail quiz overlay
+	 * ({@see \VL\LMS\Learn\QuizStatusOverlay}) so the tree walk reads each
+	 * quiz's status from memory rather than fanning out per quiz.
+	 *
+	 * Returned rows are keyed by `quiz_id`. `best_pct` is the highest
+	 * passing-percentage observed on *submitted* attempts (rounded to two
+	 * decimals for stable wire equality), or `null` when none scored.
+	 *
+	 * @return array<int, array{passed: bool, in_progress: bool, submitted_count: int, best_pct: float|null}>
+	 */
+	public function status_map_for_user_in_course( int $user_id, int $course_id ): array {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$sql = $wpdb->prepare(
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT quiz_id,
+				MAX(passed) AS passed,
+				MAX(CASE WHEN status = %s THEN 1 ELSE 0 END) AS in_progress,
+				SUM(CASE WHEN status != %s THEN 1 ELSE 0 END) AS submitted_count,
+				MAX(CASE WHEN status = %s AND max_score > 0 THEN ROUND(score / max_score * 100, 2) ELSE NULL END) AS best_pct
+			FROM {$table}
+			WHERE user_id = %d AND course_id = %d
+			GROUP BY quiz_id",
+			QuizAttemptStatus::IN_PROGRESS->value,
+			QuizAttemptStatus::IN_PROGRESS->value,
+			QuizAttemptStatus::SUBMITTED->value,
+			$user_id,
+			$course_id
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$quiz_id         = (int) ( $row['quiz_id'] ?? 0 );
+			$best            = $row['best_pct'] ?? null;
+			$out[ $quiz_id ] = [
+				'passed'          => (int) ( $row['passed'] ?? 0 ) > 0,
+				'in_progress'     => (int) ( $row['in_progress'] ?? 0 ) > 0,
+				'submitted_count' => (int) ( $row['submitted_count'] ?? 0 ),
+				'best_pct'        => is_numeric( $best ) ? (float) $best : null,
+			];
+		}
+		return $out;
+	}
+
+	/**
 	 * @return list<QuizAttempt>
 	 */
 	public function list_passed_for_user_in_course( int $user_id, int $course_id ): array {

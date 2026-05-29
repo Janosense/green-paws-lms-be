@@ -221,4 +221,98 @@ final class NextEntityResolverTest extends TestCase {
 		self::assertSame( 'sololesson', $result['slug'] );
 		self::assertSame( 'sololesson', $result['lesson_slug'] );
 	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	private function quiz( int $id, string $slug, string $status ): array {
+		return [
+			'type'              => 'quiz',
+			'id'                => $id,
+			'slug'              => $slug,
+			'title'             => $slug,
+			'menu_order'        => $id,
+			'is_final_exam'     => false,
+			'passing_threshold' => 70,
+			'status'            => $status,
+			'best_score_pct'    => null,
+		];
+	}
+
+	public function test_lesson_quiz_is_next_after_lesson_completed(): void {
+		$lesson            = $this->lesson( 11, 'done', 'completed' );
+		$lesson['quizzes'] = [ $this->quiz( 50, 'lesson-quiz', 'not_started' ) ];
+
+		$result = $this->resolver->resolve( [ $this->module( 1, 'm1', [ $lesson ] ) ], [] );
+
+		self::assertSame(
+			[
+				'type' => 'quiz',
+				'id'   => 50,
+				'slug' => 'lesson-quiz',
+			],
+			$result
+		);
+	}
+
+	public function test_module_quiz_is_next_after_all_lessons_done(): void {
+		$module            = $this->module( 1, 'm1', [ $this->lesson( 11, 'done', 'completed' ) ] );
+		$module['quizzes'] = [ $this->quiz( 60, 'module-quiz', 'failed' ) ];
+
+		$result = $this->resolver->resolve( [ $module ], [] );
+
+		self::assertNotNull( $result );
+		self::assertSame( 'quiz', $result['type'] );
+		self::assertSame( 'module-quiz', $result['slug'] );
+	}
+
+	public function test_passed_quiz_is_skipped(): void {
+		$lesson            = $this->lesson( 11, 'done', 'completed' );
+		$lesson['quizzes'] = [
+			$this->quiz( 50, 'passed-quiz', 'passed' ),
+			$this->quiz( 51, 'pending-quiz', 'in_progress' ),
+		];
+
+		$result = $this->resolver->resolve( [ $this->module( 1, 'm1', [ $lesson ] ) ], [] );
+
+		self::assertNotNull( $result );
+		self::assertSame( 'pending-quiz', $result['slug'] );
+	}
+
+	public function test_course_level_quiz_is_last_resort(): void {
+		$module = $this->module( 1, 'm1', [ $this->lesson( 11, 'done', 'completed' ) ] );
+
+		$result = $this->resolver->resolve(
+			[ $module ],
+			[],
+			[],
+			[ $this->quiz( 700, 'final-exam', 'not_started' ) ]
+		);
+
+		self::assertSame(
+			[
+				'type' => 'quiz',
+				'id'   => 700,
+				'slug' => 'final-exam',
+			],
+			$result
+		);
+	}
+
+	public function test_session_quiz_follows_completed_session(): void {
+		$session = [
+			'type'         => 'session',
+			'id'           => 400,
+			'slug'         => 'session-1',
+			'title'        => 'Session 1',
+			'is_completed' => true,
+			'quizzes'      => [ $this->quiz( 80, 'session-quiz', 'not_started' ) ],
+		];
+
+		$result = $this->resolver->resolve( [], [], [ $session ] );
+
+		self::assertNotNull( $result );
+		self::assertSame( 'quiz', $result['type'] );
+		self::assertSame( 'session-quiz', $result['slug'] );
+	}
 }

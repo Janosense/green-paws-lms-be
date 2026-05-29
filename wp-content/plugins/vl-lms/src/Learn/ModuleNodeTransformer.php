@@ -13,7 +13,8 @@ use WP_Query;
  * Modules are pure groupings — they carry no progress field of their own
  * (the frontend computes module-level state visually from constituent
  * lessons). Each module node fans out into a list of lesson nodes via
- * {@see LessonNodeTransformer}.
+ * {@see LessonNodeTransformer}, then its own module-level quizzes via
+ * {@see QuizNodeTransformer} (quizzes whose `post_parent` is the module).
  *
  * The lesson query is isolated in {@see self::query_child_lessons()} so
  * unit tests can subclass and bypass `WP_Query` without booting WP.
@@ -23,19 +24,20 @@ use WP_Query;
 class ModuleNodeTransformer {
 
 	public function __construct(
-		private readonly LessonNodeTransformer $lesson_transformer
+		private readonly LessonNodeTransformer $lesson_transformer,
+		private readonly QuizNodeTransformer $quiz_transformer
 	) {
 	}
 
 	/**
 	 * @return array<string, mixed>
 	 */
-	public function transform( WP_Post $module, ProgressOverlay $overlay ): array {
+	public function transform( WP_Post $module, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay ): array {
 		$module_id = (int) $module->ID;
 
 		$lessons = [];
 		foreach ( $this->query_child_lessons( $module_id ) as $lesson ) {
-			$lessons[] = $this->lesson_transformer->transform( $lesson, $overlay );
+			$lessons[] = $this->lesson_transformer->transform( $lesson, $overlay, $quiz_overlay );
 		}
 
 		return [
@@ -44,6 +46,7 @@ class ModuleNodeTransformer {
 			'title'      => (string) get_the_title( $module ),
 			'menu_order' => (int) $module->menu_order,
 			'lessons'    => $lessons,
+			'quizzes'    => $this->quiz_transformer->transform_children( $module_id, $quiz_overlay ),
 		];
 	}
 

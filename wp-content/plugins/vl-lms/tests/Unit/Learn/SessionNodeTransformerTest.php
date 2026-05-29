@@ -11,6 +11,8 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\SessionAttendance\SessionAttendance;
 use VL\LMS\Learn\ProgressOverlay;
+use VL\LMS\Learn\QuizNodeTransformer;
+use VL\LMS\Learn\QuizStatusOverlay;
 use VL\LMS\Learn\SessionNodeTransformer;
 use VL\LMS\Repositories\SessionAttendanceRepository;
 use WP_Post;
@@ -40,7 +42,25 @@ final class SessionNodeTransformerTest extends TestCase {
 		Functions\when( 'wp_strip_all_tags' )->returnArg();
 
 		$this->attendance  = Mockery::mock( SessionAttendanceRepository::class );
-		$this->transformer = new SessionNodeTransformer( $this->attendance );
+		$this->transformer = new SessionNodeTransformer( $this->attendance, $this->quizTransformer() );
+	}
+
+	/**
+	 * Quiz transformer stub whose child query is keyed by parent post ID.
+	 *
+	 * @param array<int, list<WP_Post>> $quizzes_by_parent_id
+	 */
+	private function quizTransformer( array $quizzes_by_parent_id = [] ): QuizNodeTransformer {
+		return new class( $quizzes_by_parent_id ) extends QuizNodeTransformer {
+
+			/** @param array<int, list<WP_Post>> $quizzes_by_parent_id */
+			public function __construct( private array $quizzes_by_parent_id ) {
+			}
+
+			protected function query_child_quizzes( int $parent_id ): array {
+				return $this->quizzes_by_parent_id[ $parent_id ] ?? [];
+			}
+		};
 	}
 
 	protected function tearDown(): void {
@@ -72,7 +92,8 @@ final class SessionNodeTransformerTest extends TestCase {
 		$out = $this->transformer->transform(
 			$this->session( 100, 'module-3' ),
 			5,
-			ProgressOverlay::fromList( [] )
+			ProgressOverlay::fromList( [] ),
+			QuizStatusOverlay::fromMap( [] )
 		);
 
 		self::assertSame( 'session', $out['type'] );
@@ -90,7 +111,8 @@ final class SessionNodeTransformerTest extends TestCase {
 		$out = $this->transformer->transform(
 			$this->session( 100, 'module-3' ),
 			5,
-			ProgressOverlay::fromList( [] )
+			ProgressOverlay::fromList( [] ),
+			QuizStatusOverlay::fromMap( [] )
 		);
 
 		self::assertNull( $out['recording_url_path'] );
@@ -103,7 +125,8 @@ final class SessionNodeTransformerTest extends TestCase {
 		$out = $this->transformer->transform(
 			$this->session( 100, 'module-3' ),
 			5,
-			ProgressOverlay::fromList( [] )
+			ProgressOverlay::fromList( [] ),
+			QuizStatusOverlay::fromMap( [] )
 		);
 
 		self::assertSame( 'scheduled', $out['status'] );

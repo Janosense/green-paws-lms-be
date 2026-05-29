@@ -10,13 +10,17 @@ use VL\LMS\Api\Transformers\QuizAttemptStateTransformer;
  * Test double for {@see QuizAttemptStateTransformer}.
  *
  * Overrides the WP-function seams so unit tests can drive
- * `quiz_title`, `_vl_quiz_max_attempts`, and the wall-clock without
- * round-tripping through `get_the_title` / `get_post_meta` / `time()`.
+ * `quiz_title`, `course_slug`, `_vl_quiz_max_attempts`, and the wall-clock
+ * without round-tripping through `get_the_title` / `get_post_field` /
+ * `get_post_meta` / `time()`.
  */
 final class TestableQuizAttemptStateTransformer extends QuizAttemptStateTransformer {
 
 	/** @var array<int, string> */
 	public array $titles = [];
+
+	/** @var array<int, string> */
+	public array $course_slugs = [];
 
 	/** @var array<int, int> */
 	public array $max_attempts_meta = [];
@@ -25,6 +29,10 @@ final class TestableQuizAttemptStateTransformer extends QuizAttemptStateTransfor
 
 	protected function title( int $quiz_id ): string {
 		return $this->titles[ $quiz_id ] ?? '';
+	}
+
+	protected function course_slug( int $course_id ): string {
+		return $this->course_slugs[ $course_id ] ?? '';
 	}
 
 	protected function meta_int( int $post_id, string $key ): int {
