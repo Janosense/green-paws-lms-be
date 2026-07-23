@@ -14,6 +14,7 @@ final class VL_Headless_Theme {
         (new VL_Headless_Cleanup())->register();
         (new VL_Headless_Rest_Hardening())->register();
         (new VL_Headless_Admin_UX())->register();
+        (new VL_Headless_Favicon())->register();
     }
 
     public static function setup(): void {

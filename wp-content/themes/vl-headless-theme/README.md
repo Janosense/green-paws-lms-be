@@ -9,6 +9,7 @@ Minimal WordPress theme for the Veterinary LMS backend. The public site is rende
 - **Disables unused surface area** — XML-RPC, pingbacks, the WP default sitemap.
 - **Blocks anonymous user enumeration** on `/wp-json/wp/v2/users`.
 - **Cleans up the admin** — removes the "Posts" and "Comments" menu items, the WordPress News / Activity / Quick Draft dashboard widgets, and the WP logo from the toolbar. Custom footer with a link to the frontend.
+- **Serves the brand favicon** on wp-admin and wp-login.php, and redirects direct `/favicon.ico` hits to the theme icon instead of WP's default blue-W fallback. Icons live in `assets/favicon/`.
 
 ## What it does **not** do
 
@@ -45,7 +46,7 @@ The theme does not force this programmatically because that would stomp on a leg
 | Post previews                | Editors need to preview content         |
 | Customizer preview           | Not used, but harmless                  |
 | `/robots.txt`                | Served by WP                            |
-| Favicon                      | Served by WP                            |
+| Favicon                      | Redirected to the theme icon            |
 | `/feed/`                     | Let WP serve RSS natively               |
 
 ## Project structure
@@ -58,12 +59,15 @@ vl-headless-theme/
 ├── readme.txt              # WP.org-style readme
 ├── README.md               # This file
 ├── .gitignore
+├── assets/
+│   └── favicon/            # Brand icons for wp-admin / wp-login
 └── includes/
     ├── class-theme.php             # Bootstrap
     ├── class-frontend-redirect.php # template_redirect → VL_FRONTEND_URL
     ├── class-cleanup.php           # head + XML-RPC + sitemap cleanup
     ├── class-rest-hardening.php    # Anonymous user endpoint blocking
-    └── class-admin-ux.php          # Dashboard / menu / toolbar / footer
+    ├── class-admin-ux.php          # Dashboard / menu / toolbar / footer
+    └── class-favicon.php           # Admin/login favicon + /favicon.ico
 ```
 
 ## Requirements
