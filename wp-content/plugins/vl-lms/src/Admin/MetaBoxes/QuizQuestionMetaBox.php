@@ -13,7 +13,8 @@ use WP_Post;
  * explanation, text-match settings) and the JS-driven answers builder
  * widget. Answers travel as a JSON blob through the
  * `_vl_question_answers_json` hidden field; runtime persistence is on
- * `_vl_question_answers`.
+ * `_vl_question_answers` as an array, matching what the key's registered
+ * sanitize callback expects.
  *
  * @author Tymofii Synianskyi
  */
@@ -61,22 +62,24 @@ class QuizQuestionMetaBox extends AbstractMetaBox {
 
 		$type = $this->meta_string( $post->ID, '_vl_question_type' );
 
-		$answers_raw = (string) get_post_meta( $post->ID, '_vl_question_answers', true );
-		$answers     = [];
-		if ( '' !== $answers_raw ) {
-			$decoded = json_decode( $answers_raw, true );
-			if ( is_array( $decoded ) ) {
-				foreach ( $decoded as $row ) {
-					if ( ! is_array( $row ) ) {
-						continue;
-					}
-					$answers[] = [
-						'id'          => isset( $row['id'] ) ? (string) $row['id'] : '',
-						'text'        => isset( $row['text'] ) ? (string) $row['text'] : '',
-						'is_correct'  => ! empty( $row['is_correct'] ),
-						'explanation' => isset( $row['explanation'] ) ? (string) $row['explanation'] : '',
-					];
+		// Canonical storage is an array (see QuizQuestionType::sanitize_answers);
+		// a JSON string can only appear on rows that predate meta registration.
+		$stored = get_post_meta( $post->ID, '_vl_question_answers', true );
+		if ( is_string( $stored ) && '' !== $stored ) {
+			$stored = json_decode( $stored, true );
+		}
+		$answers = [];
+		if ( is_array( $stored ) ) {
+			foreach ( $stored as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
 				}
+				$answers[] = [
+					'id'          => isset( $row['id'] ) ? (string) $row['id'] : '',
+					'text'        => isset( $row['text'] ) ? (string) $row['text'] : '',
+					'is_correct'  => ! empty( $row['is_correct'] ),
+					'explanation' => isset( $row['explanation'] ) ? (string) $row['explanation'] : '',
+				];
 			}
 		}
 
@@ -227,20 +230,27 @@ class QuizQuestionMetaBox extends AbstractMetaBox {
 					if ( ! is_array( $row ) ) {
 						continue;
 					}
-					$id   = isset( $row['id'] ) ? sanitize_text_field( (string) $row['id'] ) : '';
-					$text = isset( $row['text'] ) ? sanitize_text_field( (string) $row['text'] ) : '';
+					$id = isset( $row['id'] ) ? sanitize_text_field( (string) $row['id'] ) : '';
 					if ( '' === $id ) {
+						$id = wp_generate_uuid4();
+					}
+					$text       = isset( $row['text'] ) ? sanitize_text_field( (string) $row['text'] ) : '';
+					$is_correct = ! empty( $row['is_correct'] );
+					if ( '' === $text && ! $is_correct ) {
 						continue;
 					}
 					$items[] = [
 						'id'          => $id,
 						'text'        => $text,
-						'is_correct'  => ! empty( $row['is_correct'] ),
-						'explanation' => isset( $row['explanation'] ) ? wp_kses_post( (string) $row['explanation'] ) : '',
+						'is_correct'  => $is_correct,
+						'explanation' => isset( $row['explanation'] ) ? sanitize_text_field( (string) $row['explanation'] ) : '',
 					];
 				}
 			}
-			update_post_meta( $post_id, '_vl_question_answers', wp_json_encode( $items ) );
+			// Must be an array: the key's registered sanitize callback
+			// (QuizQuestionType::sanitize_answers) collapses any non-array —
+			// including a JSON string — to [].
+			update_post_meta( $post_id, '_vl_question_answers', $items );
 		}
 	}
 
