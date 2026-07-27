@@ -6,6 +6,8 @@ namespace VL\LMS\Quiz\Access;
 
 use VL\LMS\Domain\Quiz\QuizAttempt;
 use VL\LMS\Learn\Access\AccessDecision;
+use VL\LMS\Learn\Progression\CurriculumStop;
+use VL\LMS\Learn\Progression\ProgressionGate;
 use VL\LMS\Quiz\QuizCourseResolver;
 use VL\LMS\Repositories\QuizAttemptRepository;
 use VL\LMS\Services\Enrollment\EnrollmentService;
@@ -22,6 +24,24 @@ use WP_Post;
  * `_vl_quiz_max_attempts` ceiling on top. `evaluate_for_attempt_action()`
  * runs before any in-flight action (`GET / PATCH save / POST submit`) and
  * checks attempt ownership plus continued enrollment.
+ *
+ * Progression locks are checked in `evaluate_for_start()` **only**, and
+ * the placement of that check is load-bearing in two directions:
+ *
+ * - Not in `evaluate_for_read()`, for the same reason the max-attempts
+ *   ceiling is not there. Attempt history is a record of work the
+ *   learner already did; an editor enabling a gate upstream must not
+ *   retroactively 403 it away.
+ * - Not in `evaluate_for_attempt_action()`, because that would strand an
+ *   in-flight attempt — `save` and `submit` would both start failing on
+ *   an attempt the server itself issued. Relatedly,
+ *   {@see \VL\LMS\Quiz\QuizAttemptService::start()} short-circuits on an
+ *   existing in-progress attempt before ever reaching this gate, so a
+ *   learner who was mid-attempt when a gate went up can still finish.
+ *
+ * Within `evaluate_for_start()` the lock is checked *before* the
+ * max-attempts ceiling: "this is not open to you yet" is the more
+ * informative answer for a quiz the learner was never allowed to begin.
  *
  * Time-limit expiry is intentionally NOT checked here — the service owns
  * that path because it must mutate the attempt's status (auto-finalize)
@@ -44,7 +64,8 @@ class QuizAccessGate {
 	public function __construct(
 		private readonly EnrollmentService $enrollments,
 		private readonly QuizAttemptRepository $attempts,
-		private readonly QuizCourseResolver $resolver
+		private readonly QuizCourseResolver $resolver,
+		private readonly ProgressionGate $progression
 	) {
 	}
 
@@ -79,6 +100,16 @@ class QuizAccessGate {
 		$decision = $this->evaluate_for_read( $user_id, $quiz_id, $quiz );
 		if ( ! $decision->allowed ) {
 			return $decision;
+		}
+
+		$lock = $this->progression->check(
+			$user_id,
+			$decision->course_id,
+			CurriculumStop::KIND_QUIZ,
+			$quiz_id
+		);
+		if ( null !== $lock ) {
+			return AccessDecision::deny_locked( $lock, $decision->course_id );
 		}
 
 		$max_attempts = $this->read_max_attempts( $quiz_id );

@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace VL\LMS\Learn\Access;
 
 use VL\LMS\Learn\EntityHierarchy;
+use VL\LMS\Learn\Progression\CurriculumStop;
+use VL\LMS\Learn\Progression\ProgressionGate;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use WP_Post;
 
 /**
  * Gatekeeper for lesson and topic playback.
  *
- * Evaluates a fixed four-step ladder (parent resolution, course publish
- * status, preview bypass, active enrollment). The first failure wins;
- * the verdict is returned as an immutable {@see AccessDecision}.
+ * Evaluates a fixed five-step ladder (parent resolution, course publish
+ * status, preview bypass, active enrollment, progression lock). The
+ * first failure wins; the verdict is returned as an immutable
+ * {@see AccessDecision}.
  *
  * The "active enrollment" primitive is delegated to
  * {@see EnrollmentService::has_active_access()} — it owns the canonical
@@ -21,13 +24,28 @@ use WP_Post;
  * time. The repository alone exposes only row finders, not the access
  * verdict.
  *
+ * The progression step is deliberately **last**. Ordering it after
+ * enrollment means an unenrolled learner gets the actionable
+ * `not_enrolled` rather than being told a lesson is locked behind a quiz
+ * they could not sit anyway; ordering it after the preview bypass keeps
+ * free marketing previews open regardless of where they sit in the
+ * curriculum. Editor bypass lives inside
+ * {@see ProgressionGate}, so previewing costs no queries here.
+ *
+ * Note this is not the prerequisite check that commit `e3ce4ef` removed.
+ * That one keyed implicitly off the *previous sibling lesson's*
+ * `_vl_lesson_requires_completion` meta with no editor opt-in;
+ * `_vl_lesson_requires_completion` remains read by nothing. This gate is
+ * driven by explicit per-quiz flags and a whole-course ordering.
+ *
  * @author Tymofii Synianskyi
  */
 class LessonAccessGate {
 
 	public function __construct(
 		private readonly EnrollmentService $enrollments,
-		private readonly EntityHierarchy $hierarchy
+		private readonly EntityHierarchy $hierarchy,
+		private readonly ProgressionGate $progression
 	) {
 	}
 
@@ -49,6 +67,15 @@ class LessonAccessGate {
 
 		if ( ! $this->enrollments->has_active_access( $user_id, $course_id ) ) {
 			return AccessDecision::deny( 'not_enrolled', $course_id );
+		}
+
+		$kind = 'vl_topic' === $lesson_or_topic->post_type
+			? CurriculumStop::KIND_TOPIC
+			: CurriculumStop::KIND_LESSON;
+
+		$lock = $this->progression->check( $user_id, $course_id, $kind, (int) $lesson_or_topic->ID );
+		if ( null !== $lock ) {
+			return AccessDecision::deny_locked( $lock, $course_id );
 		}
 
 		return AccessDecision::allow( $course_id, false );

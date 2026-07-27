@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VL\LMS\Learn;
 
+use VL\LMS\Learn\Progression\CurriculumStop;
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Query;
@@ -33,10 +35,10 @@ class QuizNodeTransformer {
 	 *
 	 * @return list<array<string, mixed>>
 	 */
-	public function transform_children( int $parent_id, QuizStatusOverlay $overlay ): array {
+	public function transform_children( int $parent_id, QuizStatusOverlay $overlay, LockMap $locks ): array {
 		$out = [];
 		foreach ( $this->query_child_quizzes( $parent_id ) as $quiz ) {
-			$out[] = $this->transform( $quiz, $overlay );
+			$out[] = $this->transform( $quiz, $overlay, $locks );
 		}
 		return $out;
 	}
@@ -51,10 +53,11 @@ class QuizNodeTransformer {
 	 *     is_final_exam: bool,
 	 *     passing_threshold: int,
 	 *     status: string,
-	 *     best_score_pct: float|null
+	 *     best_score_pct: float|null,
+	 *     lock: array<string, mixed>|null
 	 * }
 	 */
-	public function transform( WP_Post $quiz, QuizStatusOverlay $overlay ): array {
+	public function transform( WP_Post $quiz, QuizStatusOverlay $overlay, LockMap $locks ): array {
 		$quiz_id = (int) $quiz->ID;
 
 		return [
@@ -67,6 +70,7 @@ class QuizNodeTransformer {
 			'passing_threshold' => (int) get_post_meta( $quiz_id, '_vl_quiz_passing_threshold', true ),
 			'status'            => $overlay->status( $quiz_id ),
 			'best_score_pct'    => $overlay->best_score_pct( $quiz_id ),
+			'lock'              => $locks->to_node_value( CurriculumStop::KIND_QUIZ, $quiz_id ),
 		];
 	}
 

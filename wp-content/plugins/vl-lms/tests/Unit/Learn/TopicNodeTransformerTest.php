@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\Progress\EntityType;
 use VL\LMS\Domain\Progress\Progress;
 use VL\LMS\Domain\Progress\ProgressStatus;
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Learn\ProgressOverlay;
 use VL\LMS\Learn\TopicNodeTransformer;
 use WP_Post;
@@ -95,7 +96,7 @@ final class TopicNodeTransformerTest extends TestCase {
 			[ $this->progress_row( 200, ProgressStatus::IN_PROGRESS, 240 ) ]
 		);
 
-		$node = $this->transformer->transform( $topic, $overlay );
+		$node = $this->transformer->transform( $topic, $overlay, LockMap::empty() );
 
 		self::assertSame(
 			[
@@ -109,6 +110,7 @@ final class TopicNodeTransformerTest extends TestCase {
 					'position_seconds' => 240,
 					'completed_at'     => null,
 				],
+				'lock'             => null,
 			],
 			$node
 		);
@@ -118,7 +120,7 @@ final class TopicNodeTransformerTest extends TestCase {
 		$topic = $this->topic( 200, 't', 'T' );
 		$this->meta['_vl_topic_duration_seconds'][200] = 60;
 
-		$node = $this->transformer->transform( $topic, ProgressOverlay::fromList( [] ) );
+		$node = $this->transformer->transform( $topic, ProgressOverlay::fromList( [] ), LockMap::empty() );
 
 		self::assertSame(
 			[
@@ -133,7 +135,7 @@ final class TopicNodeTransformerTest extends TestCase {
 	public function test_missing_duration_meta_defaults_to_zero(): void {
 		$topic = $this->topic( 200, 't', 'T' );
 
-		$node = $this->transformer->transform( $topic, ProgressOverlay::fromList( [] ) );
+		$node = $this->transformer->transform( $topic, ProgressOverlay::fromList( [] ), LockMap::empty() );
 
 		self::assertSame( 0, $node['duration_seconds'] );
 	}
@@ -145,7 +147,7 @@ final class TopicNodeTransformerTest extends TestCase {
 			[ $this->progress_row( 200, ProgressStatus::COMPLETED, null, $completed_at ) ]
 		);
 
-		$node = $this->transformer->transform( $topic, $overlay );
+		$node = $this->transformer->transform( $topic, $overlay, LockMap::empty() );
 
 		self::assertSame( 'completed', $node['progress']['status'] );
 		self::assertSame(

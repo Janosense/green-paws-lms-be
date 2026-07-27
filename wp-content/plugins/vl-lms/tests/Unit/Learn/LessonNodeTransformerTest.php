@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\Progress\EntityType;
 use VL\LMS\Domain\Progress\Progress;
 use VL\LMS\Domain\Progress\ProgressStatus;
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Learn\LessonNodeTransformer;
 use VL\LMS\Learn\ProgressOverlay;
 use VL\LMS\Learn\QuizNodeTransformer;
@@ -165,7 +166,7 @@ final class LessonNodeTransformerTest extends TestCase {
 			[ $this->lesson_progress( 123, ProgressStatus::IN_PROGRESS, 240 ) ]
 		);
 
-		$node = $transformer->transform( $lesson, $overlay, $this->quizOverlay() );
+		$node = $transformer->transform( $lesson, $overlay, $this->quizOverlay(), LockMap::empty() );
 
 		self::assertSame( 123, $node['id'] );
 		self::assertSame( 'intro', $node['slug'] );
@@ -202,7 +203,7 @@ final class LessonNodeTransformerTest extends TestCase {
 			]
 		);
 
-		$node = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $overlay );
+		$node = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $overlay, LockMap::empty() );
 
 		self::assertCount( 1, $node['quizzes'] );
 		self::assertSame( 'quiz', $node['quizzes'][0]['type'] );
@@ -219,7 +220,7 @@ final class LessonNodeTransformerTest extends TestCase {
 		$this->meta['_vl_lesson_duration_seconds'][123] = 300;
 
 		$transformer = $this->makeTransformer();
-		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay() );
+		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay(), LockMap::empty() );
 
 		self::assertFalse( $node['has_topics'] );
 		self::assertSame( [], $node['topics'] );
@@ -230,7 +231,7 @@ final class LessonNodeTransformerTest extends TestCase {
 		$this->meta['_vl_lesson_is_preview'][123] = '1';
 
 		$transformer = $this->makeTransformer();
-		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay() );
+		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay(), LockMap::empty() );
 
 		self::assertTrue( $node['is_preview'] );
 	}
@@ -240,7 +241,7 @@ final class LessonNodeTransformerTest extends TestCase {
 		$this->meta['_vl_lesson_requires_completion'][123] = '1';
 
 		$transformer = $this->makeTransformer();
-		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay() );
+		$node        = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay(), LockMap::empty() );
 
 		self::assertTrue( $node['requires_completion'] );
 	}
@@ -249,7 +250,7 @@ final class LessonNodeTransformerTest extends TestCase {
 		$lesson      = $this->lesson( 123, 'l', 'L' );
 		$transformer = $this->makeTransformer();
 
-		$node = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay() );
+		$node = $transformer->transform( $lesson, ProgressOverlay::fromList( [] ), $this->quizOverlay(), LockMap::empty() );
 
 		self::assertSame(
 			[

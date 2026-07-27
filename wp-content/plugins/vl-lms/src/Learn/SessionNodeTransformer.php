@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Learn;
 
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Repositories\SessionAttendanceRepository;
 use VL\LMS\Support\PlainText;
 use WP_Post;
@@ -45,10 +46,17 @@ class SessionNodeTransformer {
 	 *     is_completed: bool,
 	 *     join_url_path: string,
 	 *     recording_url_path: string|null,
+	 *     lock: null,
 	 *     quizzes: list<array<string, mixed>>
 	 * }
 	 */
-	public function transform( WP_Post $session, int $user_id, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay ): array {
+	public function transform(
+		WP_Post $session,
+		int $user_id,
+		ProgressOverlay $overlay,
+		QuizStatusOverlay $quiz_overlay,
+		LockMap $locks
+	): array {
 		// $overlay is unused — sessions live outside vl_progress. The param
 		// stays so CurriculumTransformer can dispatch by node type without
 		// signature branching.
@@ -75,7 +83,13 @@ class SessionNodeTransformer {
 			'is_completed'       => count( $attendance ) > 0,
 			'join_url_path'      => '/vl/v1/learn/sessions/' . $slug . '/join',
 			'recording_url_path' => '' === $recording_url ? null : '/vl/v1/learn/sessions/' . $slug . '/recording',
-			'quizzes'            => $this->quiz_transformer->transform_children( $session_id, $quiz_overlay ),
+			// Always null: a cohort session is a scheduled calendar event with
+			// its own join window, and locking one behind a quiz would strand a
+			// learner outside a call that will not be repeated. Emitted anyway
+			// so every curriculum leaf has the same shape. Its *quizzes* are
+			// lockable — the exemption covers the session itself only.
+			'lock'               => null,
+			'quizzes'            => $this->quiz_transformer->transform_children( $session_id, $quiz_overlay, $locks ),
 		];
 	}
 

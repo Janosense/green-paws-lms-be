@@ -71,7 +71,7 @@ final class QuizType extends AbstractCptRegistrar {
 			current_user_can( 'edit_post', $object_id );
 
 		return [
-			'_vl_quiz_time_limit_seconds'   => [
+			'_vl_quiz_time_limit_seconds'          => [
 				'type'              => 'integer',
 				'single'            => true,
 				'default'           => 0,
@@ -80,7 +80,7 @@ final class QuizType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Time limit in seconds (0 = no limit).',
 			],
-			'_vl_quiz_max_attempts'         => [
+			'_vl_quiz_max_attempts'                => [
 				'type'              => 'integer',
 				'single'            => true,
 				'default'           => 0,
@@ -89,7 +89,7 @@ final class QuizType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Maximum attempts per student (0 = unlimited).',
 			],
-			'_vl_quiz_passing_threshold'    => [
+			'_vl_quiz_passing_threshold'           => [
 				'type'              => 'integer',
 				'single'            => true,
 				'default'           => 80,
@@ -98,7 +98,7 @@ final class QuizType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Passing percentage (0–100).',
 			],
-			'_vl_quiz_shuffle_questions'    => [
+			'_vl_quiz_shuffle_questions'           => [
 				'type'              => 'boolean',
 				'single'            => true,
 				'default'           => false,
@@ -107,7 +107,7 @@ final class QuizType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Randomize question order per attempt.',
 			],
-			'_vl_quiz_shuffle_answers'      => [
+			'_vl_quiz_shuffle_answers'             => [
 				'type'              => 'boolean',
 				'single'            => true,
 				'default'           => false,
@@ -116,7 +116,7 @@ final class QuizType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Randomize answer order per attempt.',
 			],
-			'_vl_quiz_show_correct_answers' => [
+			'_vl_quiz_show_correct_answers'        => [
 				'type'              => 'string',
 				'single'            => true,
 				'default'           => 'after_submit',
@@ -125,7 +125,7 @@ final class QuizType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'When correct answers are revealed — "never", "after_submit", or "after_pass".',
 			],
-			'_vl_quiz_is_final_exam'        => [
+			'_vl_quiz_is_final_exam'               => [
 				'type'              => 'boolean',
 				'single'            => true,
 				'default'           => false,
@@ -133,6 +133,24 @@ final class QuizType extends AbstractCptRegistrar {
 				'sanitize_callback' => 'rest_sanitize_boolean',
 				'auth_callback'     => $auth,
 				'description'       => 'Passing is required for the parent course certificate.',
+			],
+			'_vl_quiz_blocks_progression'          => [
+				'type'              => 'boolean',
+				'single'            => true,
+				'default'           => false,
+				'show_in_rest'      => false,
+				'sanitize_callback' => 'rest_sanitize_boolean',
+				'auth_callback'     => $auth,
+				'description'       => 'Locks every later curriculum entity until this quiz is passed.',
+			],
+			'_vl_quiz_requires_all_quizzes_passed' => [
+				'type'              => 'boolean',
+				'single'            => true,
+				'default'           => false,
+				'show_in_rest'      => false,
+				'sanitize_callback' => 'rest_sanitize_boolean',
+				'auth_callback'     => $auth,
+				'description'       => 'Locks this quiz until every non-final quiz in the course is passed.',
 			],
 		];
 	}

@@ -170,4 +170,46 @@ final class QuizMetaBoxTest extends TestCase {
 		self::assertCount( 1, $this->parent_updates );
 		self::assertSame( 42, $this->parent_updates[0]['post_parent'] );
 	}
+
+	/**
+	 * @return list<mixed> Every value written for one meta key.
+	 */
+	private function writes_for( string $key ): array {
+		return array_values(
+			array_map(
+				static fn ( array $write ): mixed => $write[2],
+				array_filter( $this->writes, static fn ( array $write ): bool => $write[1] === $key )
+			)
+		);
+	}
+
+	public function test_save_writes_the_gating_flags_when_checked(): void {
+		$_POST = [
+			self::NONCE_FIELD                      => 'nonce-x',
+			'_vl_quiz_blocks_progression'          => '1',
+			'_vl_quiz_requires_all_quizzes_passed' => '1',
+		];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new QuizMetaBox() )->save( 9, $post );
+
+		self::assertSame( [ '1' ], $this->writes_for( '_vl_quiz_blocks_progression' ) );
+		self::assertSame( [ '1' ], $this->writes_for( '_vl_quiz_requires_all_quizzes_passed' ) );
+	}
+
+	/**
+	 * Unchecked boxes post nothing, so the flags must be written as `''`
+	 * rather than skipped — otherwise a gate could never be turned back off.
+	 */
+	public function test_save_clears_the_gating_flags_when_unchecked(): void {
+		$_POST = [ self::NONCE_FIELD => 'nonce-x' ];
+
+		$post = Mockery::mock( 'WP_Post' );
+		assert( $post instanceof WP_Post );
+		( new QuizMetaBox() )->save( 9, $post );
+
+		self::assertSame( [ '' ], $this->writes_for( '_vl_quiz_blocks_progression' ) );
+		self::assertSame( [ '' ], $this->writes_for( '_vl_quiz_requires_all_quizzes_passed' ) );
+	}
 }

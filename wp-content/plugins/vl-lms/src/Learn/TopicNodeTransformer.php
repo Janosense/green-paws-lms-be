@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace VL\LMS\Learn;
 
 use VL\LMS\Domain\Progress\Progress;
+use VL\LMS\Learn\Progression\CurriculumStop;
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Support\PlainText;
 use WP_Post;
 
@@ -31,10 +33,11 @@ class TopicNodeTransformer {
 	 *     title: string,
 	 *     menu_order: int,
 	 *     duration_seconds: int,
-	 *     progress: array{status: string, position_seconds: ?int, completed_at: ?string}
+	 *     progress: array{status: string, position_seconds: ?int, completed_at: ?string},
+	 *     lock: array<string, mixed>|null
 	 * }
 	 */
-	public function transform( WP_Post $topic, ProgressOverlay $overlay ): array {
+	public function transform( WP_Post $topic, ProgressOverlay $overlay, LockMap $locks ): array {
 		$topic_id = (int) $topic->ID;
 		$duration = (int) get_post_meta( $topic_id, '_vl_topic_duration_seconds', true );
 
@@ -45,6 +48,7 @@ class TopicNodeTransformer {
 			'menu_order'       => (int) $topic->menu_order,
 			'duration_seconds' => $duration,
 			'progress'         => $this->serialize_progress( $overlay->topic( $topic_id ) ),
+			'lock'             => $locks->to_node_value( CurriculumStop::KIND_TOPIC, $topic_id ),
 		];
 	}
 

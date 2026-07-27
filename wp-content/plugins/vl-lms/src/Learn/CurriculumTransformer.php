@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Learn;
 
 use VL\LMS\Domain\Enrollment\Enrollment;
+use VL\LMS\Learn\Progression\ProgressionGate;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Repositories\QuizAttemptRepository;
@@ -45,7 +46,8 @@ class CurriculumTransformer {
 		private readonly NextEntityResolver $next_resolver,
 		private readonly ProgressRepository $progress,
 		private readonly QuizAttemptRepository $quiz_attempts,
-		private readonly EnrollmentRepository $enrollments
+		private readonly EnrollmentRepository $enrollments,
+		private readonly ProgressionGate $progression
 	) {
 	}
 
@@ -65,14 +67,21 @@ class CurriculumTransformer {
 			$this->quiz_attempts->status_map_for_user_in_course( $user_id, $course_id )
 		);
 
+		// Locks are *annotated* here, never enforced — the rail has to stay
+		// renderable, otherwise a locked learner cannot see which quiz opens
+		// the rest of the course. Enforcement lives in LessonAccessGate and
+		// QuizAccessGate. On a course with no gating flags this returns the
+		// empty map without issuing a query.
+		$locks = $this->progression->lock_map( $user_id, $course_id );
+
 		$modules = [];
 		foreach ( $this->query_child_modules( $course_id ) as $module ) {
-			$modules[] = $this->module_transformer->transform( $module, $overlay, $quiz_overlay );
+			$modules[] = $this->module_transformer->transform( $module, $overlay, $quiz_overlay, $locks );
 		}
 
 		$orphan_lessons = [];
 		foreach ( $this->query_orphan_lessons( $course_id ) as $lesson ) {
-			$orphan_lessons[] = $this->lesson_transformer->transform( $lesson, $overlay, $quiz_overlay );
+			$orphan_lessons[] = $this->lesson_transformer->transform( $lesson, $overlay, $quiz_overlay, $locks );
 		}
 
 		// Phase 7.4: cohort courses surface their top-level sessions as
@@ -82,14 +91,14 @@ class CurriculumTransformer {
 		$sessions = [];
 		if ( $this->is_cohort_course( $course_id ) ) {
 			foreach ( $this->query_child_sessions( $course_id ) as $session ) {
-				$sessions[] = $this->session_transformer->transform( $session, $user_id, $overlay, $quiz_overlay );
+				$sessions[] = $this->session_transformer->transform( $session, $user_id, $overlay, $quiz_overlay, $locks );
 			}
 		}
 
 		// Course-level quizzes — `vl_quiz` posts whose `post_parent` is the
 		// course itself (the common final-exam placement). They sit last in
 		// the canonical walk, after sessions.
-		$course_quizzes = $this->quiz_transformer->transform_children( $course_id, $quiz_overlay );
+		$course_quizzes = $this->quiz_transformer->transform_children( $course_id, $quiz_overlay, $locks );
 
 		$total_duration = $this->sum_duration( $modules, $orphan_lessons );
 		$next_entity    = $this->next_resolver->resolve( $modules, $orphan_lessons, $sessions, $course_quizzes );

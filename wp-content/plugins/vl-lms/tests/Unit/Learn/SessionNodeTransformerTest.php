@@ -10,6 +10,7 @@ use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\SessionAttendance\SessionAttendance;
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Learn\ProgressOverlay;
 use VL\LMS\Learn\QuizNodeTransformer;
 use VL\LMS\Learn\QuizStatusOverlay;
@@ -93,7 +94,8 @@ final class SessionNodeTransformerTest extends TestCase {
 			$this->session( 100, 'module-3' ),
 			5,
 			ProgressOverlay::fromList( [] ),
-			QuizStatusOverlay::fromMap( [] )
+			QuizStatusOverlay::fromMap( [] ),
+			LockMap::empty()
 		);
 
 		self::assertSame( 'session', $out['type'] );
@@ -112,7 +114,8 @@ final class SessionNodeTransformerTest extends TestCase {
 			$this->session( 100, 'module-3' ),
 			5,
 			ProgressOverlay::fromList( [] ),
-			QuizStatusOverlay::fromMap( [] )
+			QuizStatusOverlay::fromMap( [] ),
+			LockMap::empty()
 		);
 
 		self::assertNull( $out['recording_url_path'] );
@@ -126,7 +129,8 @@ final class SessionNodeTransformerTest extends TestCase {
 			$this->session( 100, 'module-3' ),
 			5,
 			ProgressOverlay::fromList( [] ),
-			QuizStatusOverlay::fromMap( [] )
+			QuizStatusOverlay::fromMap( [] ),
+			LockMap::empty()
 		);
 
 		self::assertSame( 'scheduled', $out['status'] );

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace VL\LMS\Learn;
 
 use VL\LMS\Domain\Progress\Progress;
+use VL\LMS\Learn\Progression\CurriculumStop;
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Query;
@@ -36,7 +38,12 @@ class LessonNodeTransformer {
 	/**
 	 * @return array<string, mixed>
 	 */
-	public function transform( WP_Post $lesson, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay ): array {
+	public function transform(
+		WP_Post $lesson,
+		ProgressOverlay $overlay,
+		QuizStatusOverlay $quiz_overlay,
+		LockMap $locks
+	): array {
 		$lesson_id = (int) $lesson->ID;
 
 		$duration   = (int) get_post_meta( $lesson_id, '_vl_lesson_duration_seconds', true );
@@ -45,7 +52,7 @@ class LessonNodeTransformer {
 
 		$topics = [];
 		foreach ( $this->query_child_topics( $lesson_id ) as $topic ) {
-			$topics[] = $this->topic_transformer->transform( $topic, $overlay );
+			$topics[] = $this->topic_transformer->transform( $topic, $overlay, $locks );
 		}
 
 		return [
@@ -58,8 +65,9 @@ class LessonNodeTransformer {
 			'requires_completion' => $requires,
 			'has_topics'          => [] !== $topics,
 			'progress'            => $this->serialize_progress( $overlay->lesson( $lesson_id ) ),
+			'lock'                => $locks->to_node_value( CurriculumStop::KIND_LESSON, $lesson_id ),
 			'topics'              => $topics,
-			'quizzes'             => $this->quiz_transformer->transform_children( $lesson_id, $quiz_overlay ),
+			'quizzes'             => $this->quiz_transformer->transform_children( $lesson_id, $quiz_overlay, $locks ),
 		];
 	}
 

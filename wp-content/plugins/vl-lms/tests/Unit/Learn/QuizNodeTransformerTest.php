@@ -9,6 +9,7 @@ use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Learn\QuizNodeTransformer;
 use VL\LMS\Learn\QuizStatusOverlay;
 use WP_Post;
@@ -72,7 +73,7 @@ final class QuizNodeTransformerTest extends TestCase {
 			]
 		);
 
-		$node = ( new QuizNodeTransformer() )->transform( $this->quiz( 9, 'final', 'Final Exam', 3 ), $overlay );
+		$node = ( new QuizNodeTransformer() )->transform( $this->quiz( 9, 'final', 'Final Exam', 3 ), $overlay, LockMap::empty() );
 
 		self::assertSame(
 			[
@@ -85,6 +86,7 @@ final class QuizNodeTransformerTest extends TestCase {
 				'passing_threshold' => 80,
 				'status'            => 'failed',
 				'best_score_pct'    => 60.0,
+				'lock'              => null,
 			],
 			$node
 		);
@@ -105,7 +107,7 @@ final class QuizNodeTransformerTest extends TestCase {
 			}
 		};
 
-		$nodes = $transformer->transform_children( 500, QuizStatusOverlay::fromMap( [] ) );
+		$nodes = $transformer->transform_children( 500, QuizStatusOverlay::fromMap( [] ), LockMap::empty() );
 
 		self::assertCount( 2, $nodes );
 		self::assertSame( [ 10, 11 ], array_column( $nodes, 'id' ) );
@@ -119,6 +121,6 @@ final class QuizNodeTransformerTest extends TestCase {
 			}
 		};
 
-		self::assertSame( [], $transformer->transform_children( 1, QuizStatusOverlay::fromMap( [] ) ) );
+		self::assertSame( [], $transformer->transform_children( 1, QuizStatusOverlay::fromMap( [] ), LockMap::empty() ) );
 	}
 }

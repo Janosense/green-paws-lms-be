@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Learn;
 
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Query;
@@ -33,12 +34,17 @@ class ModuleNodeTransformer {
 	/**
 	 * @return array<string, mixed>
 	 */
-	public function transform( WP_Post $module, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay ): array {
+	public function transform(
+		WP_Post $module,
+		ProgressOverlay $overlay,
+		QuizStatusOverlay $quiz_overlay,
+		LockMap $locks
+	): array {
 		$module_id = (int) $module->ID;
 
 		$lessons = [];
 		foreach ( $this->query_child_lessons( $module_id ) as $lesson ) {
-			$lessons[] = $this->lesson_transformer->transform( $lesson, $overlay, $quiz_overlay );
+			$lessons[] = $this->lesson_transformer->transform( $lesson, $overlay, $quiz_overlay, $locks );
 		}
 
 		return [
@@ -47,7 +53,7 @@ class ModuleNodeTransformer {
 			'title'      => PlainText::from_html( (string) get_the_title( $module ) ),
 			'menu_order' => (int) $module->menu_order,
 			'lessons'    => $lessons,
-			'quizzes'    => $this->quiz_transformer->transform_children( $module_id, $quiz_overlay ),
+			'quizzes'    => $this->quiz_transformer->transform_children( $module_id, $quiz_overlay, $locks ),
 		];
 	}
 

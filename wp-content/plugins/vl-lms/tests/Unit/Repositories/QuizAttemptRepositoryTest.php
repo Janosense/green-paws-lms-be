@@ -312,6 +312,48 @@ final class QuizAttemptRepositoryTest extends TestCase {
 		self::assertStringContainsString( 'user_id IN (5, 6)', (string) $prepared );
 	}
 
+	/**
+	 * `prepare()` binds positionally, and the test double never substitutes,
+	 * so asserting the args array would pass even with the binds reversed —
+	 * which would delete a different learner's attempts. Assert against the
+	 * substituted SQL instead. See `CODING-STANDARDS.md`.
+	 */
+	public function test_delete_for_user_in_quiz_binds_placeholders_in_source_order(): void {
+		$prepared = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, ...$args ) use ( &$prepared ): string {
+					$values   = is_array( $args[0] ?? null ) ? $args[0] : $args;
+					$prepared = preg_replace_callback(
+						'/%[ds]/',
+						static function () use ( &$values ): string {
+							$next = array_shift( $values );
+							return is_string( $next ) ? "'" . $next . "'" : (string) $next;
+						},
+						$sql
+					);
+					return (string) $prepared;
+				}
+			);
+		$this->wpdb->shouldReceive( 'query' )->once()->andReturn( 3 );
+
+		$deleted = $this->repo->delete_for_user_in_quiz( 42, 118 );
+
+		self::assertSame( 3, $deleted );
+		self::assertStringContainsString( 'user_id = 42', (string) $prepared );
+		self::assertStringContainsString( 'quiz_id = 118', (string) $prepared );
+		self::assertStringContainsString( 'DELETE FROM', (string) $prepared );
+	}
+
+	public function test_delete_for_user_in_quiz_returns_zero_when_wpdb_reports_failure(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'query' )->once()->andReturn( false );
+
+		self::assertSame( 0, $this->repo->delete_for_user_in_quiz( 42, 118 ) );
+	}
+
 	public function test_attempt_summary_for_users_omits_users_without_attempts(): void {
 		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
 		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );

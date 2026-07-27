@@ -269,6 +269,26 @@ abstract class AbstractMetaBox {
 	}
 
 	/**
+	 * Renders an inline advisory notice inside the box.
+	 *
+	 * Unlike {@see self::render_readonly_row()} this carries no meta value —
+	 * it exists to warn an editor about a *combination* of settings that is
+	 * individually valid but jointly harmful (the caller decides when to
+	 * emit it). Reuses core's `notice` classes so it inherits wp-admin's
+	 * colour vocabulary rather than inventing one.
+	 *
+	 * `$level` is one of core's notice modifiers — `warning`, `error`,
+	 * `info`, `success`.
+	 */
+	protected function render_inline_notice( string $text, string $level = 'warning' ): void {
+		printf(
+			'<div class="notice notice-%1$s inline vl-lms-inline-notice"><p>%2$s</p></div>',
+			esc_attr( $level ),
+			esc_html( $text )
+		);
+	}
+
+	/**
 	 * Renders a read-only display row for a meta value managed elsewhere
 	 * (typically the Zoom synchronizer / webhook handlers).
 	 */

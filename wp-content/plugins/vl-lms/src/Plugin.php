@@ -116,6 +116,7 @@ use VL\LMS\Auth\TokenIssuer;
 use VL\LMS\Auth\Verification\EmailVerificationService;
 use VL\LMS\Catalog\CatalogController;
 use VL\LMS\Cli\DemoCommand;
+use VL\LMS\Cli\QuizCommand;
 use VL\LMS\Services\CourseInstructors\CourseInstructorService;
 use VL\LMS\Catalog\CatalogDetailController;
 use VL\LMS\Catalog\CatalogQuery;
@@ -166,6 +167,8 @@ use VL\LMS\Learn\SessionContentTransformer;
 use VL\LMS\Learn\SessionLookup;
 use VL\LMS\Learn\SessionNodeTransformer;
 use VL\LMS\Learn\NextEntityResolver;
+use VL\LMS\Learn\Progression\CurriculumOrder;
+use VL\LMS\Learn\Progression\ProgressionGate;
 use VL\LMS\Learn\QuizNodeTransformer;
 use VL\LMS\Learn\TopicContentTransformer;
 use VL\LMS\Learn\TopicNodeTransformer;
@@ -370,6 +373,7 @@ final class Plugin {
 		// class file is never autoloaded for web requests.
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'vl-lms demo', new DemoCommand( $this->container ) );
+			\WP_CLI::add_command( 'vl-lms quiz', new QuizCommand( $this->container ) );
 		}
 
 		// Phase 6.3 — certificate option defaults. `add_option` is a
@@ -1329,13 +1333,31 @@ final class Plugin {
 		);
 
 		$container->set(
+			CurriculumOrder::class,
+			static fn (): CurriculumOrder => new CurriculumOrder()
+		);
+
+		$container->set(
+			ProgressionGate::class,
+			static function ( Container $c ): ProgressionGate {
+				$order = $c->get( CurriculumOrder::class );
+				assert( $order instanceof CurriculumOrder );
+				$attempts = $c->get( QuizAttemptRepository::class );
+				assert( $attempts instanceof QuizAttemptRepository );
+				return new ProgressionGate( $order, $attempts );
+			}
+		);
+
+		$container->set(
 			LessonAccessGate::class,
 			static function ( Container $c ): LessonAccessGate {
 				$service = $c->get( EnrollmentService::class );
 				assert( $service instanceof EnrollmentService );
 				$hierarchy = $c->get( EntityHierarchy::class );
 				assert( $hierarchy instanceof EntityHierarchy );
-				return new LessonAccessGate( $service, $hierarchy );
+				$progression = $c->get( ProgressionGate::class );
+				assert( $progression instanceof ProgressionGate );
+				return new LessonAccessGate( $service, $hierarchy, $progression );
 			}
 		);
 
@@ -1472,7 +1494,9 @@ final class Plugin {
 				assert( $quiz_attempts instanceof QuizAttemptRepository );
 				$enrollments = $c->get( EnrollmentRepository::class );
 				assert( $enrollments instanceof EnrollmentRepository );
-				return new LearnCurriculumTransformer( $module, $lesson, $session, $quiz, $next, $progress, $quiz_attempts, $enrollments );
+				$progression = $c->get( ProgressionGate::class );
+				assert( $progression instanceof ProgressionGate );
+				return new LearnCurriculumTransformer( $module, $lesson, $session, $quiz, $next, $progress, $quiz_attempts, $enrollments, $progression );
 			}
 		);
 
@@ -1627,7 +1651,9 @@ final class Plugin {
 				assert( $attempts instanceof QuizAttemptRepository );
 				$resolver = $c->get( QuizCourseResolver::class );
 				assert( $resolver instanceof QuizCourseResolver );
-				return new QuizAccessGate( $enrollments, $attempts, $resolver );
+				$progression = $c->get( ProgressionGate::class );
+				assert( $progression instanceof ProgressionGate );
+				return new QuizAccessGate( $enrollments, $attempts, $resolver, $progression );
 			}
 		);
 

@@ -28,6 +28,8 @@ final class QuizTypeTest extends TestCase {
 		'_vl_quiz_shuffle_answers',
 		'_vl_quiz_show_correct_answers',
 		'_vl_quiz_is_final_exam',
+		'_vl_quiz_blocks_progression',
+		'_vl_quiz_requires_all_quizzes_passed',
 	];
 
 	protected function setUp(): void {
@@ -72,11 +74,27 @@ final class QuizTypeTest extends TestCase {
 		self::assertTrue( $this->invoke_protected( 'show_in_menu' ) );
 	}
 
-	public function test_meta_fields_contain_exactly_seven_documented_keys(): void {
+	public function test_meta_fields_contain_exactly_nine_documented_keys(): void {
 		$fields = $this->invoke_protected( 'meta_fields' );
 
 		self::assertSame( self::EXPECTED_META_KEYS, array_keys( $fields ) );
-		self::assertCount( 7, $fields );
+		self::assertCount( 9, $fields );
+	}
+
+	/**
+	 * Both gating flags must default to `false`. Any other default would
+	 * turn locking on for every quiz that already exists, silently closing
+	 * off live courses on deploy.
+	 */
+	public function test_progression_gating_flags_default_to_false(): void {
+		$fields = $this->invoke_protected( 'meta_fields' );
+
+		foreach ( [ '_vl_quiz_blocks_progression', '_vl_quiz_requires_all_quizzes_passed' ] as $key ) {
+			self::assertArrayHasKey( $key, $fields );
+			self::assertSame( 'boolean', $fields[ $key ]['type'] );
+			self::assertFalse( $fields[ $key ]['default'] );
+			self::assertSame( 'rest_sanitize_boolean', $fields[ $key ]['sanitize_callback'] );
+		}
 	}
 
 	public function test_every_meta_field_is_single_with_show_in_rest_false_and_callable_sanitizer(): void {

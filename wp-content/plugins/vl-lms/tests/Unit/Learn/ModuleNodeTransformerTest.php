@@ -9,6 +9,7 @@ use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
+use VL\LMS\Learn\Progression\LockMap;
 use VL\LMS\Learn\LessonNodeTransformer;
 use VL\LMS\Learn\ModuleNodeTransformer;
 use VL\LMS\Learn\ProgressOverlay;
@@ -143,7 +144,7 @@ final class ModuleNodeTransformerTest extends TestCase {
 
 		$transformer = $this->makeTransformer( [ 110 => [ $first, $second ] ] );
 
-		$node = $transformer->transform( $module, ProgressOverlay::fromList( [] ), QuizStatusOverlay::fromMap( [] ) );
+		$node = $transformer->transform( $module, ProgressOverlay::fromList( [] ), QuizStatusOverlay::fromMap( [] ), LockMap::empty() );
 
 		self::assertSame( 110, $node['id'] );
 		self::assertSame( 'module-1-basics', $node['slug'] );
@@ -158,7 +159,7 @@ final class ModuleNodeTransformerTest extends TestCase {
 		$quiz   = $this->quiz( 701, 'module-exam', 'Module Exam', 1 );
 
 		$transformer = $this->makeTransformer( [], [ 110 => [ $quiz ] ] );
-		$node        = $transformer->transform( $module, ProgressOverlay::fromList( [] ), QuizStatusOverlay::fromMap( [] ) );
+		$node        = $transformer->transform( $module, ProgressOverlay::fromList( [] ), QuizStatusOverlay::fromMap( [] ), LockMap::empty() );
 
 		self::assertSame( [], $node['lessons'] );
 		self::assertCount( 1, $node['quizzes'] );
@@ -170,7 +171,7 @@ final class ModuleNodeTransformerTest extends TestCase {
 		$module = $this->module( 110, 'empty', 'Empty', 1 );
 
 		$transformer = $this->makeTransformer();
-		$node        = $transformer->transform( $module, ProgressOverlay::fromList( [] ), QuizStatusOverlay::fromMap( [] ) );
+		$node        = $transformer->transform( $module, ProgressOverlay::fromList( [] ), QuizStatusOverlay::fromMap( [] ), LockMap::empty() );
 
 		self::assertSame( [], $node['lessons'] );
 	}
@@ -179,7 +180,7 @@ final class ModuleNodeTransformerTest extends TestCase {
 		$module = $this->module( 110, 'm', 'M' );
 
 		$transformer = $this->makeTransformer();
-		$node        = $transformer->transform( $module, ProgressOverlay::fromList( [] ), QuizStatusOverlay::fromMap( [] ) );
+		$node        = $transformer->transform( $module, ProgressOverlay::fromList( [] ), QuizStatusOverlay::fromMap( [] ), LockMap::empty() );
 
 		self::assertArrayNotHasKey( 'progress', $node );
 	}

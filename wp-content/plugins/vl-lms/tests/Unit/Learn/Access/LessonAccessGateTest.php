@@ -12,8 +12,12 @@ use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Learn\Access\LessonAccessGate;
 use VL\LMS\Learn\EntityHierarchy;
+use VL\LMS\Learn\Progression\CurriculumStop;
+use VL\LMS\Learn\Progression\LockState;
+use VL\LMS\Learn\Progression\QuizRef;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
+use VL\LMS\Tests\Fixtures\StubProgressionGate;
 use WP_Post;
 
 final class LessonAccessGateTest extends TestCase {
@@ -102,7 +106,7 @@ final class LessonAccessGateTest extends TestCase {
 		$lesson    = $this->makePost( 10, 'vl_lesson' );
 		$hierarchy = $this->makeHierarchy( [ 10 => null ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy, new StubProgressionGate() );
 
 		$decision = $gate->check( 1, $lesson );
 
@@ -117,7 +121,7 @@ final class LessonAccessGateTest extends TestCase {
 
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy, new StubProgressionGate() );
 
 		$decision = $gate->check( 1, $lesson );
 
@@ -133,7 +137,7 @@ final class LessonAccessGateTest extends TestCase {
 		$this->setMeta( 10, '_vl_lesson_is_preview', '1' );
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy, new StubProgressionGate() );
 
 		$decision = $gate->check( 99, $lesson );
 
@@ -148,7 +152,7 @@ final class LessonAccessGateTest extends TestCase {
 
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy, new StubProgressionGate() );
 
 		$decision = $gate->check( 99, $lesson );
 
@@ -164,7 +168,7 @@ final class LessonAccessGateTest extends TestCase {
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ], [ 10 => null ] );
 
 		$this->seedActiveEnrollment( 5, 1 );
-		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy, new StubProgressionGate() );
 
 		$decision = $gate->check( 5, $lesson );
 
@@ -173,25 +177,115 @@ final class LessonAccessGateTest extends TestCase {
 		self::assertSame( 1, $decision->course_id );
 	}
 
-	public function test_allows_enrolled_lesson_regardless_of_previous_completion(): void {
+	/**
+	 * `_vl_lesson_requires_completion` is registered, admin-editable, and
+	 * read by nothing — and it defaults to `true` on every lesson. The
+	 * previous-sibling prerequisite gate that once consumed it was removed
+	 * in `e3ce4ef`, and the progression gate added later is driven by
+	 * per-quiz flags instead. If this test ever starts failing, something
+	 * has begun reading that meta again, which would lock every course in
+	 * production on deploy.
+	 */
+	public function test_requires_completion_meta_still_gates_nothing(): void {
 		$prior  = $this->makePost( 9, 'vl_lesson' );
 		$lesson = $this->makePost( 10, 'vl_lesson' );
 		$course = $this->makePost( 1, 'vl_course' );
 
-		// The previous lesson is flagged as `requires_completion` and the
-		// learner has no progress row for it. Once the prerequisite gate
-		// was lifted, enrollment alone is enough to view any lesson.
 		$this->setMeta( 9, '_vl_lesson_requires_completion', '1' );
 
 		$hierarchy = $this->makeHierarchy( [ 10 => $course ], [ 10 => $prior ] );
 
 		$this->seedActiveEnrollment( 5, 1 );
-		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy, new StubProgressionGate() );
 
 		$decision = $gate->check( 5, $lesson );
 
 		self::assertTrue( $decision->allowed );
 		self::assertSame( 1, $decision->course_id );
+	}
+
+	public function test_denies_locked_lesson_and_carries_the_blocking_quiz(): void {
+		$lesson = $this->makePost( 10, 'vl_lesson' );
+		$course = $this->makePost( 1, 'vl_course' );
+
+		$lock        = LockState::progression( new QuizRef( 77, 'module-1-test', 'Тест до модуля 1' ) );
+		$progression = new StubProgressionGate( $lock );
+
+		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
+		$this->seedActiveEnrollment( 5, 1 );
+
+		$decision = ( new LessonAccessGate( $this->enrollments, $hierarchy, $progression ) )->check( 5, $lesson );
+
+		self::assertFalse( $decision->allowed );
+		self::assertSame( 'progression_locked', $decision->reason );
+		self::assertSame( 1, $decision->course_id );
+		self::assertSame( $lock, $decision->lock );
+		self::assertSame( 77, $decision->lock?->blocking_quiz?->id );
+	}
+
+	public function test_passes_topic_kind_to_the_progression_gate(): void {
+		$topic  = $this->makePost( 20, 'vl_topic' );
+		$course = $this->makePost( 1, 'vl_course' );
+
+		$progression = new StubProgressionGate();
+		$hierarchy   = $this->makeHierarchy( [ 20 => $course ] );
+		$this->seedActiveEnrollment( 5, 1 );
+
+		( new LessonAccessGate( $this->enrollments, $hierarchy, $progression ) )->check( 5, $topic );
+
+		self::assertSame(
+			[
+				[
+					'user_id'   => 5,
+					'course_id' => 1,
+					'kind'      => CurriculumStop::KIND_TOPIC,
+					'entity_id' => 20,
+				],
+			],
+			$progression->calls
+		);
+	}
+
+	/**
+	 * A free preview lesson returns at step 3, so the progression gate is
+	 * never consulted — that is what keeps previewing free of queries.
+	 */
+	public function test_preview_lesson_short_circuits_before_the_progression_check(): void {
+		$lesson = $this->makePost( 10, 'vl_lesson' );
+		$course = $this->makePost( 1, 'vl_course' );
+
+		$this->setMeta( 10, '_vl_lesson_is_preview', '1' );
+
+		$progression = new StubProgressionGate(
+			LockState::progression( new QuizRef( 77, 'blocker', 'Blocker' ) )
+		);
+		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
+
+		$decision = ( new LessonAccessGate( $this->enrollments, $hierarchy, $progression ) )->check( 5, $lesson );
+
+		self::assertTrue( $decision->allowed );
+		self::assertTrue( $decision->is_preview );
+		self::assertFalse( $progression->was_called() );
+	}
+
+	/**
+	 * An unenrolled learner gets `not_enrolled`, not a lock verdict —
+	 * being told to go pass a quiz you could not sit anyway is useless.
+	 */
+	public function test_enrollment_denial_outranks_a_progression_lock(): void {
+		$lesson = $this->makePost( 10, 'vl_lesson' );
+		$course = $this->makePost( 1, 'vl_course' );
+
+		$progression = new StubProgressionGate(
+			LockState::progression( new QuizRef( 77, 'blocker', 'Blocker' ) )
+		);
+		$hierarchy = $this->makeHierarchy( [ 10 => $course ] );
+
+		$decision = ( new LessonAccessGate( $this->enrollments, $hierarchy, $progression ) )->check( 99, $lesson );
+
+		self::assertFalse( $decision->allowed );
+		self::assertSame( 'not_enrolled', $decision->reason );
+		self::assertFalse( $progression->was_called() );
 	}
 
 	public function test_topic_does_not_use_preview_bypass(): void {
@@ -204,7 +298,7 @@ final class LessonAccessGateTest extends TestCase {
 
 		$hierarchy = $this->makeHierarchy( [ 20 => $course ] );
 
-		$gate = new LessonAccessGate( $this->enrollments, $hierarchy );
+		$gate = new LessonAccessGate( $this->enrollments, $hierarchy, new StubProgressionGate() );
 
 		$decision = $gate->check( 99, $topic );
 

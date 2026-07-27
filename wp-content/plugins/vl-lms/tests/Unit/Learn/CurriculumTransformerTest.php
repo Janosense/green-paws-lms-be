@@ -19,6 +19,11 @@ use VL\LMS\Learn\NextEntityResolver;
 use VL\LMS\Learn\ProgressOverlay;
 use VL\LMS\Learn\QuizNodeTransformer;
 use VL\LMS\Learn\QuizStatusOverlay;
+use VL\LMS\Learn\Progression\CurriculumStop;
+use VL\LMS\Learn\Progression\LockMap;
+use VL\LMS\Learn\Progression\LockState;
+use VL\LMS\Learn\Progression\ProgressionGate;
+use VL\LMS\Learn\Progression\QuizRef;
 use VL\LMS\Learn\SessionNodeTransformer;
 use VL\LMS\Learn\TopicNodeTransformer;
 use VL\LMS\Domain\Progress\Progress;
@@ -26,6 +31,7 @@ use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Repositories\QuizAttemptRepository;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
+use VL\LMS\Tests\Fixtures\StubProgressionGate;
 use WP_Post;
 
 final class CurriculumTransformerTest extends TestCase {
@@ -34,6 +40,9 @@ final class CurriculumTransformerTest extends TestCase {
 
 	/** @var array<string, array<int, mixed>> */
 	private array $meta = [];
+
+	/** Locks the transformer should stamp; empty unless a test says otherwise. */
+	private LockMap $locks;
 
 	/** @var array<int, list<WP_Post>> Keyed by course ID. */
 	private array $modules_by_course = [];
@@ -78,6 +87,7 @@ final class CurriculumTransformerTest extends TestCase {
 		);
 
 		$this->meta                     = [];
+		$this->locks                    = LockMap::empty();
 		$this->modules_by_course        = [];
 		$this->lessons_by_parent        = [];
 		$this->topics_by_lesson         = [];
@@ -165,7 +175,7 @@ final class CurriculumTransformerTest extends TestCase {
 				// attendance repository directly.
 			}
 
-			public function transform( WP_Post $session, int $user_id, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay ): array {
+			public function transform( WP_Post $session, int $user_id, ProgressOverlay $overlay, QuizStatusOverlay $quiz_overlay, LockMap $locks ): array {
 				unset( $overlay );
 				$session_id = (int) $session->ID;
 				$count      = $this->session_attendance[ $session_id ] ?? 0;
@@ -181,7 +191,8 @@ final class CurriculumTransformerTest extends TestCase {
 					'is_completed'       => $count > 0,
 					'join_url_path'      => '/vl/v1/learn/sessions/' . $session->post_name . '/join',
 					'recording_url_path' => null,
-					'quizzes'            => $this->quiz_seam->transform_children( $session_id, $quiz_overlay ),
+					'lock'               => null,
+					'quizzes'            => $this->quiz_seam->transform_children( $session_id, $quiz_overlay, $locks ),
 				];
 			}
 		};
@@ -199,6 +210,7 @@ final class CurriculumTransformerTest extends TestCase {
 			$this->progress,
 			$quiz_attempts,
 			$this->enrollments,
+			new StubProgressionGate( null, $this->locks ),
 			$this->modules_by_course,
 			$this->lessons_by_parent,
 			$this->sessions_by_course,
@@ -222,6 +234,7 @@ final class CurriculumTransformerTest extends TestCase {
 				ProgressRepository $progress,
 				QuizAttemptRepository $quiz_attempts,
 				EnrollmentRepository $enrollments,
+				ProgressionGate $progression,
 				private array $modules_by_course,
 				private array $lessons_by_parent,
 				private array $sessions_by_course,
@@ -236,7 +249,8 @@ final class CurriculumTransformerTest extends TestCase {
 					$next_resolver,
 					$progress,
 					$quiz_attempts,
-					$enrollments
+					$enrollments,
+					$progression
 				);
 			}
 

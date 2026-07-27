@@ -357,6 +357,40 @@ class QuizAttemptRepository {
 	}
 
 	/**
+	 * Delete every attempt one learner has made on one quiz, returning the
+	 * number of rows removed.
+	 *
+	 * The only destructive method on this repository, and deliberately so —
+	 * attempts are otherwise an append-only record. It exists because a quiz
+	 * flagged `_vl_quiz_blocks_progression` *and* carrying a finite
+	 * `_vl_quiz_max_attempts` can leave a learner unable to advance with no
+	 * in-app way back: they have spent their attempts, and everything after
+	 * the quiz stays locked. Raising the course-wide limit would change the
+	 * rules for everyone, so the escape hatch has to be per-learner. Exposed
+	 * through `wp vl-lms quiz reset-attempts`.
+	 *
+	 * Answer rows in `vl_quiz_answers` are left behind on purpose: they are
+	 * keyed by `attempt_id`, so once the attempts are gone they are
+	 * unreachable, and keeping them preserves what the learner actually
+	 * answered for later inspection.
+	 */
+	public function delete_for_user_in_quiz( int $user_id, int $quiz_id ): int {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"DELETE FROM {$table} WHERE user_id = %d AND quiz_id = %d",
+			$user_id,
+			$quiz_id
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$deleted = $wpdb->query( $sql );
+
+		return is_numeric( $deleted ) ? (int) $deleted : 0;
+	}
+
+	/**
 	 * Insert a new attempt row. The VO's `id` is ignored — `wpdb->insert_id`
 	 * is the source of truth for the assigned PK. `created_at` and
 	 * `updated_at` are stamped from the injected clock.

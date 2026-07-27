@@ -397,6 +397,21 @@ final class QuizAttemptsController {
 		}
 
 		[ $status, $message ] = $this->status_and_message_for( $code );
+
+		// Same idea as the soft-error pair above: hand the client the lock
+		// verdict alongside the error so it can name the quiz that opens
+		// this one instead of only saying "locked".
+		if ( null !== $e->lock ) {
+			return new WP_Error(
+				$code,
+				$message,
+				[
+					'status' => $status,
+					'lock'   => $e->lock->to_array(),
+				]
+			);
+		}
+
 		return new WP_Error( $code, $message, [ 'status' => $status ] );
 	}
 
@@ -412,6 +427,11 @@ final class QuizAttemptsController {
 			'quiz_not_published'        => [ 404, __( 'Тест не знайдено.', 'vl-lms' ) ],
 			'quiz_not_in_course'        => [ 404, __( 'Тест не належить жодному курсу.', 'vl-lms' ) ],
 			'attempts_exhausted'        => [ 409, __( 'Ліміт спроб вичерпано.', 'vl-lms' ) ],
+			// 403 rather than 409: `attempts_exhausted` is a state conflict on a
+			// quiz the learner may otherwise open, whereas a lock is an
+			// authorization verdict — they were never allowed to start it.
+			'progression_locked'        => [ 403, __( 'Цей тест ще недоступний. Спочатку складіть попередній тест курсу.', 'vl-lms' ) ],
+			'course_quizzes_incomplete' => [ 403, __( 'Щоб скласти цей тест, спочатку складіть усі інші тести курсу.', 'vl-lms' ) ],
 			'attempt_not_found'         => [ 404, __( 'Спробу не знайдено.', 'vl-lms' ) ],
 			'attempt_expired'           => [ 409, __( 'Час спроби вичерпано.', 'vl-lms' ) ],
 			'attempt_already_finalized' => [ 409, __( 'Спробу вже завершено.', 'vl-lms' ) ],

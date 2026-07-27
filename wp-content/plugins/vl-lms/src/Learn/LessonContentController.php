@@ -178,24 +178,48 @@ final class LessonContentController {
 		return $posts[0];
 	}
 
+	/**
+	 * Note the progression arm is **403, not 404**. A 404 would land in
+	 * the frontend's `NOT_FOUND_CODES` set and render "lesson not found"
+	 * to an enrolled learner looking at a lesson that plainly exists in
+	 * their curriculum rail. 403 matches `not_enrolled`, which is the
+	 * same authorization shape, and carries the lock payload so the
+	 * client can name the quiz that opens it.
+	 */
 	private function map_denied_decision( AccessDecision $decision ): WP_Error {
 		return match ( $decision->reason ) {
-			'parent_not_found'   => new WP_Error(
+			'parent_not_found'          => new WP_Error(
 				'parent_not_found',
 				__( 'Parent not found.', 'vl-lms' ),
 				[ 'status' => 404 ]
 			),
-			'course_unpublished' => new WP_Error(
+			'course_unpublished'        => new WP_Error(
 				'course_unpublished',
 				__( 'Course is not published.', 'vl-lms' ),
 				[ 'status' => 404 ]
 			),
-			'not_enrolled'       => new WP_Error(
+			'not_enrolled'              => new WP_Error(
 				'not_enrolled',
 				__( 'You must be enrolled to view this content.', 'vl-lms' ),
 				[ 'status' => 403 ]
 			),
-			default              => new WP_Error(
+			'progression_locked'        => new WP_Error(
+				'progression_locked',
+				__( 'This part of the course is not available yet.', 'vl-lms' ),
+				[
+					'status' => 403,
+					'lock'   => $decision->lock?->to_array(),
+				]
+			),
+			'course_quizzes_incomplete' => new WP_Error(
+				'course_quizzes_incomplete',
+				__( 'Pass the remaining course quizzes to unlock this.', 'vl-lms' ),
+				[
+					'status' => 403,
+					'lock'   => $decision->lock?->to_array(),
+				]
+			),
+			default                     => new WP_Error(
 				'access_denied',
 				__( 'Access denied.', 'vl-lms' ),
 				[ 'status' => 403 ]

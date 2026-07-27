@@ -12,12 +12,16 @@ use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Domain\Quiz\QuizAttempt;
 use VL\LMS\Domain\Quiz\QuizAttemptStatus;
+use VL\LMS\Learn\Progression\CurriculumStop;
+use VL\LMS\Learn\Progression\LockState;
+use VL\LMS\Learn\Progression\QuizRef;
 use VL\LMS\Quiz\Access\QuizAccessGate;
 use VL\LMS\Quiz\QuizCourseResolver;
 use VL\LMS\Repositories\QuizAttemptRepository;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use VL\LMS\Tests\Fixtures\InMemoryQuizAttemptRepository;
+use VL\LMS\Tests\Fixtures\StubProgressionGate;
 use WP_Post;
 
 final class QuizAccessGateTest extends TestCase {
@@ -56,7 +60,7 @@ final class QuizAccessGateTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function gate(): QuizAccessGate {
+	private function gate( ?StubProgressionGate $progression = null ): QuizAccessGate {
 		$resolver_course_id = &$this->resolved_course_id;
 		$resolver           = new class( $resolver_course_id ) extends QuizCourseResolver {
 
@@ -72,7 +76,12 @@ final class QuizAccessGateTest extends TestCase {
 			}
 		};
 
-		return new QuizAccessGate( $this->enrollments, $this->attempts, $resolver );
+		return new QuizAccessGate(
+			$this->enrollments,
+			$this->attempts,
+			$resolver,
+			$progression ?? new StubProgressionGate()
+		);
 	}
 
 	private function quiz_post( int $id, string $status = 'publish' ): WP_Post {
@@ -112,6 +121,107 @@ final class QuizAccessGateTest extends TestCase {
 
 	private function set_meta( int $post_id, string $key, mixed $value ): void {
 		$this->meta[ $post_id ][ $key ] = $value;
+	}
+
+	public function test_start_denies_a_locked_quiz_and_carries_the_lock(): void {
+		$this->seed_active_enrollment( 5, 50 );
+
+		$lock        = LockState::progression( new QuizRef( 77, 'module-1-test', 'Тест до модуля 1' ) );
+		$progression = new StubProgressionGate( $lock );
+
+		$decision = $this->gate( $progression )->evaluate_for_start( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertFalse( $decision->allowed );
+		self::assertSame( 'progression_locked', $decision->reason );
+		self::assertSame( 50, $decision->course_id );
+		self::assertSame( $lock, $decision->lock );
+		self::assertSame(
+			[
+				[
+					'user_id'   => 5,
+					'course_id' => 50,
+					'kind'      => CurriculumStop::KIND_QUIZ,
+					'entity_id' => 101,
+				],
+			],
+			$progression->calls
+		);
+	}
+
+	public function test_start_denies_with_the_course_prerequisites_reason(): void {
+		$this->seed_active_enrollment( 5, 50 );
+
+		$progression = new StubProgressionGate( LockState::course_quizzes_incomplete( 3 ) );
+
+		$decision = $this->gate( $progression )->evaluate_for_start( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertFalse( $decision->allowed );
+		self::assertSame( 'course_quizzes_incomplete', $decision->reason );
+		self::assertSame( 3, $decision->lock?->remaining_quiz_count );
+		self::assertNull( $decision->lock?->blocking_quiz );
+	}
+
+	/**
+	 * "You cannot open this yet" is more useful than "you have used all
+	 * your attempts" for a quiz the learner was never allowed to begin, so
+	 * the lock is evaluated ahead of the max-attempts ceiling.
+	 */
+	public function test_start_reports_the_lock_before_the_attempts_ceiling(): void {
+		$this->seed_active_enrollment( 5, 50 );
+		$this->set_meta( 101, '_vl_quiz_max_attempts', '1' );
+		$this->seed_attempts( 5, 101, 50, 1 );
+
+		$progression = new StubProgressionGate(
+			LockState::progression( new QuizRef( 77, 'blocker', 'Blocker' ) )
+		);
+
+		$decision = $this->gate( $progression )->evaluate_for_start( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertSame( 'progression_locked', $decision->reason );
+	}
+
+	/**
+	 * Attempt history is a record of work the learner already did. An
+	 * editor switching on a gate upstream must not retroactively 403 it
+	 * away, so the read path never consults the progression gate.
+	 */
+	public function test_read_never_consults_the_progression_gate(): void {
+		$this->seed_active_enrollment( 5, 50 );
+
+		$progression = new StubProgressionGate(
+			LockState::progression( new QuizRef( 77, 'blocker', 'Blocker' ) )
+		);
+
+		$decision = $this->gate( $progression )->evaluate_for_read( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertTrue( $decision->allowed );
+		self::assertFalse( $progression->was_called() );
+	}
+
+	/**
+	 * Locking an in-flight attempt would strand it — `save` and `submit`
+	 * would both start failing on an attempt the server itself issued.
+	 */
+	public function test_attempt_action_never_consults_the_progression_gate(): void {
+		$this->seed_active_enrollment( 5, 50 );
+
+		$progression = new StubProgressionGate(
+			LockState::progression( new QuizRef( 77, 'blocker', 'Blocker' ) )
+		);
+
+		$decision = $this->gate( $progression )->evaluate_for_attempt_action( 5, $this->attempt( 1, 5, 50 ) );
+
+		self::assertTrue( $decision->allowed );
+		self::assertFalse( $progression->was_called() );
+	}
+
+	public function test_start_allows_when_no_lock_applies(): void {
+		$this->seed_active_enrollment( 5, 50 );
+
+		$decision = $this->gate()->evaluate_for_start( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertTrue( $decision->allowed );
+		self::assertNull( $decision->lock );
 	}
 
 	public function test_start_denies_when_quiz_unpublished(): void {

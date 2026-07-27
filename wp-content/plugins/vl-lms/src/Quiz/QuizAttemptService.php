@@ -76,7 +76,7 @@ class QuizAttemptService {
 		$decision = $this->gate->evaluate_for_start( $user_id, $quiz_id, $quiz );
 		if ( ! $decision->allowed ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Domain exception with controlled string code, never rendered as HTML.
-			throw new QuizAttemptException( (string) $decision->reason );
+			throw new QuizAttemptException( (string) $decision->reason, '', null, $decision->lock );
 		}
 
 		$course_id = $this->resolver->find_course_id_for_quiz( $quiz_id );
