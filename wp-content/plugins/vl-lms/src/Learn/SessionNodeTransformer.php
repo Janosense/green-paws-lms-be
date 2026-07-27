@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Learn;
 
 use VL\LMS\Repositories\SessionAttendanceRepository;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -79,7 +80,6 @@ class SessionNodeTransformer {
 	}
 
 	private function title( WP_Post $session ): string {
-		$title = get_the_title( $session );
-		return wp_strip_all_tags( $title );
+		return PlainText::from_html( (string) get_the_title( $session ) );
 	}
 }

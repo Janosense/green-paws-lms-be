@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin\MetaBoxes;
 
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -47,7 +48,7 @@ class SessionMetaBox extends AbstractMetaBox {
 		$courses   = $this->query_cohort_courses();
 		$parent_id = (int) $post->post_parent;
 		if ( $parent_id > 0 && ! isset( $courses[ (string) $parent_id ] ) ) {
-			$current_title = (string) get_the_title( $parent_id );
+			$current_title = PlainText::from_html( (string) get_the_title( $parent_id ) );
 			if ( '' !== $current_title ) {
 				$courses[ (string) $parent_id ] = $current_title . ' (не когортний)';
 			}

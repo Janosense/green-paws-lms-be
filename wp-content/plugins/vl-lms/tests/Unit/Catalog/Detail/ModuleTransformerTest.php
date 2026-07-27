@@ -25,6 +25,10 @@ final class ModuleTransformerTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		// Titles now round-trip through PlainText::from_html().
+		Functions\when( 'wp_strip_all_tags' )->alias(
+			static fn ( string $html ): string => strip_tags( $html )
+		);
 
 		Functions\when( 'get_the_title' )->alias(
 			static fn ( WP_Post $p ): string => (string) $p->post_title

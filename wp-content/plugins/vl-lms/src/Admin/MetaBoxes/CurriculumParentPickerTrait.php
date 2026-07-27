@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin\MetaBoxes;
 
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -75,7 +76,7 @@ trait CurriculumParentPickerTrait {
 		// A course attached but missing from the list (e.g. trashed) still
 		// needs a label so the editor sees the current attachment.
 		if ( $selected_course_id > 0 && ! isset( $courses[ (string) $selected_course_id ] ) ) {
-			$title = (string) get_the_title( $selected_course_id );
+			$title = PlainText::from_html( (string) get_the_title( $selected_course_id ) );
 			if ( '' !== $title ) {
 				$courses[ (string) $selected_course_id ] = $title;
 			}

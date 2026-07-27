@@ -9,6 +9,7 @@ use VL\LMS\Learn\Access\SessionAccessGate;
 use VL\LMS\Learn\Access\SessionAccessReason;
 use VL\LMS\Repositories\SessionAttendanceRepository;
 use VL\LMS\Services\JoinWindowPolicy;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -105,8 +106,7 @@ class SessionContentTransformer {
 	}
 
 	private function title( WP_Post $session ): string {
-		$title = get_the_title( $session );
-		return wp_strip_all_tags( $title );
+		return PlainText::from_html( (string) get_the_title( $session ) );
 	}
 
 	private function parse_iso8601( string $value ): ?\DateTimeImmutable {

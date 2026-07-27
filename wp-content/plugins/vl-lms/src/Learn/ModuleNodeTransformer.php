@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Learn;
 
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Query;
 
@@ -43,7 +44,7 @@ class ModuleNodeTransformer {
 		return [
 			'id'         => $module_id,
 			'slug'       => (string) $module->post_name,
-			'title'      => (string) get_the_title( $module ),
+			'title'      => PlainText::from_html( (string) get_the_title( $module ) ),
 			'menu_order' => (int) $module->menu_order,
 			'lessons'    => $lessons,
 			'quizzes'    => $this->quiz_transformer->transform_children( $module_id, $quiz_overlay ),

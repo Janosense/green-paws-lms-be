@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Catalog\Detail;
 
 use VL\LMS\Catalog\PostType;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -60,8 +61,7 @@ final class SeoBlockTransformer {
 	}
 
 	private function build_title( WP_Post $post ): string {
-		$bare = wp_strip_all_tags( (string) get_the_title( $post ) );
-		return trim( $bare ) . self::TITLE_SUFFIX;
+		return PlainText::from_html( (string) get_the_title( $post ) ) . self::TITLE_SUFFIX;
 	}
 
 	private function truncate_description( string $excerpt ): string {

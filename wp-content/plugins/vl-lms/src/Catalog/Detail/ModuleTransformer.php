@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Catalog\Detail;
 
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -39,7 +40,7 @@ final class ModuleTransformer {
 
 		return [
 			'id'      => (int) $module->ID,
-			'title'   => (string) get_the_title( $module ),
+			'title'   => PlainText::from_html( (string) get_the_title( $module ) ),
 			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Invoking WP core's `the_content` filter so wpautop / shortcodes run on the post body.
 			'content' => '' === trim( $raw_content ) ? '' : (string) apply_filters( 'the_content', $raw_content ),
 			'lessons' => array_map(

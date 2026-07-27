@@ -11,6 +11,7 @@ use VL\LMS\Learn\Content\BlockParser;
 use VL\LMS\Learn\Content\BlockTransformerRegistry;
 use VL\LMS\Learn\Video\VideoPayloadBuilder;
 use VL\LMS\Repositories\ProgressRepository;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Query;
 
@@ -59,7 +60,7 @@ class LessonContentTransformer {
 		return [
 			'id'                  => $lesson_id,
 			'slug'                => (string) $lesson->post_name,
-			'title'               => (string) get_the_title( $lesson ),
+			'title'               => PlainText::from_html( (string) get_the_title( $lesson ) ),
 			'course'              => $this->reference( $course ),
 			'module'              => $this->reference( $module ),
 			'menu_order'          => (int) $lesson->menu_order,
@@ -86,7 +87,7 @@ class LessonContentTransformer {
 		return [
 			'id'    => (int) $post->ID,
 			'slug'  => (string) $post->post_name,
-			'title' => (string) get_the_title( $post ),
+			'title' => PlainText::from_html( (string) get_the_title( $post ) ),
 		];
 	}
 
@@ -147,7 +148,7 @@ class LessonContentTransformer {
 			$out[]    = [
 				'id'               => $topic_id,
 				'slug'             => (string) $topic->post_name,
-				'title'            => (string) get_the_title( $topic ),
+				'title'            => PlainText::from_html( (string) get_the_title( $topic ) ),
 				'menu_order'       => (int) $topic->menu_order,
 				'duration_seconds' => (int) get_post_meta( $topic_id, '_vl_topic_duration_seconds', true ),
 			];

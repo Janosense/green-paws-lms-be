@@ -9,6 +9,7 @@ use VL\LMS\Catalog\TaxonomyTermTransformer;
 use VL\LMS\Catalog\Transformers\CoverImageTransformer;
 use VL\LMS\Domain\CourseInstructor\InstructorEntityType;
 use VL\LMS\Repositories\CourseInstructorRepository;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Term;
 
@@ -66,7 +67,7 @@ class WebinarDetailTransformer {
 		return [
 			'id'                     => $post_id,
 			'slug'                   => $slug,
-			'title'                  => (string) get_the_title( $post ),
+			'title'                  => PlainText::from_html( (string) get_the_title( $post ) ),
 			'excerpt'                => $excerpt,
 			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Invoking WP core's `the_content` filter so wpautop / shortcodes run on the post body.
 			'content'                => (string) apply_filters( 'the_content', (string) $post->post_content ),
@@ -179,8 +180,7 @@ class WebinarDetailTransformer {
 	}
 
 	private function plain_excerpt( WP_Post $post ): string {
-		$raw = (string) get_the_excerpt( $post );
-		return trim( wp_strip_all_tags( $raw ) );
+		return PlainText::from_html( (string) get_the_excerpt( $post ) );
 	}
 
 	private function status( int $post_id ): string {

@@ -6,6 +6,7 @@ namespace VL\LMS\Mail;
 
 use VL\LMS\Support\AppUrlResolver;
 use VL\LMS\Support\Logger;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_User;
 
@@ -56,7 +57,7 @@ class WebinarReminderMailer {
 
 		$slug  = (string) $webinar->post_name;
 		$url   = $this->url_resolver->path( '/dashboard/webinars/' . $slug );
-		$title = wp_strip_all_tags( get_the_title( $webinar ) );
+		$title = PlainText::from_html( (string) get_the_title( $webinar ) );
 
 		$subject = (string) apply_filters(
 			'vl_lms_webinar_reminder_subject',

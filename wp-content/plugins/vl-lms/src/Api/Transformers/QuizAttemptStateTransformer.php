@@ -6,6 +6,7 @@ namespace VL\LMS\Api\Transformers;
 
 use VL\LMS\Domain\Quiz\QuizAttempt;
 use VL\LMS\Repositories\QuizAttemptRepository;
+use VL\LMS\Support\PlainText;
 
 /**
  * Single source of truth for the wire shape of a quiz attempt.
@@ -72,7 +73,7 @@ class QuizAttemptStateTransformer {
 
 	protected function title( int $quiz_id ): string {
 		$value = get_the_title( $quiz_id );
-		return is_string( $value ) ? $value : '';
+		return is_string( $value ) ? PlainText::from_html( $value ) : '';
 	}
 
 	/**

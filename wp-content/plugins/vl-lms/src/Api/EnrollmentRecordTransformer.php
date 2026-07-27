@@ -6,6 +6,7 @@ namespace VL\LMS\Api;
 
 use VL\LMS\Catalog\Transformers\CoverImageTransformer;
 use VL\LMS\Domain\Enrollment\Enrollment;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -67,8 +68,7 @@ class EnrollmentRecordTransformer {
 	}
 
 	private function title( WP_Post $course ): string {
-		$title = get_the_title( $course );
-		return wp_strip_all_tags( $title );
+		return PlainText::from_html( (string) get_the_title( $course ) );
 	}
 
 	/**

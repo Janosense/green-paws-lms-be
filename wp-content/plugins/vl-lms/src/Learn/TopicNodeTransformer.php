@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Learn;
 
 use VL\LMS\Domain\Progress\Progress;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -40,7 +41,7 @@ class TopicNodeTransformer {
 		return [
 			'id'               => $topic_id,
 			'slug'             => (string) $topic->post_name,
-			'title'            => (string) get_the_title( $topic ),
+			'title'            => PlainText::from_html( (string) get_the_title( $topic ) ),
 			'menu_order'       => (int) $topic->menu_order,
 			'duration_seconds' => $duration,
 			'progress'         => $this->serialize_progress( $overlay->topic( $topic_id ) ),

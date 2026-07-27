@@ -7,6 +7,7 @@ namespace VL\LMS\Mail;
 use VL\LMS\Services\Zoom\Sync\PostKind;
 use VL\LMS\Support\AppUrlResolver;
 use VL\LMS\Support\Logger;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_User;
 
@@ -59,7 +60,7 @@ class RecordingReadyMailer {
 			PostKind::WEBINAR => $this->url_resolver->path( '/dashboard/webinars/' . $slug ),
 			PostKind::SESSION => $this->url_resolver->path( '/learn/sessions/' . $slug ),
 		};
-		$title = wp_strip_all_tags( get_the_title( $post ) );
+		$title = PlainText::from_html( (string) get_the_title( $post ) );
 
 		$subject = (string) apply_filters(
 			'vl_lms_recording_ready_subject',

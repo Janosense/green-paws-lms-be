@@ -8,6 +8,7 @@ use VL\LMS\Domain\Enrollment\Enrollment;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Repositories\QuizAttemptRepository;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Query;
 
@@ -99,7 +100,7 @@ class CurriculumTransformer {
 			'course'         => [
 				'id'               => $course_id,
 				'slug'             => (string) $course->post_name,
-				'title'            => (string) get_the_title( $course ),
+				'title'            => PlainText::from_html( (string) get_the_title( $course ) ),
 				'duration_seconds' => $total_duration,
 				'enrollment'       => $this->enrollment_payload( $enrollment ),
 			],

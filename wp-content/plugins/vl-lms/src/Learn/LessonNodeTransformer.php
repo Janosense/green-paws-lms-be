@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Learn;
 
 use VL\LMS\Domain\Progress\Progress;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Query;
 
@@ -50,7 +51,7 @@ class LessonNodeTransformer {
 		return [
 			'id'                  => $lesson_id,
 			'slug'                => (string) $lesson->post_name,
-			'title'               => (string) get_the_title( $lesson ),
+			'title'               => PlainText::from_html( (string) get_the_title( $lesson ) ),
 			'menu_order'          => (int) $lesson->menu_order,
 			'duration_seconds'    => $duration,
 			'is_preview'          => $is_preview,

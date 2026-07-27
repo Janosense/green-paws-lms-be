@@ -8,6 +8,7 @@ use VL\LMS\Catalog\Detail\RegistrationWindow;
 use VL\LMS\Catalog\PostType;
 use VL\LMS\Catalog\TaxonomyTermTransformer;
 use VL\LMS\Domain\CourseInstructor\CourseInstructor;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Term;
 
@@ -48,7 +49,7 @@ final class WebinarCardTransformer {
 		return [
 			'id'                => $post_id,
 			'slug'              => (string) $post->post_name,
-			'title'             => (string) get_the_title( $post ),
+			'title'             => PlainText::from_html( (string) get_the_title( $post ) ),
 			'excerpt'           => $this->plain_excerpt( $post ),
 			'scheduled_start'   => $this->iso_meta( $post_id, '_vl_webinar_scheduled_start' ),
 			'scheduled_end'     => $this->iso_meta( $post_id, '_vl_webinar_scheduled_end' ),
@@ -78,8 +79,7 @@ final class WebinarCardTransformer {
 	}
 
 	private function plain_excerpt( WP_Post $post ): string {
-		$raw = (string) get_the_excerpt( $post );
-		return trim( wp_strip_all_tags( $raw ) );
+		return PlainText::from_html( (string) get_the_excerpt( $post ) );
 	}
 
 	private function iso_meta( int $post_id, string $meta_key ): ?string {

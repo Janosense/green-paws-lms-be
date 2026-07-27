@@ -23,6 +23,10 @@ final class QuizNodeTransformerTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		// Titles now round-trip through PlainText::from_html().
+		Functions\when( 'wp_strip_all_tags' )->alias(
+			static fn ( string $html ): string => strip_tags( $html )
+		);
 
 		$this->meta = [];
 		$meta_ref   = &$this->meta;

@@ -11,6 +11,7 @@ use VL\LMS\Learn\Content\BlockParser;
 use VL\LMS\Learn\Content\BlockTransformerRegistry;
 use VL\LMS\Learn\Video\VideoPayloadBuilder;
 use VL\LMS\Repositories\ProgressRepository;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -52,7 +53,7 @@ class TopicContentTransformer {
 		return [
 			'id'               => $topic_id,
 			'slug'             => (string) $topic->post_name,
-			'title'            => (string) get_the_title( $topic ),
+			'title'            => PlainText::from_html( (string) get_the_title( $topic ) ),
 			'course'           => $this->reference( $course ),
 			'module'           => $this->reference( $module ),
 			'lesson'           => $this->reference( $lesson ),
@@ -76,7 +77,7 @@ class TopicContentTransformer {
 		return [
 			'id'    => (int) $post->ID,
 			'slug'  => (string) $post->post_name,
-			'title' => (string) get_the_title( $post ),
+			'title' => PlainText::from_html( (string) get_the_title( $post ) ),
 		];
 	}
 

@@ -7,6 +7,7 @@ namespace VL\LMS\Catalog\Transformers;
 use VL\LMS\Catalog\PostType;
 use VL\LMS\Catalog\TaxonomyTermTransformer;
 use VL\LMS\Domain\CourseInstructor\CourseInstructor;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Term;
 
@@ -45,7 +46,7 @@ final class CourseCardTransformer {
 		$card = [
 			'id'              => $post_id,
 			'slug'            => (string) $post->post_name,
-			'title'           => (string) get_the_title( $post ),
+			'title'           => PlainText::from_html( (string) get_the_title( $post ) ),
 			'excerpt'         => $this->plain_excerpt( $post ),
 			'type'            => $this->type( $post_id ),
 			'duration_hours'  => (float) get_post_meta( $post_id, '_vl_course_duration_hours', true ),
@@ -76,8 +77,7 @@ final class CourseCardTransformer {
 	}
 
 	private function plain_excerpt( WP_Post $post ): string {
-		$raw = (string) get_the_excerpt( $post );
-		return trim( wp_strip_all_tags( $raw ) );
+		return PlainText::from_html( (string) get_the_excerpt( $post ) );
 	}
 
 	private function type( int $post_id ): string {

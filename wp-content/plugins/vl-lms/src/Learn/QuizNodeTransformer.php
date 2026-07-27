@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Learn;
 
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_Query;
 
@@ -60,7 +61,7 @@ class QuizNodeTransformer {
 			'type'              => 'quiz',
 			'id'                => $quiz_id,
 			'slug'              => (string) $quiz->post_name,
-			'title'            => (string) get_the_title( $quiz ),
+			'title'            => PlainText::from_html( (string) get_the_title( $quiz ) ),
 			'menu_order'        => (int) $quiz->menu_order,
 			'is_final_exam'     => (bool) get_post_meta( $quiz_id, '_vl_quiz_is_final_exam', true ),
 			'passing_threshold' => (int) get_post_meta( $quiz_id, '_vl_quiz_passing_threshold', true ),

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Catalog\Detail;
 
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -32,7 +33,7 @@ final class LessonSummaryTransformer {
 
 		return [
 			'id'               => $lesson_id,
-			'title'            => (string) get_the_title( $lesson ),
+			'title'            => PlainText::from_html( (string) get_the_title( $lesson ) ),
 			'duration_seconds' => (int) get_post_meta( $lesson_id, '_vl_lesson_duration_seconds', true ),
 			'is_preview'       => (bool) get_post_meta( $lesson_id, '_vl_lesson_is_preview', true ),
 		];

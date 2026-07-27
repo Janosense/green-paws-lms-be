@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin\Columns;
 
+use VL\LMS\Support\PlainText;
 use WP_Query;
 
 /**
@@ -385,7 +386,10 @@ class CurriculumListColumns {
 		if ( get_post_type( $post_id ) !== $expected_type ) {
 			return __( '—', 'vl-lms' );
 		}
-		$title = (string) get_the_title( $post_id );
+		// Decode entities before the caller's `esc_html()` runs: `get_the_title()`
+		// texturizes, so a plain `'` arrives here as `&#8217;` and would render
+		// as the literal entity once escaped again.
+		$title = PlainText::from_html( (string) get_the_title( $post_id ) );
 		return '' === $title ? __( '(no title)', 'vl-lms' ) : $title;
 	}
 

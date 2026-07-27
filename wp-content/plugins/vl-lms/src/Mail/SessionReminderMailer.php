@@ -6,6 +6,7 @@ namespace VL\LMS\Mail;
 
 use VL\LMS\Support\AppUrlResolver;
 use VL\LMS\Support\Logger;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 use WP_User;
 
@@ -59,7 +60,7 @@ class SessionReminderMailer {
 
 		$slug  = (string) $session->post_name;
 		$url   = $this->url_resolver->path( '/learn/sessions/' . $slug );
-		$title = wp_strip_all_tags( get_the_title( $session ) );
+		$title = PlainText::from_html( (string) get_the_title( $session ) );
 
 		/**
 		 * @param string $subject

@@ -9,6 +9,7 @@ use VL\LMS\Domain\WebinarRegistration\WebinarRegistration;
 use VL\LMS\Services\JoinWindowPolicy;
 use VL\LMS\Services\Webinars\WebinarAccessGate;
 use VL\LMS\Services\Webinars\WebinarAccessReason;
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -113,8 +114,7 @@ class WebinarRegistrationTransformer {
 	}
 
 	private function title( WP_Post $webinar ): string {
-		$title = get_the_title( $webinar );
-		return wp_strip_all_tags( $title );
+		return PlainText::from_html( (string) get_the_title( $webinar ) );
 	}
 
 	private function parse_iso8601( string $value ): ?\DateTimeImmutable {

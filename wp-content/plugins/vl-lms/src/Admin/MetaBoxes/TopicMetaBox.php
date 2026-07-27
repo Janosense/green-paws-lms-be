@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin\MetaBoxes;
 
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -67,7 +68,7 @@ class TopicMetaBox extends AbstractMetaBox {
 		}
 
 		if ( $selected_course_id > 0 && ! isset( $courses[ (string) $selected_course_id ] ) ) {
-			$current_course_title = (string) get_the_title( $selected_course_id );
+			$current_course_title = PlainText::from_html( (string) get_the_title( $selected_course_id ) );
 			if ( '' !== $current_course_title ) {
 				$courses[ (string) $selected_course_id ] = $current_course_title . ' (когортний)';
 			}

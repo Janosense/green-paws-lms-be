@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Admin\MetaBoxes;
 
+use VL\LMS\Support\PlainText;
 use WP_Post;
 
 /**
@@ -41,7 +42,7 @@ class ModuleMetaBox extends AbstractMetaBox {
 			$parent_id = $this->course_hint_from_query_string( $courses );
 		}
 		if ( $parent_id > 0 && ! isset( $courses[ (string) $parent_id ] ) ) {
-			$current_title = (string) get_the_title( $parent_id );
+			$current_title = PlainText::from_html( (string) get_the_title( $parent_id ) );
 			if ( '' !== $current_title ) {
 				$courses[ (string) $parent_id ] = $current_title . ' (когортний)';
 			}
