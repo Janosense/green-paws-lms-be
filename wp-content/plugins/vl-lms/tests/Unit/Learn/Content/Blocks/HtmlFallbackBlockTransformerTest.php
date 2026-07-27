@@ -22,6 +22,20 @@ final class HtmlFallbackBlockTransformerTest extends TestCase {
 				$html
 			)
 		);
+		// Stand-in for core's `wpautop()`, mimicking only the contract this
+		// transformer leans on: double-newline-separated chunks become `<p>`.
+		Functions\when( 'wpautop' )->alias(
+			static function ( string $html ): string {
+				$chunks = preg_split( "/\n\s*\n/", trim( $html ) );
+				if ( false === $chunks ) {
+					return $html;
+				}
+				return implode(
+					'',
+					array_map( static fn ( string $chunk ): string => '<p>' . $chunk . '</p>', $chunks )
+				);
+			}
+		);
 	}
 
 	protected function tearDown(): void {
@@ -40,7 +54,7 @@ final class HtmlFallbackBlockTransformerTest extends TestCase {
 
 	public function test_transform_returns_html_shape_with_kses_filtered_inner_html(): void {
 		$transformer = new HtmlFallbackBlockTransformer();
-		$block       = new ParsedBlock( '', [], '<p>Hello</p>', [], [] );
+		$block       = new ParsedBlock( 'core/cover', [], '<p>Hello</p>', [], [] );
 
 		$result = $transformer->transform( $block );
 
@@ -60,5 +74,38 @@ final class HtmlFallbackBlockTransformerTest extends TestCase {
 		$result = $transformer->transform( $block );
 
 		self::assertStringNotContainsString( '<script>', $result['html'] );
+	}
+
+	/**
+	 * Classic-editor content arrives from `parse_blocks()` as one nameless
+	 * freeform block whose `inner_html` separates paragraphs with bare
+	 * double newlines — `wpautop()` is what turns those back into `<p>`.
+	 */
+	public function test_transform_autops_nameless_freeform_content(): void {
+		$transformer = new HtmlFallbackBlockTransformer();
+		$block       = new ParsedBlock( '', [], "Перший рядок.\n\nДругий рядок.", [], [] );
+
+		$result = $transformer->transform( $block );
+
+		self::assertSame(
+			[
+				'type' => 'html',
+				'html' => '<p>Перший рядок.</p><p>Другий рядок.</p>',
+			],
+			$result
+		);
+	}
+
+	/**
+	 * Named blocks already carry well-formed markup, so `wpautop()` must not
+	 * run on them — it would wrap stray text nodes inside the block's own HTML.
+	 */
+	public function test_transform_leaves_named_block_html_unautopped(): void {
+		$transformer = new HtmlFallbackBlockTransformer();
+		$block       = new ParsedBlock( 'core/cover', [], "<div>\n\n<span>Hi</span>\n\n</div>", [], [] );
+
+		$result = $transformer->transform( $block );
+
+		self::assertSame( "<div>\n\n<span>Hi</span>\n\n</div>", $result['html'] );
 	}
 }
