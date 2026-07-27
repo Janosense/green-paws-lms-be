@@ -7,6 +7,7 @@ namespace VL\LMS\Admin\Students;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\GroupMemberRepository;
 use VL\LMS\Repositories\GroupRepository;
+use VL\LMS\Repositories\QuizAttemptRepository;
 
 /**
  * Admin "Студенти" list page-controller (`?page=vl-lms-students`).
@@ -29,7 +30,8 @@ class StudentsListPage {
 		private readonly GroupRepository $groups,
 		private readonly GroupMemberRepository $members,
 		private readonly EnrollmentRepository $enrollments,
-		private readonly StudentDetailPage $detail_page
+		private readonly StudentDetailPage $detail_page,
+		private readonly QuizAttemptRepository $quiz_attempts
 	) {
 	}
 
@@ -52,7 +54,7 @@ class StudentsListPage {
 		echo '<div class="wrap">';
 		echo '<h1 class="wp-heading-inline">' . esc_html__( 'Студенти', 'vl-lms' ) . '</h1>';
 		echo '<hr class="wp-header-end" />';
-		echo '<p class="description">' . esc_html__( 'Усі користувачі з роллю «Студент». Перегляньте групи та кількість завершених курсів за кожним студентом.', 'vl-lms' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Усі користувачі з роллю «Студент». Перегляньте групи, кількість завершених курсів і складених тестів за кожним студентом. У колонці «Тести» перше число — складені тести, друге — тести, до яких студент приступав.', 'vl-lms' ) . '</p>';
 
 		echo '<form method="get">';
 		echo '<input type="hidden" name="page" value="' . esc_attr( self::PAGE_SLUG ) . '" />';
@@ -67,7 +69,12 @@ class StudentsListPage {
 	 * Indirected so unit tests can subclass and inject a fake table.
 	 */
 	protected function build_table(): StudentsListTable {
-		return new StudentsListTable( $this->groups, $this->members, $this->enrollments );
+		return new StudentsListTable(
+			$this->groups,
+			$this->members,
+			$this->enrollments,
+			$this->quiz_attempts
+		);
 	}
 
 	/**

@@ -11,13 +11,15 @@ use VL\LMS\Domain\Group\GroupStatus;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Repositories\GroupMemberRepository;
 use VL\LMS\Repositories\GroupRepository;
+use VL\LMS\Repositories\QuizAttemptRepository;
 use WP_User;
 use WP_User_Query;
 
 /**
  * Admin "Студенти" list screen — every WP user with `role=student` plus
  * LMS-relevant join data (active group memberships, completed-course
- * count). Read-only; mutations live in the Groups admin.
+ * count, quiz-attempt roll-up). Read-only; mutations live in the Groups
+ * admin.
  *
  * Joins are pre-batched in `prepare_items()` to keep the rendering loop
  * off `vl_enrollments` / `vl_group_members` per row. `WP_User_Query`
@@ -41,13 +43,20 @@ class StudentsListTable extends \WP_List_Table {
 	/** @var array<int, list<GroupMember>> user_id => active memberships (pre-batched) */
 	private array $memberships_by_user = [];
 
+	/**
+	 * @var array<int, array{attempts: int, graded: int, passed: int, quizzes: int, quizzes_passed: int}>
+	 *      user_id => quiz-attempt roll-up (pre-batched in `prepare_items`)
+	 */
+	private array $quiz_summary_by_user = [];
+
 	/** @var array<int, Group> group_id => Group (lazy-filled by `column_groups`) */
 	private array $group_cache = [];
 
 	public function __construct(
 		private readonly GroupRepository $groups,
 		private readonly GroupMemberRepository $members,
-		private readonly EnrollmentRepository $enrollments
+		private readonly EnrollmentRepository $enrollments,
+		private readonly QuizAttemptRepository $quiz_attempts
 	) {
 		parent::__construct(
 			[
@@ -67,6 +76,7 @@ class StudentsListTable extends \WP_List_Table {
 			'email'           => 'Email',
 			'groups'          => 'Групи',
 			'completed_count' => 'Завершено курсів',
+			'quiz_attempts'   => 'Тести',
 		];
 	}
 
@@ -130,8 +140,9 @@ class StudentsListTable extends \WP_List_Table {
 
 		if ( [] !== $user_ids ) {
 			update_meta_cache( 'user', $user_ids );
-			$this->completed_by_user   = $this->enrollments->count_completed_for_users( $user_ids );
-			$this->memberships_by_user = $this->members->list_active_for_users( $user_ids );
+			$this->completed_by_user    = $this->enrollments->count_completed_for_users( $user_ids );
+			$this->memberships_by_user  = $this->members->list_active_for_users( $user_ids );
+			$this->quiz_summary_by_user = $this->quiz_attempts->attempt_summary_for_users( $user_ids );
 		}
 
 		$this->items = $users;
@@ -283,6 +294,38 @@ class StudentsListTable extends \WP_List_Table {
 	public function column_completed_count( WP_User $user ): string {
 		$count = (int) ( $this->completed_by_user[ (int) $user->ID ] ?? 0 );
 		return sprintf( '<span style="text-align:right">%d</span>', $count );
+	}
+
+	/**
+	 * Quiz roll-up: distinct quizzes passed over distinct quizzes attempted,
+	 * with the raw sitting count underneath. The two numbers answer
+	 * different questions — "how much of the testable material has this
+	 * student cleared" vs "how much work did it take" — and a student who
+	 * needed four sittings to clear two quizzes is the case the column
+	 * exists to make visible.
+	 *
+	 * Counts are read from the map pre-batched in `prepare_items()`; a user
+	 * absent from it has never started a quiz.
+	 *
+	 * Attempt labels are written as "Спроб: N" rather than through `_n()`
+	 * deliberately. UI strings here are Ukrainian-primary source strings
+	 * with no catalogue behind them, so `_n()` would fall back to the
+	 * two-form English rule and decline wrongly for counts like 5. The
+	 * genitive-plural-after-colon form reads correctly for every number.
+	 */
+	public function column_quiz_attempts( WP_User $user ): string {
+		$summary = $this->quiz_summary_by_user[ (int) $user->ID ] ?? null;
+		if ( null === $summary || 0 === $summary['attempts'] ) {
+			return '<em>—</em>';
+		}
+
+		return sprintf(
+			'<strong>%1$d / %2$d</strong><br /><span class="description">%3$s %4$d</span>',
+			$summary['quizzes_passed'],
+			$summary['quizzes'],
+			esc_html__( 'Спроб:', 'vl-lms' ),
+			$summary['attempts']
+		);
 	}
 
 	/**

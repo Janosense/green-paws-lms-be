@@ -254,6 +254,83 @@ class QuizAttemptRepository {
 		return $this->hydrate_rows( $rows );
 	}
 
+	/**
+	 * Per-user attempt roll-up for a batch of users, in one GROUP BY round
+	 * trip. Powers the `Admin\Students\StudentsListTable` quiz column, which
+	 * pre-batches its joins in `prepare_items()` rather than fanning out per
+	 * rendered row.
+	 *
+	 * `attempts` counts every row including `in_progress` ones — it answers
+	 * "how many times has this student sat this test". `graded` excludes
+	 * `in_progress`, matching the `count_submitted_for_user` definition that
+	 * drives `attempts_remaining`. `quizzes_passed` is a DISTINCT count so a
+	 * learner who failed a quiz twice then passed contributes one, not three.
+	 *
+	 * Returned rows are keyed by `user_id`; users with no attempts are absent
+	 * from the map (callers default to zeroes).
+	 *
+	 * @param list<int> $user_ids
+	 * @return array<int, array{attempts: int, graded: int, passed: int, quizzes: int, quizzes_passed: int}>
+	 */
+	public function attempt_summary_for_users( array $user_ids ): array {
+		if ( [] === $user_ids ) {
+			return [];
+		}
+
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$placeholders = implode( ', ', array_fill( 0, count( $user_ids ), '%d' ) );
+
+		// `$wpdb->prepare()` binds positionally, so `$args` must follow the
+		// order the placeholders appear in the SQL — and the `%s` for status
+		// sits in the SELECT list, ahead of the `%d` run in the IN clause.
+		// Appending the status instead would shift every bind by one: the
+		// first user id would be compared against `status`, and the status
+		// string would be cast to 0 and matched as a user id.
+		$args = array_merge(
+			[ QuizAttemptStatus::IN_PROGRESS->value ],
+			array_values( $user_ids )
+		);
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table resolves to SchemaManager::quiz_attempts_table() and $placeholders is a locally-built run of %d; every user value binds through $args. The interpolations sit mid-string, so a single-line phpcs:ignore cannot reach them.
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- Placeholder count varies with the batch size by design.
+			"SELECT user_id,
+				COUNT(*) AS attempts,
+				SUM(CASE WHEN status != %s THEN 1 ELSE 0 END) AS graded,
+				SUM(CASE WHEN passed = 1 THEN 1 ELSE 0 END) AS passed,
+				COUNT(DISTINCT quiz_id) AS quizzes,
+				COUNT(DISTINCT CASE WHEN passed = 1 THEN quiz_id ELSE NULL END) AS quizzes_passed
+			FROM {$table}
+			WHERE user_id IN ({$placeholders})
+			GROUP BY user_id",
+			$args
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) || ! isset( $row['user_id'] ) ) {
+				continue;
+			}
+			$out[ (int) $row['user_id'] ] = [
+				'attempts'       => (int) ( $row['attempts'] ?? 0 ),
+				'graded'         => (int) ( $row['graded'] ?? 0 ),
+				'passed'         => (int) ( $row['passed'] ?? 0 ),
+				'quizzes'        => (int) ( $row['quizzes'] ?? 0 ),
+				'quizzes_passed' => (int) ( $row['quizzes_passed'] ?? 0 ),
+			];
+		}
+		return $out;
+	}
+
 	public function find_passed_final_exam_for_user_in_course(
 		int $user_id,
 		int $course_id,

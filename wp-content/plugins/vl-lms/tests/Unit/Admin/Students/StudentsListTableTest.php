@@ -10,9 +10,12 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Domain\Group\AccessEntityType;
 use VL\LMS\Domain\Group\GroupStatus;
+use VL\LMS\Domain\Quiz\QuizAttempt;
+use VL\LMS\Domain\Quiz\QuizAttemptStatus;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use VL\LMS\Tests\Fixtures\InMemoryGroupMemberRepository;
 use VL\LMS\Tests\Fixtures\InMemoryGroupRepository;
+use VL\LMS\Tests\Fixtures\InMemoryQuizAttemptRepository;
 use WP_User;
 
 final class StudentsListTableTest extends TestCase {
@@ -22,6 +25,7 @@ final class StudentsListTableTest extends TestCase {
 	private InMemoryGroupRepository $groups;
 	private InMemoryGroupMemberRepository $members;
 	private InMemoryEnrollmentRepository $enrollments;
+	private InMemoryQuizAttemptRepository $quiz_attempts;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -47,9 +51,10 @@ final class StudentsListTableTest extends TestCase {
 		Functions\when( 'update_meta_cache' )->justReturn( true );
 		Functions\when( 'get_user_meta' )->justReturn( '' );
 
-		$this->groups      = new InMemoryGroupRepository();
-		$this->members     = new InMemoryGroupMemberRepository();
-		$this->enrollments = new InMemoryEnrollmentRepository();
+		$this->groups        = new InMemoryGroupRepository();
+		$this->members       = new InMemoryGroupMemberRepository();
+		$this->enrollments   = new InMemoryEnrollmentRepository();
+		$this->quiz_attempts = new InMemoryQuizAttemptRepository();
 
 		// `AccessEntityType` import is here to keep PHPCS / linting happy
 		// for future extensions; not used in this file's assertions.
@@ -65,14 +70,19 @@ final class StudentsListTableTest extends TestCase {
 	}
 
 	private function makeTable(): TestableStudentsListTable {
-		return new TestableStudentsListTable( $this->groups, $this->members, $this->enrollments );
+		return new TestableStudentsListTable(
+			$this->groups,
+			$this->members,
+			$this->enrollments,
+			$this->quiz_attempts
+		);
 	}
 
-	public function test_get_columns_lists_the_documented_four(): void {
+	public function test_get_columns_lists_the_documented_five(): void {
 		$table = $this->makeTable();
 
 		self::assertSame(
-			[ 'name', 'email', 'groups', 'completed_count' ],
+			[ 'name', 'email', 'groups', 'completed_count', 'quiz_attempts' ],
 			array_keys( $table->get_columns() )
 		);
 	}
@@ -205,6 +215,112 @@ final class StudentsListTableTest extends TestCase {
 		$args = $table->captured_args ?? [];
 		self::assertArrayHasKey( 'exclude', $args );
 		self::assertSame( [ 11 ], $args['exclude'] );
+	}
+
+	/**
+	 * @param array{status?: QuizAttemptStatus, passed?: bool|null} $overrides
+	 */
+	private function seed_attempt(
+		int $user_id,
+		int $quiz_id,
+		QuizAttemptStatus $status = QuizAttemptStatus::SUBMITTED,
+		?bool $passed = false
+	): void {
+		$now = new \DateTimeImmutable( '2026-05-01 10:00:00', new \DateTimeZone( 'UTC' ) );
+		$this->quiz_attempts->insert(
+			new QuizAttempt(
+				0,
+				$user_id,
+				$quiz_id,
+				50,
+				$status,
+				$now,
+				QuizAttemptStatus::IN_PROGRESS === $status ? null : $now,
+				600,
+				null,
+				QuizAttemptStatus::IN_PROGRESS === $status ? null : 50,
+				100,
+				$passed,
+				70,
+				[],
+				$now,
+				$now
+			)
+		);
+	}
+
+	private function prepared_table_for_user( WP_User $user ): TestableStudentsListTable {
+		$table             = $this->makeTable();
+		$table->fake_users = [ $user ];
+		$table->fake_total = 1;
+		$table->prepare_items();
+		return $table;
+	}
+
+	private function student( int $id = 7 ): WP_User {
+		$user             = new WP_User();
+		$user->ID         = $id;
+		$user->user_email = 'a@b.c';
+		$user->roles      = [ 'student' ];
+		return $user;
+	}
+
+	public function test_column_quiz_attempts_shows_passed_over_attempted_with_sitting_count(): void {
+		// Two failed sittings then a pass on quiz 101, plus an untouched
+		// second quiz the student failed once.
+		$this->seed_attempt( 7, 101, QuizAttemptStatus::SUBMITTED, false );
+		$this->seed_attempt( 7, 101, QuizAttemptStatus::SUBMITTED, false );
+		$this->seed_attempt( 7, 101, QuizAttemptStatus::SUBMITTED, true );
+		$this->seed_attempt( 7, 102, QuizAttemptStatus::SUBMITTED, false );
+
+		$user  = $this->student();
+		$table = $this->prepared_table_for_user( $user );
+
+		$html = $table->column_quiz_attempts( $user );
+
+		// 1 of 2 distinct quizzes cleared, across 4 sittings.
+		self::assertStringContainsString( '<strong>1 / 2</strong>', $html );
+		self::assertStringContainsString( 'Спроб: 4', $html );
+	}
+
+	public function test_column_quiz_attempts_counts_a_repeatedly_passed_quiz_once(): void {
+		$this->seed_attempt( 7, 101, QuizAttemptStatus::SUBMITTED, true );
+		$this->seed_attempt( 7, 101, QuizAttemptStatus::SUBMITTED, true );
+
+		$user  = $this->student();
+		$table = $this->prepared_table_for_user( $user );
+
+		self::assertStringContainsString( '<strong>1 / 1</strong>', $table->column_quiz_attempts( $user ) );
+	}
+
+	public function test_column_quiz_attempts_counts_an_open_sitting(): void {
+		$this->seed_attempt( 7, 101, QuizAttemptStatus::IN_PROGRESS, null );
+
+		$user  = $this->student();
+		$table = $this->prepared_table_for_user( $user );
+
+		$html = $table->column_quiz_attempts( $user );
+
+		self::assertStringContainsString( '<strong>0 / 1</strong>', $html );
+		self::assertStringContainsString( 'Спроб: 1', $html );
+	}
+
+	public function test_column_quiz_attempts_renders_dash_when_never_attempted(): void {
+		$user  = $this->student();
+		$table = $this->prepared_table_for_user( $user );
+
+		self::assertSame( '<em>—</em>', $table->column_quiz_attempts( $user ) );
+	}
+
+	public function test_column_quiz_attempts_is_scoped_per_student(): void {
+		$this->seed_attempt( 7, 101, QuizAttemptStatus::SUBMITTED, true );
+		$this->seed_attempt( 8, 101, QuizAttemptStatus::SUBMITTED, true );
+		$this->seed_attempt( 8, 102, QuizAttemptStatus::SUBMITTED, true );
+
+		$user  = $this->student( 7 );
+		$table = $this->prepared_table_for_user( $user );
+
+		self::assertStringContainsString( '<strong>1 / 1</strong>', $table->column_quiz_attempts( $user ) );
 	}
 
 	public function test_column_completed_count_reads_pre_batched_map(): void {

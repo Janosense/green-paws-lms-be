@@ -807,4 +807,141 @@ final class QuizAttemptServiceTest extends TestCase {
 			throw $e;
 		}
 	}
+
+	// ------------------------------------------------------------------
+	// history()
+	// ------------------------------------------------------------------
+
+	private function seed_attempt(
+		int $user_id,
+		int $quiz_id,
+		string $started_at,
+		QuizAttemptStatus $status = QuizAttemptStatus::SUBMITTED,
+		?bool $passed = false
+	): int {
+		$started = new \DateTimeImmutable( $started_at, new \DateTimeZone( 'UTC' ) );
+		return $this->attempts->insert(
+			new QuizAttempt(
+				0,
+				$user_id,
+				$quiz_id,
+				50,
+				$status,
+				$started,
+				QuizAttemptStatus::IN_PROGRESS === $status ? null : $started,
+				600,
+				null,
+				QuizAttemptStatus::IN_PROGRESS === $status ? null : 50,
+				100,
+				$passed,
+				70,
+				[ 201 ],
+				$started,
+				$started
+			)
+		);
+	}
+
+	public function test_history_returns_attempts_oldest_first(): void {
+		$this->gate->shouldReceive( 'evaluate_for_read' )
+			->once()
+			->andReturn( AccessDecision::allow( 50, false ) );
+
+		$third  = $this->seed_attempt( 5, 101, '2026-05-03 10:00:00' );
+		$first  = $this->seed_attempt( 5, 101, '2026-05-01 10:00:00' );
+		$second = $this->seed_attempt( 5, 101, '2026-05-02 10:00:00' );
+
+		$out = $this->service()->history( 5, $this->quiz( 101 ) );
+
+		// The repository hands back newest-first; history reverses it so
+		// attempt numbering runs forward.
+		self::assertSame(
+			[ $first, $second, $third ],
+			array_map( static fn ( QuizAttempt $a ): int => $a->id, $out )
+		);
+	}
+
+	public function test_history_breaks_same_second_ties_on_id(): void {
+		$this->gate->shouldReceive( 'evaluate_for_read' )
+			->once()
+			->andReturn( AccessDecision::allow( 50, false ) );
+
+		// `started_at` has second granularity, so two rows can tie.
+		$a = $this->seed_attempt( 5, 101, '2026-05-01 10:00:00' );
+		$b = $this->seed_attempt( 5, 101, '2026-05-01 10:00:00' );
+
+		$out = $this->service()->history( 5, $this->quiz( 101 ) );
+
+		self::assertSame(
+			[ $a, $b ],
+			array_map( static fn ( QuizAttempt $x ): int => $x->id, $out )
+		);
+	}
+
+	public function test_history_retains_failed_and_in_progress_attempts(): void {
+		$this->gate->shouldReceive( 'evaluate_for_read' )
+			->once()
+			->andReturn( AccessDecision::allow( 50, false ) );
+
+		$this->seed_attempt( 5, 101, '2026-05-01 10:00:00', QuizAttemptStatus::SUBMITTED, false );
+		$this->seed_attempt( 5, 101, '2026-05-02 10:00:00', QuizAttemptStatus::EXPIRED, false );
+		$this->seed_attempt( 5, 101, '2026-05-03 10:00:00', QuizAttemptStatus::SUBMITTED, true );
+		$this->seed_attempt( 5, 101, '2026-05-04 10:00:00', QuizAttemptStatus::IN_PROGRESS, null );
+
+		$out = $this->service()->history( 5, $this->quiz( 101 ) );
+
+		self::assertCount( 4, $out );
+		self::assertSame(
+			[ 'submitted', 'expired', 'submitted', 'in_progress' ],
+			array_map( static fn ( QuizAttempt $a ): string => $a->status->value, $out )
+		);
+	}
+
+	public function test_history_is_scoped_to_the_caller_and_the_quiz(): void {
+		$this->gate->shouldReceive( 'evaluate_for_read' )
+			->once()
+			->andReturn( AccessDecision::allow( 50, false ) );
+
+		$mine = $this->seed_attempt( 5, 101, '2026-05-01 10:00:00' );
+		$this->seed_attempt( 6, 101, '2026-05-01 10:00:00' );
+		$this->seed_attempt( 5, 102, '2026-05-01 10:00:00' );
+
+		$out = $this->service()->history( 5, $this->quiz( 101 ) );
+
+		self::assertCount( 1, $out );
+		self::assertSame( $mine, $out[0]->id );
+	}
+
+	public function test_history_returns_empty_list_when_never_attempted(): void {
+		$this->gate->shouldReceive( 'evaluate_for_read' )
+			->once()
+			->andReturn( AccessDecision::allow( 50, false ) );
+
+		self::assertSame( [], $this->service()->history( 5, $this->quiz( 101 ) ) );
+	}
+
+	public function test_history_throws_the_gate_reason_on_denial(): void {
+		$this->gate->shouldReceive( 'evaluate_for_read' )
+			->once()
+			->andReturn( AccessDecision::deny( 'not_enrolled', 50 ) );
+
+		$this->expectException( QuizAttemptException::class );
+		try {
+			$this->service()->history( 5, $this->quiz( 101 ) );
+		} catch ( QuizAttemptException $e ) {
+			self::assertSame( 'not_enrolled', $e->error_code );
+			throw $e;
+		}
+	}
+
+	public function test_history_uses_the_read_gate_not_the_start_gate(): void {
+		// Reading history must never consume or be blocked by the
+		// max-attempts ceiling that guards starting a new one.
+		$this->gate->shouldNotReceive( 'evaluate_for_start' );
+		$this->gate->shouldReceive( 'evaluate_for_read' )
+			->once()
+			->andReturn( AccessDecision::allow( 50, false ) );
+
+		$this->service()->history( 5, $this->quiz( 101 ) );
+	}
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Api;
 
+use VL\LMS\Api\Transformers\QuizAttemptHistoryTransformer;
 use VL\LMS\Api\Transformers\QuizAttemptStateTransformer;
 use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\Domain\Quiz\QuizAnswer;
@@ -23,10 +24,17 @@ use WP_User;
 /**
  * REST controller for the quiz-attempt lifecycle (Phase 6.1).
  *
- * Four endpoints share one service ({@see QuizAttemptService}) and one
+ * Five endpoints share one service ({@see QuizAttemptService}) and one
  * permission callback (`vl_submit_quiz` cap + auth). Ownership and
  * enrollment are enforced inside the service via
  * {@see \VL\LMS\Quiz\Access\QuizAccessGate}, never duplicated here.
+ *
+ * The collection path `/quizzes/{slug}/attempts` carries two methods:
+ * POST starts (or resumes) an attempt, GET returns the caller's attempt
+ * history. History is read through
+ * {@see QuizAttemptHistoryTransformer} rather than mapping the player's
+ * {@see QuizAttemptStateTransformer} over the list — see that class for
+ * why.
  *
  * Error mapping: every code in the §7.3 table from the phase spec maps
  * to a `WP_Error` with the appropriate HTTP status. The two soft-error
@@ -49,23 +57,43 @@ final class QuizAttemptsController {
 		private readonly QuizAttemptService $service,
 		private readonly RestAuthenticator $authenticator,
 		private readonly Logger $logger,
-		private readonly QuizAttemptStateTransformer $attempt_transformer
+		private readonly QuizAttemptStateTransformer $attempt_transformer,
+		private readonly QuizAttemptHistoryTransformer $history_transformer
 	) {
 	}
 
 	public function register_routes(): void {
+		// POST (start) and GET (history) share one collection path, so they
+		// are registered as two endpoints in a single call. Two separate
+		// `register_rest_route()` calls on the same route would also merge,
+		// but only as a side effect of WP_REST_Server's array_merge — being
+		// explicit keeps the pair visible as one surface.
 		register_rest_route(
 			$this->rest_namespace,
 			self::START_ROUTE,
 			[
-				'methods'             => 'POST',
-				'callback'            => [ $this, 'handle_start' ],
-				'permission_callback' => [ $this, 'permission_callback' ],
-				'args'                => [
-					'slug' => [
-						'required'          => true,
-						'type'              => 'string',
-						'sanitize_callback' => 'sanitize_title',
+				[
+					'methods'             => 'POST',
+					'callback'            => [ $this, 'handle_start' ],
+					'permission_callback' => [ $this, 'permission_callback' ],
+					'args'                => [
+						'slug' => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_title',
+						],
+					],
+				],
+				[
+					'methods'             => 'GET',
+					'callback'            => [ $this, 'handle_history' ],
+					'permission_callback' => [ $this, 'permission_callback' ],
+					'args'                => [
+						'slug' => [
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_title',
+						],
 					],
 				],
 			]
@@ -175,6 +203,40 @@ final class QuizAttemptsController {
 		}
 
 		return $this->success( $this->envelope_full_state( $result ), 200 );
+	}
+
+	/**
+	 * `GET /quizzes/{slug}/attempts` — the caller's own attempt log.
+	 *
+	 * Always 200 with a well-formed envelope, including for a learner who
+	 * has never sat the quiz: an empty `attempts` array is the honest
+	 * answer to "show me my attempts", not a 404. Only access failures
+	 * (unknown quiz, not enrolled) are errors.
+	 *
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function handle_history( WP_REST_Request $request ) {
+		$user = $this->authenticator->user_from_request( $request );
+		if ( ! $user instanceof WP_User ) {
+			return $this->error( 'unauthenticated', 401, __( 'Authentication required.', 'vl-lms' ) );
+		}
+
+		$slug = (string) $request->get_param( 'slug' );
+		$quiz = $this->find_published_quiz( $slug );
+		if ( null === $quiz ) {
+			return $this->error( 'quiz_not_found', 404, __( 'Тест не знайдено.', 'vl-lms' ) );
+		}
+
+		try {
+			$attempts = $this->service->history( (int) $user->ID, $quiz );
+		} catch ( QuizAttemptException $e ) {
+			return $this->map_exception( $e );
+		}
+
+		return $this->success(
+			$this->history_transformer->transform( (int) $quiz->ID, $attempts ),
+			200
+		);
 	}
 
 	/**

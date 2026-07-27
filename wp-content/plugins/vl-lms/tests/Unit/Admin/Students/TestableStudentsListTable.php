@@ -11,6 +11,10 @@ use WP_User;
  * Test double that swaps the `WP_User_Query` round-trip for a captured
  * args array + fixed result, so PHPUnit can assert what query the table
  * built without booting WordPress.
+ *
+ * The repositories are still the in-memory fixtures, so the batched joins
+ * `prepare_items()` performs (enrollments, memberships, quiz attempts) run
+ * for real against seeded rows.
  */
 final class TestableStudentsListTable extends StudentsListTable {
 

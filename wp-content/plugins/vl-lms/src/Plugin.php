@@ -64,6 +64,7 @@ use VL\LMS\Api\ProgressController;
 use VL\LMS\Api\QuizAttemptsController;
 use VL\LMS\Api\RestController;
 use VL\LMS\Api\SessionAccessController;
+use VL\LMS\Api\Transformers\QuizAttemptHistoryTransformer;
 use VL\LMS\Api\Transformers\QuizAttemptStateTransformer;
 use VL\LMS\Api\Transformers\SubmissionTransformer;
 use VL\LMS\Api\Transformers\WebinarRegistrationTransformer;
@@ -1713,6 +1714,11 @@ final class Plugin {
 		);
 
 		$container->set(
+			QuizAttemptHistoryTransformer::class,
+			static fn (): QuizAttemptHistoryTransformer => new QuizAttemptHistoryTransformer()
+		);
+
+		$container->set(
 			QuizAttemptsController::class,
 			static function ( Container $c ): QuizAttemptsController {
 				$service = $c->get( QuizAttemptService::class );
@@ -1723,12 +1729,15 @@ final class Plugin {
 				assert( $logger instanceof Logger );
 				$transformer = $c->get( QuizAttemptStateTransformer::class );
 				assert( $transformer instanceof QuizAttemptStateTransformer );
+				$history = $c->get( QuizAttemptHistoryTransformer::class );
+				assert( $history instanceof QuizAttemptHistoryTransformer );
 				return new QuizAttemptsController(
 					VL_LMS_API_NAMESPACE,
 					$service,
 					$authenticator,
 					$logger,
-					$transformer
+					$transformer,
+					$history
 				);
 			}
 		);
@@ -3043,7 +3052,9 @@ final class Plugin {
 				assert( $enrollments instanceof EnrollmentRepository );
 				$detail = $c->get( StudentDetailPage::class );
 				assert( $detail instanceof StudentDetailPage );
-				return new StudentsListPage( $groups, $members, $enrollments, $detail );
+				$quiz_attempts = $c->get( QuizAttemptRepository::class );
+				assert( $quiz_attempts instanceof QuizAttemptRepository );
+				return new StudentsListPage( $groups, $members, $enrollments, $detail, $quiz_attempts );
 			}
 		);
 

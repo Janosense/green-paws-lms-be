@@ -43,6 +43,8 @@ final class QuizAttemptsControllerTest extends TestCase {
 
 	private TestableQuizAttemptStateTransformer $transformer;
 
+	private TestableQuizAttemptHistoryTransformer $history_transformer;
+
 	private QuizAttemptsController $controller;
 
 	protected function setUp(): void {
@@ -72,12 +74,15 @@ final class QuizAttemptsControllerTest extends TestCase {
 		$this->repo          = new InMemoryQuizAttemptRepository();
 		$this->transformer   = new TestableQuizAttemptStateTransformer( $this->repo );
 
+		$this->history_transformer = new TestableQuizAttemptHistoryTransformer();
+
 		$this->controller = new QuizAttemptsController(
 			'vl/v1',
 			$this->service,
 			$this->authenticator,
 			$this->logger,
-			$this->transformer
+			$this->transformer,
+			$this->history_transformer
 		);
 	}
 
@@ -409,5 +414,88 @@ final class QuizAttemptsControllerTest extends TestCase {
 		$body = $response->get_data();
 		self::assertNull( $body['data']['attempt']['attempts_remaining'] );
 		self::assertNull( $body['data']['attempt']['best_score'] );
+	}
+
+	// ------------------------------------------------------------------
+	// handle_history
+	// ------------------------------------------------------------------
+
+	public function test_handle_history_returns_200_with_attempt_log(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		Functions\when( 'get_posts' )->justReturn( [ $this->quiz( 101 ) ] );
+
+		$this->history_transformer->titles = [ 101 => 'Підсумковий тест' ];
+
+		$this->service->shouldReceive( 'history' )
+			->once()
+			->with( 5, Mockery::type( \WP_Post::class ) )
+			->andReturn(
+				[
+					$this->attempt( 11, QuizAttemptStatus::SUBMITTED, false, 40 ),
+					$this->attempt( 12, QuizAttemptStatus::SUBMITTED, true, 80 ),
+				]
+			);
+
+		$response = $this->controller->handle_history( $this->request( [ 'slug' => 'q' ] ) );
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		self::assertSame( 200, $response->status );
+
+		$body = $response->get_data();
+		self::assertTrue( $body['success'] );
+		self::assertSame( 'Підсумковий тест', $body['data']['quiz_title'] );
+		self::assertSame( 2, $body['data']['total_attempts'] );
+		self::assertTrue( $body['data']['passed'] );
+		self::assertSame( 2, $body['data']['passed_on_attempt'] );
+		self::assertSame( [ 11, 12 ], array_column( $body['data']['attempts'], 'id' ) );
+		self::assertSame( [ 1, 2 ], array_column( $body['data']['attempts'], 'attempt_number' ) );
+	}
+
+	public function test_handle_history_returns_200_with_empty_log_when_never_attempted(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		Functions\when( 'get_posts' )->justReturn( [ $this->quiz( 101 ) ] );
+
+		$this->service->shouldReceive( 'history' )->once()->andReturn( [] );
+
+		$response = $this->controller->handle_history( $this->request( [ 'slug' => 'q' ] ) );
+
+		// "I have never sat this quiz" is an answer, not a 404.
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		self::assertSame( 200, $response->status );
+		self::assertSame( [], $response->get_data()['data']['attempts'] );
+	}
+
+	public function test_handle_history_returns_401_when_unauthenticated(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( null );
+
+		$result = $this->controller->handle_history( $this->request( [ 'slug' => 'q' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'unauthenticated', $result->get_error_code() );
+	}
+
+	public function test_handle_history_returns_404_for_unknown_quiz(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		Functions\when( 'get_posts' )->justReturn( [] );
+
+		$result = $this->controller->handle_history( $this->request( [ 'slug' => 'unknown' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'quiz_not_found', $result->get_error_code() );
+	}
+
+	public function test_handle_history_maps_service_denial_to_403(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		Functions\when( 'get_posts' )->justReturn( [ $this->quiz( 101 ) ] );
+
+		$this->service->shouldReceive( 'history' )
+			->once()
+			->andThrow( new QuizAttemptException( 'not_enrolled' ) );
+
+		$result = $this->controller->handle_history( $this->request( [ 'slug' => 'q' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'not_enrolled', $result->get_error_code() );
+		self::assertSame( 403, $result->get_error_data()['status'] );
 	}
 }

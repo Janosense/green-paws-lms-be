@@ -161,4 +161,45 @@ final class InMemoryQuizAttemptRepositoryTest extends TestCase {
 		self::assertCount( 2, $rows );
 		self::assertSame( '2026-04-28 10:00:00', $rows[0]->started_at->format( 'Y-m-d H:i:s' ) );
 	}
+
+	public function test_attempt_summary_for_users_is_empty_for_empty_input(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		$repo->insert( self::attempt() );
+
+		self::assertSame( [], $repo->attempt_summary_for_users( [] ) );
+	}
+
+	public function test_attempt_summary_for_users_counts_sittings_and_distinct_quizzes(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		// Two failed sittings then a pass on quiz 101 …
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 40, false, '2026-04-28 09:00:00', '2026-04-28 09:20:00' ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 55, false, '2026-04-28 10:00:00', '2026-04-28 10:20:00' ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 80, true, '2026-04-28 11:00:00', '2026-04-28 11:20:00' ) );
+		// … and one still-open sitting on quiz 102.
+		$repo->insert( self::attempt( QuizAttemptStatus::IN_PROGRESS, 5, 102, 7, null, null, '2026-04-28 12:00:00' ) );
+
+		$out = $repo->attempt_summary_for_users( [ 5 ] );
+
+		self::assertSame(
+			[
+				'attempts'       => 4,
+				'graded'         => 3,
+				'passed'         => 1,
+				'quizzes'        => 2,
+				'quizzes_passed' => 1,
+			],
+			$out[5]
+		);
+	}
+
+	public function test_attempt_summary_for_users_scopes_to_requested_users(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 80, true, '2026-04-28 09:00:00', '2026-04-28 09:20:00' ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 6, 101, 7, 80, true, '2026-04-28 09:00:00', '2026-04-28 09:20:00' ) );
+
+		$out = $repo->attempt_summary_for_users( [ 5 ] );
+
+		self::assertArrayHasKey( 5, $out );
+		self::assertArrayNotHasKey( 6, $out );
+	}
 }

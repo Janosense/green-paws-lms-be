@@ -195,6 +195,58 @@ final class QuizAccessGateTest extends TestCase {
 		self::assertSame( 50, $decision->course_id );
 	}
 
+	public function test_read_denies_when_quiz_unpublished(): void {
+		$decision = $this->gate()->evaluate_for_read( 5, 101, $this->quiz_post( 101, 'draft' ) );
+
+		self::assertFalse( $decision->allowed );
+		self::assertSame( 'quiz_not_published', $decision->reason );
+	}
+
+	public function test_read_denies_when_resolver_returns_null(): void {
+		$this->resolved_course_id = null;
+
+		$decision = $this->gate()->evaluate_for_read( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertFalse( $decision->allowed );
+		self::assertSame( 'quiz_not_in_course', $decision->reason );
+	}
+
+	public function test_read_denies_when_not_enrolled(): void {
+		$decision = $this->gate()->evaluate_for_read( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertFalse( $decision->allowed );
+		self::assertSame( 'not_enrolled', $decision->reason );
+		self::assertSame( 50, $decision->course_id );
+	}
+
+	public function test_read_allows_when_enrolled(): void {
+		$this->seed_active_enrollment( 5, 50 );
+
+		$decision = $this->gate()->evaluate_for_read( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertTrue( $decision->allowed );
+		self::assertSame( 50, $decision->course_id );
+	}
+
+	/**
+	 * The whole reason `evaluate_for_read` exists: a learner who has spent
+	 * every attempt is precisely who wants to look at the record of them, so
+	 * the read path must not inherit the start path's ceiling check.
+	 */
+	public function test_read_allows_even_when_attempts_are_exhausted(): void {
+		$this->seed_active_enrollment( 5, 50 );
+		$this->set_meta( 101, '_vl_quiz_max_attempts', '2' );
+		$this->seed_attempts( 5, 101, 50, 2 );
+
+		$start = $this->gate()->evaluate_for_start( 5, 101, $this->quiz_post( 101 ) );
+		$read  = $this->gate()->evaluate_for_read( 5, 101, $this->quiz_post( 101 ) );
+
+		self::assertFalse( $start->allowed );
+		self::assertSame( 'attempts_exhausted', $start->reason );
+		self::assertTrue( $read->allowed );
+		self::assertSame( 50, $read->course_id );
+	}
+
 	private function seed_active_enrollment( int $user_id, int $course_id ): void {
 		$this->enrollment_repo->seed(
 			[

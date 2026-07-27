@@ -14,11 +14,13 @@ use WP_Post;
 /**
  * Gatekeeper for quiz-attempt operations.
  *
- * Two evaluation paths share the same shape but ask different questions:
- * `evaluate_for_start()` runs before a fresh `POST /attempts` and checks
- * publish status, course resolution, enrollment, and the
- * `_vl_quiz_max_attempts` ceiling. `evaluate_for_attempt_action()` runs
- * before any in-flight action (`GET / PATCH save / POST submit`) and
+ * Three evaluation paths share the same shape but ask different questions:
+ * `evaluate_for_read()` runs before a non-mutating quiz-scoped read
+ * (`GET /attempts` history) and checks publish status, course resolution,
+ * and enrollment. `evaluate_for_start()` runs before a fresh
+ * `POST /attempts`, delegating to `evaluate_for_read()` and adding the
+ * `_vl_quiz_max_attempts` ceiling on top. `evaluate_for_attempt_action()`
+ * runs before any in-flight action (`GET / PATCH save / POST submit`) and
  * checks attempt ownership plus continued enrollment.
  *
  * Time-limit expiry is intentionally NOT checked here — the service owns
@@ -46,7 +48,17 @@ class QuizAccessGate {
 	) {
 	}
 
-	public function evaluate_for_start( int $user_id, int $quiz_id, WP_Post $quiz ): AccessDecision {
+	/**
+	 * Read-only variant: publish status, course resolution, and enrollment,
+	 * but deliberately *not* the `_vl_quiz_max_attempts` ceiling.
+	 *
+	 * Attempt history is exactly the surface a learner wants once their
+	 * attempts are spent, so reusing {@see self::evaluate_for_start()} here
+	 * would deny with `attempts_exhausted` precisely when the read matters
+	 * most. {@see self::evaluate_for_start()} delegates here and then layers
+	 * the ceiling on top, so the two paths cannot drift.
+	 */
+	public function evaluate_for_read( int $user_id, int $quiz_id, WP_Post $quiz ): AccessDecision {
 		if ( 'publish' !== $quiz->post_status ) {
 			return AccessDecision::deny( 'quiz_not_published' );
 		}
@@ -60,15 +72,24 @@ class QuizAccessGate {
 			return AccessDecision::deny( 'not_enrolled', $course_id );
 		}
 
+		return AccessDecision::allow( $course_id, false );
+	}
+
+	public function evaluate_for_start( int $user_id, int $quiz_id, WP_Post $quiz ): AccessDecision {
+		$decision = $this->evaluate_for_read( $user_id, $quiz_id, $quiz );
+		if ( ! $decision->allowed ) {
+			return $decision;
+		}
+
 		$max_attempts = $this->read_max_attempts( $quiz_id );
 		if ( $max_attempts > 0 ) {
 			$used = $this->attempts->count_for_user_in_quiz( $user_id, $quiz_id );
 			if ( $used >= $max_attempts ) {
-				return AccessDecision::deny( 'attempts_exhausted', $course_id );
+				return AccessDecision::deny( 'attempts_exhausted', $decision->course_id );
 			}
 		}
 
-		return AccessDecision::allow( $course_id, false );
+		return $decision;
 	}
 
 	public function evaluate_for_attempt_action( int $user_id, QuizAttempt $attempt ): AccessDecision {

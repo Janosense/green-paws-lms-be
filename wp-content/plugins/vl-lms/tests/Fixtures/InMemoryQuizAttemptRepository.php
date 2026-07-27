@@ -116,6 +116,56 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 		return array_values( $out );
 	}
 
+	/**
+	 * @param list<int> $user_ids
+	 * @return array<int, array{attempts: int, graded: int, passed: int, quizzes: int, quizzes_passed: int}>
+	 */
+	public function attempt_summary_for_users( array $user_ids ): array {
+		if ( [] === $user_ids ) {
+			return [];
+		}
+
+		$wanted  = array_flip( $user_ids );
+		$out     = [];
+		$quizzes = [];
+
+		foreach ( $this->rows as $row ) {
+			if ( ! isset( $wanted[ $row->user_id ] ) ) {
+				continue;
+			}
+			if ( ! isset( $out[ $row->user_id ] ) ) {
+				$out[ $row->user_id ]     = [
+					'attempts'       => 0,
+					'graded'         => 0,
+					'passed'         => 0,
+					'quizzes'        => 0,
+					'quizzes_passed' => 0,
+				];
+				$quizzes[ $row->user_id ] = [
+					'all'    => [],
+					'passed' => [],
+				];
+			}
+
+			++$out[ $row->user_id ]['attempts'];
+			if ( QuizAttemptStatus::IN_PROGRESS !== $row->status ) {
+				++$out[ $row->user_id ]['graded'];
+			}
+			if ( true === $row->passed ) {
+				++$out[ $row->user_id ]['passed'];
+				$quizzes[ $row->user_id ]['passed'][ $row->quiz_id ] = true;
+			}
+			$quizzes[ $row->user_id ]['all'][ $row->quiz_id ] = true;
+		}
+
+		foreach ( $out as $user_id => $_ ) {
+			$out[ $user_id ]['quizzes']        = count( $quizzes[ $user_id ]['all'] );
+			$out[ $user_id ]['quizzes_passed'] = count( $quizzes[ $user_id ]['passed'] );
+		}
+
+		return $out;
+	}
+
 	public function find_best_score_for_user_in_quiz( int $user_id, int $quiz_id ): ?QuizAttempt {
 		$candidates = [];
 		foreach ( $this->rows as $row ) {

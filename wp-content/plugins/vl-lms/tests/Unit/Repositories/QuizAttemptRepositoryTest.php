@@ -212,6 +212,122 @@ final class QuizAttemptRepositoryTest extends TestCase {
 		self::assertStringContainsString( 'passed = 1', (string) $captured_sql );
 	}
 
+	public function test_attempt_summary_for_users_short_circuits_on_empty_input(): void {
+		$this->wpdb->shouldNotReceive( 'prepare' );
+		$this->wpdb->shouldNotReceive( 'get_results' );
+
+		self::assertSame( [], $this->repo->attempt_summary_for_users( [] ) );
+	}
+
+	public function test_attempt_summary_for_users_groups_rows_by_user(): void {
+		$captured_sql  = null;
+		$captured_args = [];
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, ...$args ) use ( &$captured_sql, &$captured_args ): string {
+					$captured_sql  = $sql;
+					$captured_args = $args;
+					return $sql;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )
+			->once()
+			->andReturn(
+				[
+					[
+						'user_id'        => '5',
+						'attempts'       => '4',
+						'graded'         => '3',
+						'passed'         => '1',
+						'quizzes'        => '2',
+						'quizzes_passed' => '1',
+					],
+					[
+						'user_id'        => '6',
+						'attempts'       => '1',
+						'graded'         => '0',
+						'passed'         => '0',
+						'quizzes'        => '1',
+						'quizzes_passed' => '0',
+					],
+				]
+			);
+
+		$out = $this->repo->attempt_summary_for_users( [ 5, 6 ] );
+
+		self::assertSame(
+			[
+				'attempts'       => 4,
+				'graded'         => 3,
+				'passed'         => 1,
+				'quizzes'        => 2,
+				'quizzes_passed' => 1,
+			],
+			$out[5]
+		);
+		self::assertSame( 1, $out[6]['attempts'] );
+		self::assertSame( 0, $out[6]['graded'] );
+
+		// The `%s` for status sits in the SELECT list, ahead of the `%d` run
+		// in the IN clause, so the status must bind first.
+		self::assertSame( [ [ 'in_progress', 5, 6 ] ], $captured_args );
+		self::assertStringContainsString( 'user_id IN (%d, %d)', (string) $captured_sql );
+		self::assertStringContainsString( 'GROUP BY user_id', (string) $captured_sql );
+		self::assertStringContainsString( 'COUNT(DISTINCT quiz_id)', (string) $captured_sql );
+	}
+
+	/**
+	 * `$wpdb->prepare()` binds positionally, so asserting the args array
+	 * alone cannot tell a correct ordering from a shifted one. Substituting
+	 * the placeholders in source order — the way `prepare` does — turns a
+	 * mis-ordered bind into a visibly wrong query: the status string would
+	 * land in the IN list and a user id would be compared against `status`.
+	 */
+	public function test_attempt_summary_for_users_binds_placeholders_in_source_order(): void {
+		$prepared = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				function ( string $sql, ...$args ) use ( &$prepared ): string {
+					$values = is_array( $args[0] ?? null ) ? $args[0] : $args;
+					$prepared = preg_replace_callback(
+						'/%[ds]/',
+						static function () use ( &$values ): string {
+							$next = array_shift( $values );
+							return is_string( $next ) ? "'" . $next . "'" : (string) $next;
+						},
+						$sql
+					);
+					return (string) $prepared;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );
+
+		$this->repo->attempt_summary_for_users( [ 5, 6 ] );
+
+		self::assertStringContainsString( "status != 'in_progress'", (string) $prepared );
+		self::assertStringContainsString( 'user_id IN (5, 6)', (string) $prepared );
+	}
+
+	public function test_attempt_summary_for_users_omits_users_without_attempts(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );
+
+		$out = $this->repo->attempt_summary_for_users( [ 5, 6 ] );
+
+		self::assertSame( [], $out );
+	}
+
+	public function test_attempt_summary_for_users_tolerates_a_non_array_result(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( null );
+
+		self::assertSame( [], $this->repo->attempt_summary_for_users( [ 5 ] ) );
+	}
+
 	public function test_find_passed_final_exam_targets_specific_quiz(): void {
 		$captured_args = [];
 

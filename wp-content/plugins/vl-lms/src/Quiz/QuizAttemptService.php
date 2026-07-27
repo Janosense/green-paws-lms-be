@@ -146,6 +146,47 @@ class QuizAttemptService {
 	}
 
 	/**
+	 * Every attempt the caller has made at one quiz, oldest first.
+	 *
+	 * Read-only and gated by {@see QuizAccessGate::evaluate_for_read()} —
+	 * the max-attempts ceiling is deliberately not applied, because a
+	 * learner who has spent every attempt is exactly who wants to look at
+	 * the record of them.
+	 *
+	 * The repository orders newest-first (it exists to answer "what was the
+	 * latest attempt"); history reverses that, because attempt *numbering*
+	 * runs forward and the panel reads as "спроба 1, 2, 3…".
+	 *
+	 * @return list<QuizAttempt>
+	 *
+	 * @throws QuizAttemptException With the gate's reason code on denial.
+	 */
+	public function history( int $user_id, WP_Post $quiz ): array {
+		$quiz_id = (int) $quiz->ID;
+
+		$decision = $this->gate->evaluate_for_read( $user_id, $quiz_id, $quiz );
+		if ( ! $decision->allowed ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Domain exception with controlled string code, never rendered as HTML.
+			throw new QuizAttemptException( (string) $decision->reason );
+		}
+
+		$attempts = $this->attempts->list_for_user_in_quiz( $user_id, $quiz_id );
+
+		// Sort ascending on the start instant rather than array_reverse()ing
+		// the repository order: `started_at` has second granularity, so two
+		// rows can tie, and only `id` breaks that tie deterministically.
+		usort(
+			$attempts,
+			static function ( QuizAttempt $a, QuizAttempt $b ): int {
+				$by_time = $a->started_at <=> $b->started_at;
+				return 0 !== $by_time ? $by_time : ( $a->id <=> $b->id );
+			}
+		);
+
+		return $attempts;
+	}
+
+	/**
 	 * Upsert an answer or auto-finalize on time-limit overrun.
 	 *
 	 * @param array<string, mixed> $raw_answer_data

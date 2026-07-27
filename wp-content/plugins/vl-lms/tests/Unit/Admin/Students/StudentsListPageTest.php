@@ -14,6 +14,7 @@ use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use VL\LMS\Tests\Fixtures\InMemoryGroupAccessRepository;
 use VL\LMS\Tests\Fixtures\InMemoryGroupMemberRepository;
 use VL\LMS\Tests\Fixtures\InMemoryGroupRepository;
+use VL\LMS\Tests\Fixtures\InMemoryQuizAttemptRepository;
 use WP_User;
 
 final class StudentsListPageTest extends TestCase {
@@ -79,7 +80,8 @@ final class StudentsListPageTest extends TestCase {
 			new InMemoryGroupRepository(),
 			new InMemoryGroupMemberRepository(),
 			new InMemoryEnrollmentRepository(),
-			$this->make_detail_page()
+			$this->make_detail_page(),
+			new InMemoryQuizAttemptRepository()
 		);
 
 		ob_start();
@@ -108,7 +110,8 @@ final class StudentsListPageTest extends TestCase {
 			new InMemoryGroupRepository(),
 			new InMemoryGroupMemberRepository(),
 			new InMemoryEnrollmentRepository(),
-			$this->make_detail_page()
+			$this->make_detail_page(),
+			new InMemoryQuizAttemptRepository()
 		);
 
 		ob_start();
@@ -127,13 +130,15 @@ final class StudentsListPageTest extends TestCase {
 			new InMemoryGroupRepository(),
 			new InMemoryGroupMemberRepository(),
 			new InMemoryEnrollmentRepository(),
-			$this->make_detail_page()
+			$this->make_detail_page(),
+			new InMemoryQuizAttemptRepository()
 		);
 
 		$table                = new TestableStudentsListTable(
 			new InMemoryGroupRepository(),
 			new InMemoryGroupMemberRepository(),
-			new InMemoryEnrollmentRepository()
+			new InMemoryEnrollmentRepository(),
+			new InMemoryQuizAttemptRepository()
 		);
 		$page->table_override = $table;
 
