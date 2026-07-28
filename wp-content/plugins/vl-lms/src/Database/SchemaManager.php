@@ -156,6 +156,23 @@ final class SchemaManager {
 	}
 
 	/**
+	 * Forced re-install: drops the stored version so {@see self::install()}
+	 * cannot short-circuit, then reruns it. The recovery lever for a
+	 * version stamp that is wrong about the live schema (e.g. stamped by a
+	 * pre-verification build whose `dbDelta` ALTER had silently failed) —
+	 * a state the fast path can never detect, since it trusts the option.
+	 * Safe to run any time: `dbDelta` is idempotent, and the version is
+	 * re-stamped only after {@see self::schema_landed()} passes.
+	 *
+	 * Called from {@see \VL\LMS\Activator::activate()}, which makes
+	 * "deactivate + reactivate the plugin" the documented manual fix.
+	 */
+	public static function reinstall(): void {
+		delete_option( self::DB_VERSION_OPTION );
+		self::install();
+	}
+
+	/**
 	 * Post-`dbDelta` verification that the current migration reached the
 	 * database, checked via a sentinel added by the most recent schema
 	 * bump. **Update the sentinel when bumping

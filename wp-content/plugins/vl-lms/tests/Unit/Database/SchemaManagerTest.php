@@ -207,6 +207,17 @@ final class SchemaManagerTest extends TestCase {
 		SchemaManager::install();
 	}
 
+	public function test_reinstall_drops_version_gate_then_runs_full_install(): void {
+		// The recovery lever: a wrong version stamp makes install()
+		// short-circuit forever, so reactivation must bypass the gate.
+		Functions\expect( 'delete_option' )->once()->with( SchemaManager::DB_VERSION_OPTION );
+		Functions\when( 'get_option' )->justReturn( false );
+		Functions\when( 'update_option' )->justReturn( true );
+		Functions\expect( 'dbDelta' )->times( 17 )->andReturn( [] );
+
+		SchemaManager::reinstall();
+	}
+
 	public function test_install_does_not_stamp_version_when_sentinel_column_missing(): void {
 		// dbDelta swallows failed ALTERs silently. Stamping the version over
 		// a failed migration would short-circuit every later install() while

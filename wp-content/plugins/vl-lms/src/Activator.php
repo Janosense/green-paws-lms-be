@@ -40,8 +40,12 @@ final class Activator {
 		// 1. Roles and capabilities.
 		RolesInstaller::install();
 
-		// 2. Custom tables.
-		SchemaManager::install();
+		// 2. Custom tables. Forced (version option dropped first) so a
+		// manual reactivation recovers from a version stamp that is wrong
+		// about the live schema — the one state the version-gated fast
+		// path can never detect. dbDelta is idempotent, so re-running the
+		// full create set at steady state is a cheap no-op.
+		SchemaManager::reinstall();
 
 		// 3. Phase 9.3 — schedule the nightly analytics rollup. Idempotent
 		// (wp_next_scheduled gate), safe under reactivation.
