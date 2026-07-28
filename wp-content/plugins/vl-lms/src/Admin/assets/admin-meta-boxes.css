@@ -229,6 +229,15 @@
 	display: none;
 }
 
+.vl-lms-answers-hint {
+	display: none;
+	margin: 0 0 8px;
+}
+
+.vl-lms-answers[data-question-type="true_false"] .vl-lms-answers-hint {
+	display: block;
+}
+
 /* Phase 9.1 — sortable child lists */
 .vl-sortable-list {
 	list-style: none;

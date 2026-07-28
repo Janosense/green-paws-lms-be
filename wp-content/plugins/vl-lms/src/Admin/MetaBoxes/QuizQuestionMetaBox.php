@@ -135,6 +135,13 @@ class QuizQuestionMetaBox extends AbstractMetaBox {
 		// Answers builder.
 		echo '<div class="vl-lms-row vl-lms-row--full vl-lms-answers" data-question-type="' . esc_attr( $type ) . '">';
 		echo '<label>Відповіді</label>';
+		// True/False shows the learner its own two labels, not these texts —
+		// so row order is what carries the meaning, and TrueFalseScorer grades
+		// by it. Say so, because the builder itself looks type-agnostic.
+		printf(
+			'<p class="description vl-lms-answers-hint">%s</p>',
+			esc_html__( 'Для типу «Правда / Неправда» додайте рівно два варіанти: перший — «Правда», другий — «Неправда». Позначте правильний.', 'vl-lms' )
+		);
 		echo '<ul class="vl-lms-answers-list">';
 		foreach ( $answers as $answer ) {
 			$this->render_answer_row( $answer );
