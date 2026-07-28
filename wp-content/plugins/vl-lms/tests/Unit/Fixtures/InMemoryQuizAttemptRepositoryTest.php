@@ -202,4 +202,70 @@ final class InMemoryQuizAttemptRepositoryTest extends TestCase {
 		self::assertArrayHasKey( 5, $out );
 		self::assertArrayNotHasKey( 6, $out );
 	}
+
+	// ------------------------------------------------------------------
+	// Progress-reset epoch — mirrors the real repository's counting join.
+	// ------------------------------------------------------------------
+
+	public function test_counting_reads_exclude_pre_reset_attempts(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 90, true, '2026-04-28 09:00:00', '2026-04-28 09:30:00' ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 40, false, '2026-04-30 09:00:00', '2026-04-30 09:30:00' ) );
+
+		$repo->set_progress_reset_at( 5, 7, self::utc( '2026-04-29 00:00:00' ) );
+
+		self::assertSame( 1, $repo->count_for_user_in_quiz( 5, 101 ) );
+		self::assertSame( 1, $repo->count_submitted_for_user( 101, 5 ) );
+		self::assertSame( 40.0, $repo->best_score_for_user( 101, 5 ) );
+		self::assertSame( 40, $repo->find_best_score_for_user_in_quiz( 5, 101 )?->score );
+		self::assertNull( $repo->find_passed_final_exam_for_user_in_course( 5, 7, 101 ) );
+	}
+
+	public function test_counting_reads_keep_attempt_started_exactly_at_epoch(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 90, true, '2026-04-29 00:00:00', '2026-04-29 00:30:00' ) );
+
+		$repo->set_progress_reset_at( 5, 7, self::utc( '2026-04-29 00:00:00' ) );
+
+		// `>=` boundary: a same-instant attempt still counts.
+		self::assertSame( 1, $repo->count_for_user_in_quiz( 5, 101 ) );
+		self::assertNotNull( $repo->find_passed_final_exam_for_user_in_course( 5, 7, 101 ) );
+	}
+
+	public function test_epoch_scopes_to_its_user_course_pair(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 90, true, '2026-04-28 09:00:00', '2026-04-28 09:30:00' ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 6, 101, 7, 90, true, '2026-04-28 09:00:00', '2026-04-28 09:30:00' ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 201, 8, 90, true, '2026-04-28 09:00:00', '2026-04-28 09:30:00' ) );
+
+		$repo->set_progress_reset_at( 5, 7, self::utc( '2026-04-29 00:00:00' ) );
+
+		self::assertSame( 0, $repo->count_for_user_in_quiz( 5, 101 ) );
+		self::assertSame( 1, $repo->count_for_user_in_quiz( 6, 101 ) );
+		self::assertSame( 1, $repo->count_for_user_in_quiz( 5, 201 ) );
+	}
+
+	public function test_list_for_user_in_quiz_stays_epoch_blind(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 90, true, '2026-04-28 09:00:00', '2026-04-28 09:30:00' ) );
+
+		$repo->set_progress_reset_at( 5, 7, self::utc( '2026-04-29 00:00:00' ) );
+
+		// The history read keeps pre-reset sittings visible.
+		self::assertCount( 1, $repo->list_for_user_in_quiz( 5, 101 ) );
+	}
+
+	public function test_abandon_in_progress_flips_only_in_progress_rows_in_course(): void {
+		$repo        = new InMemoryQuizAttemptRepository();
+		$in_progress = $repo->insert( self::attempt( QuizAttemptStatus::IN_PROGRESS, 5, 101, 7 ) );
+		$submitted   = $repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 90, true, '2026-04-28 09:00:00', '2026-04-28 09:30:00' ) );
+		$other       = $repo->insert( self::attempt( QuizAttemptStatus::IN_PROGRESS, 5, 201, 8 ) );
+
+		$updated = $repo->abandon_in_progress_for_user_in_course( 5, 7 );
+
+		self::assertSame( 1, $updated );
+		self::assertSame( QuizAttemptStatus::ABANDONED, $repo->find( $in_progress )?->status );
+		self::assertSame( QuizAttemptStatus::SUBMITTED, $repo->find( $submitted )?->status );
+		self::assertSame( QuizAttemptStatus::IN_PROGRESS, $repo->find( $other )?->status );
+	}
 }

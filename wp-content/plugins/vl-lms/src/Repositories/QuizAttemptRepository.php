@@ -21,11 +21,26 @@ use VL\LMS\Domain\Quiz\QuizAttemptStatus;
  * {@see SchemaManager::quiz_attempts_table()}, which is `$wpdb->prefix`
  * plus a hardcoded suffix — no untrusted input reaches the SQL string.
  *
+ * Reads split into two families since the self-service progress reset:
+ * *counting* reads (progression gate, max-attempts ceiling, best-score,
+ * final-exam arm) LEFT JOIN `vl_enrollments` and exclude attempts started
+ * before the enrollment's `progress_reset_at`; *record* reads (attempt
+ * history, admin roll-ups) are deliberately epoch-blind and see every row.
+ * The predicate compares two columns, so it adds no placeholders and the
+ * positional bind order of every query is unchanged.
+ *
  * @author Tymofii Synianskyi
  */
 class QuizAttemptRepository {
 
 	private const string DATETIME_FORMAT = 'Y-m-d H:i:s';
+
+	/**
+	 * Epoch predicate for counting reads. Requires the attempts table to be
+	 * aliased `a` and {@see self::counting_join()} to be present. `>=` so an
+	 * attempt started in the same second as the reset still counts.
+	 */
+	private const string COUNTING_PREDICATE = 'AND ( e.progress_reset_at IS NULL OR a.started_at >= e.progress_reset_at )';
 
 	/** @var callable():\DateTimeImmutable */
 	private $clock;
@@ -53,6 +68,11 @@ class QuizAttemptRepository {
 		return QuizAttempt::from_array( $row );
 	}
 
+	/**
+	 * Deliberately epoch-blind: a progress reset closes in-flight attempts
+	 * by flipping them to ABANDONED ({@see self::abandon_in_progress_for_user_in_course()}),
+	 * so an unfiltered read can never resume a pre-reset attempt.
+	 */
 	public function find_active_for_user_in_quiz( int $user_id, int $quiz_id ): ?QuizAttempt {
 		$wpdb  = $this->wpdb();
 		$table = $this->table();
@@ -73,13 +93,19 @@ class QuizAttemptRepository {
 		return QuizAttempt::from_array( $row );
 	}
 
+	/**
+	 * Counting read — attempts started before the enrollment's
+	 * `progress_reset_at` are excluded.
+	 */
 	public function count_for_user_in_quiz( int $user_id, int $quiz_id ): int {
-		$wpdb  = $this->wpdb();
-		$table = $this->table();
+		$wpdb      = $this->wpdb();
+		$table     = $this->table();
+		$join      = $this->counting_join();
+		$predicate = self::COUNTING_PREDICATE;
 
 		$sql = $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			"SELECT COUNT(*) FROM {$table} WHERE user_id = %d AND quiz_id = %d",
+			"SELECT COUNT(*) FROM {$table} a {$join} WHERE a.user_id = %d AND a.quiz_id = %d {$predicate}",
 			$user_id,
 			$quiz_id
 		);
@@ -97,14 +123,19 @@ class QuizAttemptRepository {
 	 * the inverse of the older `_for_user_in_quiz` family — because the
 	 * call site iterates "quiz first, user second" when rendering an
 	 * attempt-state envelope.
+	 *
+	 * Counting read — attempts started before the enrollment's
+	 * `progress_reset_at` are excluded.
 	 */
 	public function count_submitted_for_user( int $quiz_id, int $user_id ): int {
-		$wpdb  = $this->wpdb();
-		$table = $this->table();
+		$wpdb      = $this->wpdb();
+		$table     = $this->table();
+		$join      = $this->counting_join();
+		$predicate = self::COUNTING_PREDICATE;
 
 		$sql = $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			"SELECT COUNT(*) FROM {$table} WHERE quiz_id = %d AND user_id = %d AND status != %s",
+			"SELECT COUNT(*) FROM {$table} a {$join} WHERE a.quiz_id = %d AND a.user_id = %d AND a.status != %s {$predicate}",
 			$quiz_id,
 			$user_id,
 			QuizAttemptStatus::IN_PROGRESS->value
@@ -121,14 +152,19 @@ class QuizAttemptRepository {
 	 * are raw `score` + `max_score`, so the percentage is derived by
 	 * `MAX(score / max_score * 100)` SQL-side and rounded to two decimals
 	 * for stable wire-format equality (75 vs 75.0 vs 75.00).
+	 *
+	 * Counting read — attempts started before the enrollment's
+	 * `progress_reset_at` are excluded.
 	 */
 	public function best_score_for_user( int $quiz_id, int $user_id ): ?float {
-		$wpdb  = $this->wpdb();
-		$table = $this->table();
+		$wpdb      = $this->wpdb();
+		$table     = $this->table();
+		$join      = $this->counting_join();
+		$predicate = self::COUNTING_PREDICATE;
 
 		$sql = $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			"SELECT MAX(ROUND(score / max_score * 100, 2)) FROM {$table} WHERE quiz_id = %d AND user_id = %d AND status = %s AND max_score > 0",
+			"SELECT MAX(ROUND(a.score / a.max_score * 100, 2)) FROM {$table} a {$join} WHERE a.quiz_id = %d AND a.user_id = %d AND a.status = %s AND a.max_score > 0 {$predicate}",
 			$quiz_id,
 			$user_id,
 			QuizAttemptStatus::SUBMITTED->value
@@ -140,6 +176,10 @@ class QuizAttemptRepository {
 	}
 
 	/**
+	 * Deliberately epoch-blind: this is the attempt-history read, and a
+	 * progress reset must not hide the learner's earlier sittings from
+	 * their own log. Don't "fix" this by adding the counting join.
+	 *
 	 * @return list<QuizAttempt>
 	 */
 	public function list_for_user_in_quiz( int $user_id, int $quiz_id ): array {
@@ -158,13 +198,20 @@ class QuizAttemptRepository {
 		return $this->hydrate_rows( $rows );
 	}
 
+	/**
+	 * Counting read — attempts started before the enrollment's
+	 * `progress_reset_at` are excluded: this is "the best *counting*
+	 * attempt", matching gate semantics for any future caller.
+	 */
 	public function find_best_score_for_user_in_quiz( int $user_id, int $quiz_id ): ?QuizAttempt {
-		$wpdb  = $this->wpdb();
-		$table = $this->table();
+		$wpdb      = $this->wpdb();
+		$table     = $this->table();
+		$join      = $this->counting_join();
+		$predicate = self::COUNTING_PREDICATE;
 
 		$sql = $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			"SELECT * FROM {$table} WHERE user_id = %d AND quiz_id = %d AND status = %s ORDER BY score DESC, submitted_at DESC LIMIT 1",
+			"SELECT a.* FROM {$table} a {$join} WHERE a.user_id = %d AND a.quiz_id = %d AND a.status = %s {$predicate} ORDER BY a.score DESC, a.submitted_at DESC LIMIT 1",
 			$user_id,
 			$quiz_id,
 			QuizAttemptStatus::SUBMITTED->value
@@ -188,22 +235,30 @@ class QuizAttemptRepository {
 	 * passing-percentage observed on *submitted* attempts (rounded to two
 	 * decimals for stable wire equality), or `null` when none scored.
 	 *
+	 * Counting read — attempts started before the enrollment's
+	 * `progress_reset_at` are excluded, so a reset re-engages progression
+	 * locks: a quiz whose attempts are all pre-reset drops out of the map
+	 * and reads as `not_started`.
+	 *
 	 * @return array<int, array{passed: bool, in_progress: bool, submitted_count: int, best_pct: float|null}>
 	 */
 	public function status_map_for_user_in_course( int $user_id, int $course_id ): array {
-		$wpdb  = $this->wpdb();
-		$table = $this->table();
+		$wpdb      = $this->wpdb();
+		$table     = $this->table();
+		$join      = $this->counting_join();
+		$predicate = self::COUNTING_PREDICATE;
 
 		$sql = $wpdb->prepare(
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			"SELECT quiz_id,
-				MAX(passed) AS passed,
-				MAX(CASE WHEN status = %s THEN 1 ELSE 0 END) AS in_progress,
-				SUM(CASE WHEN status != %s THEN 1 ELSE 0 END) AS submitted_count,
-				MAX(CASE WHEN status = %s AND max_score > 0 THEN ROUND(score / max_score * 100, 2) ELSE NULL END) AS best_pct
-			FROM {$table}
-			WHERE user_id = %d AND course_id = %d
-			GROUP BY quiz_id",
+			"SELECT a.quiz_id,
+				MAX(a.passed) AS passed,
+				MAX(CASE WHEN a.status = %s THEN 1 ELSE 0 END) AS in_progress,
+				SUM(CASE WHEN a.status != %s THEN 1 ELSE 0 END) AS submitted_count,
+				MAX(CASE WHEN a.status = %s AND a.max_score > 0 THEN ROUND(a.score / a.max_score * 100, 2) ELSE NULL END) AS best_pct
+			FROM {$table} a
+			{$join}
+			WHERE a.user_id = %d AND a.course_id = %d {$predicate}
+			GROUP BY a.quiz_id",
 			QuizAttemptStatus::IN_PROGRESS->value,
 			QuizAttemptStatus::IN_PROGRESS->value,
 			QuizAttemptStatus::SUBMITTED->value,
@@ -235,6 +290,9 @@ class QuizAttemptRepository {
 	}
 
 	/**
+	 * Deliberately epoch-blind: no production caller today, and as a
+	 * record read ("every pass the learner ever had") it stays complete.
+	 *
 	 * @return list<QuizAttempt>
 	 */
 	public function list_passed_for_user_in_course( int $user_id, int $course_id ): array {
@@ -268,6 +326,10 @@ class QuizAttemptRepository {
 	 *
 	 * Returned rows are keyed by `user_id`; users with no attempts are absent
 	 * from the map (callers default to zeroes).
+	 *
+	 * Deliberately epoch-blind: the admin list is an all-time record and a
+	 * learner's progress reset must not hide their sittings from staff.
+	 * Don't "fix" this by adding the counting join.
 	 *
 	 * @param list<int> $user_ids
 	 * @return array<int, array{attempts: int, graded: int, passed: int, quizzes: int, quizzes_passed: int}>
@@ -331,17 +393,24 @@ class QuizAttemptRepository {
 		return $out;
 	}
 
+	/**
+	 * Counting read — attempts started before the enrollment's
+	 * `progress_reset_at` are excluded, so the E2 final-exam arm re-arms
+	 * after a reset: a pre-reset pass no longer completes the course.
+	 */
 	public function find_passed_final_exam_for_user_in_course(
 		int $user_id,
 		int $course_id,
 		int $final_exam_quiz_id
 	): ?QuizAttempt {
-		$wpdb  = $this->wpdb();
-		$table = $this->table();
+		$wpdb      = $this->wpdb();
+		$table     = $this->table();
+		$join      = $this->counting_join();
+		$predicate = self::COUNTING_PREDICATE;
 
 		$sql = $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			"SELECT * FROM {$table} WHERE user_id = %d AND course_id = %d AND quiz_id = %d AND status = %s AND passed = 1 ORDER BY submitted_at DESC LIMIT 1",
+			"SELECT a.* FROM {$table} a {$join} WHERE a.user_id = %d AND a.course_id = %d AND a.quiz_id = %d AND a.status = %s AND a.passed = 1 {$predicate} ORDER BY a.submitted_at DESC LIMIT 1",
 			$user_id,
 			$course_id,
 			$final_exam_quiz_id,
@@ -388,6 +457,37 @@ class QuizAttemptRepository {
 		$deleted = $wpdb->query( $sql );
 
 		return is_numeric( $deleted ) ? (int) $deleted : 0;
+	}
+
+	/**
+	 * Flip every in-flight attempt one learner has in one course to
+	 * ABANDONED, returning the number of rows updated.
+	 *
+	 * Runs as part of a self-service progress reset, *before* the epoch is
+	 * stamped: {@see self::find_active_for_user_in_quiz()} is epoch-blind,
+	 * so an in-progress row left open would be resumable across the reset.
+	 * Closing it here keeps that read filter-free. The abandoned rows are
+	 * pre-reset, so the counting predicate already excludes them from the
+	 * max-attempts ceiling.
+	 */
+	public function abandon_in_progress_for_user_in_course( int $user_id, int $course_id ): int {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+		$now   = $this->now()->format( self::DATETIME_FORMAT );
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"UPDATE {$table} SET status = %s, updated_at = %s WHERE user_id = %d AND course_id = %d AND status = %s",
+			QuizAttemptStatus::ABANDONED->value,
+			$now,
+			$user_id,
+			$course_id,
+			QuizAttemptStatus::IN_PROGRESS->value
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$updated = $wpdb->query( $sql );
+
+		return is_numeric( $updated ) ? (int) $updated : 0;
 	}
 
 	/**
@@ -478,6 +578,18 @@ class QuizAttemptRepository {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * LEFT JOIN pairing each attempt (aliased `a`) with its enrollment row
+	 * so {@see self::COUNTING_PREDICATE} can compare per-(user, course)
+	 * columns. 1:0..1 by the `uk_user_course` UNIQUE key, so the join never
+	 * multiplies rows; LEFT so attempts without an enrollment row keep
+	 * pre-reset behaviour.
+	 */
+	private function counting_join(): string {
+		$enrollments = SchemaManager::enrollments_table();
+		return "LEFT JOIN {$enrollments} e ON e.user_id = a.user_id AND e.course_id = a.course_id";
 	}
 
 	private function now(): \DateTimeImmutable {

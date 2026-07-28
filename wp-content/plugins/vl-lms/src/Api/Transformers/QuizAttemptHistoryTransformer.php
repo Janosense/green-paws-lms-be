@@ -29,6 +29,14 @@ use VL\LMS\Support\PlainText;
  * `_vl_quiz_max_attempts`, and best-score considers `submitted` rows only
  * (an `expired` attempt is scored, but it is not a completed sitting).
  *
+ * That "never disagree" invariant extends to the progress-reset epoch:
+ * the attempt-state numbers come from counting reads that exclude
+ * pre-reset attempts, so the envelope summary here applies the same
+ * `started_at >= progress_reset_at` cut. The per-attempt rows stay
+ * all-time — the history list is the one surface a reset must not
+ * hide sittings from — and `attempt_number` stays the all-time
+ * chronological position.
+ *
  * Indirected `title()` / `course_slug()` / `meta_int()` seams exist so
  * unit tests can subclass without round-tripping through `get_the_title`
  * and `get_post_meta`. Not declared `final` for that reason.
@@ -38,12 +46,16 @@ use VL\LMS\Support\PlainText;
 class QuizAttemptHistoryTransformer {
 
 	/**
-	 * @param int             $quiz_id  Quiz the history belongs to.
-	 * @param list<QuizAttempt> $attempts Oldest-first, as returned by
-	 *                                    {@see \VL\LMS\Quiz\QuizAttemptService::history()}.
+	 * @param int               $quiz_id           Quiz the history belongs to.
+	 * @param list<QuizAttempt> $attempts          Oldest-first, as returned by
+	 *                                             {@see \VL\LMS\Quiz\QuizAttemptService::history()}.
+	 * @param ?\DateTimeImmutable $progress_reset_at The enrollment's progress-reset
+	 *                                               epoch; attempts started before it
+	 *                                               are listed but excluded from the
+	 *                                               envelope summary.
 	 * @return array<string, mixed>
 	 */
-	public function transform( int $quiz_id, array $attempts ): array {
+	public function transform( int $quiz_id, array $attempts, ?\DateTimeImmutable $progress_reset_at = null ): array {
 		$max_attempts = $this->meta_int( $quiz_id, '_vl_quiz_max_attempts' );
 
 		$graded            = 0;
@@ -52,20 +64,21 @@ class QuizAttemptHistoryTransformer {
 		$rows              = [];
 
 		foreach ( $attempts as $index => $attempt ) {
-			$number = $index + 1;
+			$number   = $index + 1;
+			$counting = null === $progress_reset_at || $attempt->started_at >= $progress_reset_at;
 
-			if ( QuizAttemptStatus::IN_PROGRESS !== $attempt->status ) {
+			if ( $counting && QuizAttemptStatus::IN_PROGRESS !== $attempt->status ) {
 				++$graded;
 			}
 
-			if ( QuizAttemptStatus::SUBMITTED === $attempt->status ) {
+			if ( $counting && QuizAttemptStatus::SUBMITTED === $attempt->status ) {
 				$pct = $this->score_percent( $attempt );
 				if ( null !== $pct && ( null === $best_score || $pct > $best_score ) ) {
 					$best_score = $pct;
 				}
 			}
 
-			if ( true === $attempt->passed && null === $passed_on_attempt ) {
+			if ( $counting && true === $attempt->passed && null === $passed_on_attempt ) {
 				$passed_on_attempt = $number;
 			}
 

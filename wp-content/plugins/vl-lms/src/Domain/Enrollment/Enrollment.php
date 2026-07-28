@@ -33,7 +33,8 @@ final class Enrollment {
 		public readonly ?string $revoke_reason,
 		public readonly int $progress_pct,
 		public readonly string $created_at,
-		public readonly string $updated_at
+		public readonly string $updated_at,
+		public readonly ?string $progress_reset_at = null
 	) {
 	}
 
@@ -68,7 +69,8 @@ final class Enrollment {
 			self::nullable_string( $row['revoke_reason'] ?? null ),
 			self::clamp_percent( $row['progress_pct'] ?? 0 ),
 			(string) $row['created_at'],
-			(string) $row['updated_at']
+			(string) $row['updated_at'],
+			self::nullable_string( $row['progress_reset_at'] ?? null )
 		);
 	}
 

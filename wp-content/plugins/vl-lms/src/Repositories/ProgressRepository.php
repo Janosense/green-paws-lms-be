@@ -199,6 +199,26 @@ class ProgressRepository {
 		return is_numeric( $result ) ? (int) $result : 0;
 	}
 
+	/**
+	 * Course-scoped sibling of {@see self::delete_for_user()}, used by the
+	 * self-service progress reset: wipes one learner's per-entity progress
+	 * rows for one course while leaving their other courses untouched.
+	 */
+	public function delete_for_user_in_course( int $user_id, int $course_id ): int {
+		$wpdb = $this->wpdb();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$result = $wpdb->delete(
+			$this->table(),
+			[
+				'user_id'   => $user_id,
+				'course_id' => $course_id,
+			]
+		);
+
+		return is_numeric( $result ) ? (int) $result : 0;
+	}
+
 	private function datetime_or_null( ?\DateTimeImmutable $value ): ?string {
 		if ( null === $value ) {
 			return null;

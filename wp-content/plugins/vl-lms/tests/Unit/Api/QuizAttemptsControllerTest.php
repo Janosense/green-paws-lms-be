@@ -20,6 +20,7 @@ use VL\LMS\Quiz\QuizAttemptException;
 use VL\LMS\Quiz\QuizAttemptService;
 use VL\LMS\Quiz\SaveAnswerResult;
 use VL\LMS\Support\Logger;
+use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
 use VL\LMS\Tests\Fixtures\InMemoryQuizAttemptRepository;
 use WP_Error;
 use WP_REST_Request;
@@ -40,6 +41,8 @@ final class QuizAttemptsControllerTest extends TestCase {
 	private $logger;
 
 	private InMemoryQuizAttemptRepository $repo;
+
+	private InMemoryEnrollmentRepository $enrollments;
 
 	private TestableQuizAttemptStateTransformer $transformer;
 
@@ -72,6 +75,7 @@ final class QuizAttemptsControllerTest extends TestCase {
 		$this->authenticator = Mockery::mock( RestAuthenticator::class );
 		$this->logger        = Mockery::mock( Logger::class );
 		$this->repo          = new InMemoryQuizAttemptRepository();
+		$this->enrollments   = new InMemoryEnrollmentRepository();
 		$this->transformer   = new TestableQuizAttemptStateTransformer( $this->repo );
 
 		$this->history_transformer = new TestableQuizAttemptHistoryTransformer();
@@ -82,7 +86,8 @@ final class QuizAttemptsControllerTest extends TestCase {
 			$this->authenticator,
 			$this->logger,
 			$this->transformer,
-			$this->history_transformer
+			$this->history_transformer,
+			$this->enrollments
 		);
 	}
 
@@ -121,17 +126,18 @@ final class QuizAttemptsControllerTest extends TestCase {
 		int $id = 17,
 		QuizAttemptStatus $status = QuizAttemptStatus::IN_PROGRESS,
 		?bool $passed = null,
-		?int $score = null
+		?int $score = null,
+		string $started_at = '2026-04-29 10:00:00'
 	): QuizAttempt {
-		$now = new \DateTimeImmutable( '2026-04-29 10:00:00', new \DateTimeZone( 'UTC' ) );
+		$started = new \DateTimeImmutable( $started_at, new \DateTimeZone( 'UTC' ) );
 		return new QuizAttempt(
 			$id,
 			5,
 			101,
 			50,
 			$status,
-			$now,
-			QuizAttemptStatus::IN_PROGRESS === $status ? null : $now,
+			$started,
+			QuizAttemptStatus::IN_PROGRESS === $status ? null : $started,
 			0,
 			null,
 			$score,
@@ -139,8 +145,8 @@ final class QuizAttemptsControllerTest extends TestCase {
 			$passed,
 			70,
 			[ 201, 202 ],
-			$now,
-			$now
+			$started,
+			$started
 		);
 	}
 
@@ -449,6 +455,45 @@ final class QuizAttemptsControllerTest extends TestCase {
 		self::assertSame( 2, $body['data']['passed_on_attempt'] );
 		self::assertSame( [ 11, 12 ], array_column( $body['data']['attempts'], 'id' ) );
 		self::assertSame( [ 1, 2 ], array_column( $body['data']['attempts'], 'attempt_number' ) );
+	}
+
+	public function test_handle_history_passes_progress_reset_epoch_to_summary(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		Functions\when( 'get_posts' )->justReturn( [ $this->quiz( 101 ) ] );
+
+		// A pass before the reset, a fail after it. Attempts snapshot
+		// course 50; the enrollment row carries the epoch between the two.
+		$this->enrollments->seed(
+			[
+				'user_id'           => 5,
+				'course_id'         => 50,
+				'progress_reset_at' => '2026-04-29 00:00:00',
+			]
+		);
+		$this->service->shouldReceive( 'history' )
+			->once()
+			->andReturn(
+				[
+					$this->attempt( 11, QuizAttemptStatus::SUBMITTED, true, 90, '2026-04-28 10:00:00' ),
+					$this->attempt( 12, QuizAttemptStatus::SUBMITTED, false, 40, '2026-04-30 10:00:00' ),
+				]
+			);
+
+		$response = $this->controller->handle_history( $this->request( [ 'slug' => 'q' ] ) );
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		$data = $response->get_data()['data'];
+
+		// Rows stay all-time with all-time numbering…
+		self::assertSame( [ 11, 12 ], array_column( $data['attempts'], 'id' ) );
+		self::assertSame( [ 1, 2 ], array_column( $data['attempts'], 'attempt_number' ) );
+		self::assertSame( 2, $data['total_attempts'] );
+		// …but the summary counts post-reset sittings only: the pre-reset
+		// pass no longer passes the quiz, and best_score is the post-reset 40.
+		self::assertFalse( $data['passed'] );
+		self::assertNull( $data['passed_on_attempt'] );
+		self::assertSame( 1, $data['graded_attempts'] );
+		self::assertSame( 40.0, $data['best_score'] );
 	}
 
 	public function test_handle_history_returns_200_with_empty_log_when_never_attempted(): void {

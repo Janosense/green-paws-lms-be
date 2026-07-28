@@ -110,18 +110,19 @@ final class InMemoryEnrollmentRepository extends EnrollmentRepository {
 
 		$this->rows[ $id ] = array_merge(
 			[
-				'id'              => $id,
-				'source_group_id' => null,
-				'source_order_id' => null,
-				'started_at'      => null,
-				'completed_at'    => null,
-				'expires_at'      => null,
-				'revoked_at'      => null,
-				'revoked_by'      => null,
-				'revoke_reason'   => null,
-				'progress_pct'    => 0,
-				'created_at'      => $now,
-				'updated_at'      => $now,
+				'id'                => $id,
+				'source_group_id'   => null,
+				'source_order_id'   => null,
+				'started_at'        => null,
+				'completed_at'      => null,
+				'expires_at'        => null,
+				'revoked_at'        => null,
+				'revoked_by'        => null,
+				'revoke_reason'     => null,
+				'progress_pct'      => 0,
+				'progress_reset_at' => null,
+				'created_at'        => $now,
+				'updated_at'        => $now,
 			],
 			$data,
 			[ 'id' => $id ]
@@ -180,6 +181,26 @@ final class InMemoryEnrollmentRepository extends EnrollmentRepository {
 		return false;
 	}
 
+	public function mark_progress_reset( int $user_id, int $course_id, \DateTimeImmutable $now ): bool {
+		foreach ( $this->rows as $id => $row ) {
+			if ( (int) $row['user_id'] !== $user_id || (int) $row['course_id'] !== $course_id ) {
+				continue;
+			}
+			$this->rows[ $id ] = array_merge(
+				$row,
+				[
+					'progress_pct'      => 0,
+					'status'            => EnrollmentStatus::ACTIVE->value,
+					'completed_at'      => null,
+					'progress_reset_at' => $now->format( 'Y-m-d H:i:s' ),
+					'updated_at'        => $now->format( 'Y-m-d H:i:s' ),
+				]
+			);
+			return true;
+		}
+		return false;
+	}
+
 	/**
 	 * Test helper: directly seed a row. Useful for setting up state that
 	 * bypasses the service (e.g., a REVOKED row with a specific
@@ -191,23 +212,24 @@ final class InMemoryEnrollmentRepository extends EnrollmentRepository {
 		$id = $this->next_id++;
 
 		$defaults = [
-			'id'              => $id,
-			'user_id'         => 1,
-			'course_id'       => 1,
-			'status'          => EnrollmentStatus::ACTIVE->value,
-			'source'          => 'manual',
-			'source_group_id' => null,
-			'source_order_id' => null,
-			'enrolled_at'     => '2026-01-01 00:00:00',
-			'started_at'      => null,
-			'completed_at'    => null,
-			'expires_at'      => null,
-			'revoked_at'      => null,
-			'revoked_by'      => null,
-			'revoke_reason'   => null,
-			'progress_pct'    => 0,
-			'created_at'      => '2026-01-01 00:00:00',
-			'updated_at'      => '2026-01-01 00:00:00',
+			'id'                => $id,
+			'user_id'           => 1,
+			'course_id'         => 1,
+			'status'            => EnrollmentStatus::ACTIVE->value,
+			'source'            => 'manual',
+			'source_group_id'   => null,
+			'source_order_id'   => null,
+			'enrolled_at'       => '2026-01-01 00:00:00',
+			'started_at'        => null,
+			'completed_at'      => null,
+			'expires_at'        => null,
+			'revoked_at'        => null,
+			'revoked_by'        => null,
+			'revoke_reason'     => null,
+			'progress_pct'      => 0,
+			'progress_reset_at' => null,
+			'created_at'        => '2026-01-01 00:00:00',
+			'updated_at'        => '2026-01-01 00:00:00',
 		];
 
 		$this->rows[ $id ] = array_merge( $defaults, $overrides, [ 'id' => $id ] );

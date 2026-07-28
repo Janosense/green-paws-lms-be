@@ -99,8 +99,8 @@ final class SchemaManagerTest extends TestCase {
 		self::assertSame( 'wp_vl_payments', SchemaManager::payments_table() );
 	}
 
-	public function test_current_db_version_is_nine(): void {
-		self::assertSame( '9', SchemaManager::CURRENT_DB_VERSION );
+	public function test_current_db_version_is_ten(): void {
+		self::assertSame( '10', SchemaManager::CURRENT_DB_VERSION );
 	}
 
 	public function test_install_short_circuits_when_version_matches(): void {
@@ -143,6 +143,8 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_zoom_webhook_events', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_user_activity_daily', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_assignment_submissions', $combined );
+
+		self::assertStringContainsString( 'progress_reset_at DATETIME NULL DEFAULT NULL', $combined );
 
 		self::assertStringContainsString( 'UNIQUE KEY uk_user_course (user_id, course_id)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY uk_slug (slug)', $combined );

@@ -70,7 +70,10 @@ final class QuizCommand {
 			return;
 		}
 
-		$existing = $repository->count_for_user_in_quiz( $user->ID, (int) $quiz->ID );
+		// Not count_for_user_in_quiz(): that is a counting read which excludes
+		// pre-reset attempts, while the delete below removes every row — the
+		// count shown to the operator must match what will be deleted.
+		$existing = count( $repository->list_for_user_in_quiz( $user->ID, (int) $quiz->ID ) );
 		if ( 0 === $existing ) {
 			WP_CLI::success(
 				sprintf(

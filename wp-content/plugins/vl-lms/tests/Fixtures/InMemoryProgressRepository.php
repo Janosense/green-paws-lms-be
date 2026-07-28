@@ -150,6 +150,17 @@ final class InMemoryProgressRepository extends ProgressRepository {
 		return $deleted;
 	}
 
+	public function delete_for_user_in_course( int $user_id, int $course_id ): int {
+		$deleted = 0;
+		foreach ( $this->rows as $id => $row ) {
+			if ( (int) $row['user_id'] === $user_id && (int) $row['course_id'] === $course_id ) {
+				unset( $this->rows[ $id ] );
+				++$deleted;
+			}
+		}
+		return $deleted;
+	}
+
 	private function find_existing_id( int $user_id, EntityType $entity_type, int $entity_id ): ?int {
 		foreach ( $this->rows as $id => $row ) {
 			if (

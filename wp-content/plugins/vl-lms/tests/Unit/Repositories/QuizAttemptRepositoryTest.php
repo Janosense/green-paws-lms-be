@@ -354,6 +354,152 @@ final class QuizAttemptRepositoryTest extends TestCase {
 		self::assertSame( 0, $this->repo->delete_for_user_in_quiz( 42, 118 ) );
 	}
 
+	// ------------------------------------------------------------------
+	// Progress-reset epoch — counting reads join vl_enrollments and
+	// exclude attempts started before `progress_reset_at`. The predicate
+	// compares two columns (zero placeholders), so these tests substitute
+	// in source order to pin both the predicate text and the bind landing.
+	// ------------------------------------------------------------------
+
+	private const string EPOCH_PREDICATE = '( e.progress_reset_at IS NULL OR a.started_at >= e.progress_reset_at )';
+
+	private const string EPOCH_JOIN = 'LEFT JOIN wp_vl_enrollments e ON e.user_id = a.user_id AND e.course_id = a.course_id';
+
+	/**
+	 * Registers a `prepare` expectation that substitutes placeholders in
+	 * source order — the way the real `prepare` does — and exposes the
+	 * resulting SQL for assertions.
+	 */
+	private function expect_prepare_substituting( ?string &$prepared ): void {
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				static function ( string $sql, ...$args ) use ( &$prepared ): string {
+					$values   = is_array( $args[0] ?? null ) ? $args[0] : $args;
+					$prepared = preg_replace_callback(
+						'/%[ds]/',
+						static function () use ( &$values ): string {
+							$next = array_shift( $values );
+							return is_string( $next ) ? "'" . $next . "'" : (string) $next;
+						},
+						$sql
+					);
+					return (string) $prepared;
+				}
+			);
+	}
+
+	public function test_count_for_user_in_quiz_applies_epoch_join_and_predicate(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( '2' );
+
+		self::assertSame( 2, $this->repo->count_for_user_in_quiz( 5, 101 ) );
+		self::assertStringContainsString( self::EPOCH_JOIN, (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_PREDICATE, (string) $prepared );
+		self::assertStringContainsString( 'a.user_id = 5 AND a.quiz_id = 101', (string) $prepared );
+	}
+
+	public function test_count_submitted_for_user_applies_epoch_join_and_predicate(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( '1' );
+
+		self::assertSame( 1, $this->repo->count_submitted_for_user( 101, 5 ) );
+		self::assertStringContainsString( self::EPOCH_JOIN, (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_PREDICATE, (string) $prepared );
+		self::assertStringContainsString( "a.quiz_id = 101 AND a.user_id = 5 AND a.status != 'in_progress'", (string) $prepared );
+	}
+
+	public function test_best_score_for_user_applies_epoch_join_and_predicate(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'get_var' )->once()->andReturn( '85.00' );
+
+		self::assertSame( 85.0, $this->repo->best_score_for_user( 101, 5 ) );
+		self::assertStringContainsString( self::EPOCH_JOIN, (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_PREDICATE, (string) $prepared );
+		self::assertStringContainsString( "a.status = 'submitted' AND a.max_score > 0", (string) $prepared );
+	}
+
+	public function test_find_best_score_for_user_in_quiz_applies_epoch_join_and_selects_attempt_columns_only(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'get_row' )->once()->andReturn( self::row( 17, status: 'submitted' ) );
+
+		$result = $this->repo->find_best_score_for_user_in_quiz( 5, 101 );
+
+		self::assertInstanceOf( QuizAttempt::class, $result );
+		// `a.*` matters: `SELECT *` over the join would pull enrollment
+		// columns into hydration and clobber the attempt's `id`.
+		self::assertStringContainsString( 'SELECT a.* FROM', (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_JOIN, (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_PREDICATE, (string) $prepared );
+	}
+
+	/**
+	 * The GROUP BY map has three `%s` binds in the SELECT list ahead of the
+	 * two `%d`s in the WHERE — the same source-order trap as
+	 * `attempt_summary_for_users`, so pin the substituted SQL.
+	 */
+	public function test_status_map_for_user_in_course_applies_epoch_join_and_binds_in_source_order(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );
+
+		$this->repo->status_map_for_user_in_course( 5, 7 );
+
+		self::assertStringContainsString( "a.status = 'in_progress'", (string) $prepared );
+		self::assertStringContainsString( "a.status != 'in_progress'", (string) $prepared );
+		self::assertStringContainsString( "a.status = 'submitted'", (string) $prepared );
+		self::assertStringContainsString( 'a.user_id = 5 AND a.course_id = 7', (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_JOIN, (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_PREDICATE, (string) $prepared );
+		self::assertStringContainsString( 'GROUP BY a.quiz_id', (string) $prepared );
+	}
+
+	public function test_find_passed_final_exam_applies_epoch_join_and_predicate(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'get_row' )->once()->andReturn( null );
+
+		self::assertNull( $this->repo->find_passed_final_exam_for_user_in_course( 5, 7, 101 ) );
+		self::assertStringContainsString( 'SELECT a.* FROM', (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_JOIN, (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_PREDICATE, (string) $prepared );
+		self::assertStringContainsString( 'a.passed = 1', (string) $prepared );
+	}
+
+	public function test_list_for_user_in_quiz_stays_epoch_blind(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );
+
+		$this->repo->list_for_user_in_quiz( 5, 101 );
+
+		// The history read must keep pre-reset attempts visible.
+		self::assertStringNotContainsString( 'progress_reset_at', (string) $prepared );
+	}
+
+	public function test_abandon_in_progress_for_user_in_course_binds_placeholders_in_source_order(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'query' )->once()->andReturn( 2 );
+
+		$updated = $this->repo->abandon_in_progress_for_user_in_course( 42, 7 );
+
+		self::assertSame( 2, $updated );
+		self::assertStringContainsString( "SET status = 'abandoned', updated_at = '2026-04-28 10:00:00'", (string) $prepared );
+		self::assertStringContainsString( "user_id = 42 AND course_id = 7 AND status = 'in_progress'", (string) $prepared );
+	}
+
+	public function test_abandon_in_progress_returns_zero_when_wpdb_reports_failure(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'query' )->once()->andReturn( false );
+
+		self::assertSame( 0, $this->repo->abandon_in_progress_for_user_in_course( 42, 7 ) );
+	}
+
 	public function test_attempt_summary_for_users_omits_users_without_attempts(): void {
 		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
 		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );

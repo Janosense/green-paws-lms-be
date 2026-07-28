@@ -17,6 +17,7 @@ use VL\LMS\Domain\Enrollment\EnrollmentSource;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Services\Enrollment\EnrollmentService;
+use VL\LMS\Services\Progress\ProgressResetService;
 use WP_Error;
 use WP_Post;
 use WP_REST_Response;
@@ -33,6 +34,9 @@ final class EnrollmentsControllerTest extends TestCase {
 
 	/** @var Mockery\MockInterface&EnrollmentRecordTransformer */
 	private $transformer;
+
+	/** @var Mockery\MockInterface&ProgressResetService */
+	private $reset_service;
 
 	private EnrollmentService $service;
 
@@ -95,6 +99,7 @@ final class EnrollmentsControllerTest extends TestCase {
 		$this->authenticator = Mockery::mock( RestAuthenticator::class );
 		$this->repository    = Mockery::mock( EnrollmentRepository::class );
 		$this->transformer   = Mockery::mock( EnrollmentRecordTransformer::class );
+		$this->reset_service = Mockery::mock( ProgressResetService::class );
 
 		// EnrollmentService is final and cannot be mocked. Use the real
 		// implementation backed by the mocked repository — its outputs are
@@ -108,7 +113,8 @@ final class EnrollmentsControllerTest extends TestCase {
 			$this->authenticator,
 			$this->service,
 			$this->repository,
-			$this->transformer
+			$this->transformer,
+			$this->reset_service
 		);
 	}
 
@@ -127,7 +133,7 @@ final class EnrollmentsControllerTest extends TestCase {
 
 		$this->controller->register_routes();
 
-		self::assertCount( 3, $calls );
+		self::assertCount( 4, $calls );
 		self::assertSame( 'vl/v1', $calls[0]['namespace'] );
 		self::assertSame( '/enrollments', $calls[0]['route'] );
 		self::assertSame( 'POST', $calls[0]['args']['methods'] );
@@ -137,6 +143,10 @@ final class EnrollmentsControllerTest extends TestCase {
 		// Phase 8.3 — DELETE self-revoke endpoint.
 		self::assertSame( '/enrollments/me/(?P<course_slug>[a-z0-9][a-z0-9-]*)', $calls[2]['route'] );
 		self::assertSame( 'DELETE', $calls[2]['args']['methods'] );
+		// Phase 11 — DELETE progress-reset endpoint.
+		self::assertSame( '/enrollments/me/(?P<course_slug>[a-z0-9][a-z0-9-]*)/progress', $calls[3]['route'] );
+		self::assertSame( 'DELETE', $calls[3]['args']['methods'] );
+		self::assertTrue( $calls[3]['args']['args']['course_slug']['required'] );
 	}
 
 	// ---------------------------------------------------------------------
@@ -704,6 +714,153 @@ final class EnrollmentsControllerTest extends TestCase {
 
 		self::assertInstanceOf( WP_Error::class, $result );
 		self::assertSame( 'enrollment_not_found', $result->get_error_code() );
+	}
+
+	// ---------------------------------------------------------------------
+	// DELETE /enrollments/me/{course_slug}/progress — Phase 11 reset
+	// ---------------------------------------------------------------------
+
+	public function test_reset_progress_returns_401_when_not_authenticated(): void {
+		$this->stage_user( null );
+
+		$result = $this->controller->reset_progress( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'rest_not_logged_in', $result->get_error_code() );
+		self::assertSame( 401, $result->get_error_data()['status'] );
+	}
+
+	public function test_reset_progress_returns_404_when_course_not_found(): void {
+		$this->stage_user( $this->user( 5 ) );
+
+		$result = $this->controller->reset_progress( $this->request( [ 'course_slug' => 'no-such' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'course_not_found', $result->get_error_code() );
+	}
+
+	public function test_reset_progress_returns_404_when_no_enrollment(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$this->page_by_slug['free-course'] = $this->course_post( 10 );
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( null );
+
+		$result = $this->controller->reset_progress( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'enrollment_not_found', $result->get_error_code() );
+		self::assertSame( 404, $result->get_error_data()['status'] );
+	}
+
+	public function test_reset_progress_returns_404_for_revoked_enrollment(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$this->page_by_slug['free-course'] = $this->course_post( 10 );
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( $this->enrollment( 100, 5, 10, EnrollmentStatus::REVOKED ) );
+
+		$result = $this->controller->reset_progress( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'enrollment_not_found', $result->get_error_code() );
+	}
+
+	public function test_reset_progress_succeeds_for_purchase_source(): void {
+		// Unlike self_revoke there is no PURCHASE gate: a reset never touches
+		// access, so a paying learner may restart without a refund flow.
+		$this->stage_user( $this->user( 5 ) );
+		$this->page_by_slug['free-course'] = $this->course_post( 10 );
+
+		$purchased = new Enrollment(
+			id: 100,
+			user_id: 5,
+			course_id: 10,
+			status: EnrollmentStatus::COMPLETED,
+			source: EnrollmentSource::PURCHASE,
+			source_group_id: null,
+			source_order_id: 42,
+			enrolled_at: '2026-04-15 12:00:00',
+			started_at: null,
+			completed_at: '2026-05-01 09:00:00',
+			expires_at: null,
+			revoked_at: null,
+			revoked_by: null,
+			revoke_reason: null,
+			progress_pct: 100,
+			created_at: '2026-04-15 12:00:00',
+			updated_at: '2026-05-01 09:00:00'
+		);
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( $purchased );
+
+		$this->reset_service->shouldReceive( 'reset' )
+			->once()
+			->with( 5, 10 )
+			->andReturn( $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE ) );
+		$this->transformer->shouldReceive( 'transform' )->andReturn(
+			[
+				'id'     => 100,
+				'status' => 'active',
+			]
+		);
+
+		$response = $this->controller->reset_progress( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+	}
+
+	public function test_reset_progress_returns_transformed_refreshed_record(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$course                            = $this->course_post( 10 );
+		$this->page_by_slug['free-course'] = $course;
+
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE ) );
+
+		$refreshed = $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE );
+		$this->reset_service->shouldReceive( 'reset' )
+			->once()
+			->with( 5, 10 )
+			->andReturn( $refreshed );
+		$this->transformer->shouldReceive( 'transform' )
+			->once()
+			->with( $refreshed, $course )
+			->andReturn(
+				[
+					'id'           => 100,
+					'status'       => 'active',
+					'progress_pct' => 0,
+				]
+			);
+
+		$response = $this->controller->reset_progress( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
+		$data = $response->get_data();
+		self::assertTrue( $data['success'] );
+		self::assertSame( 0, $data['data']['progress_pct'] );
+	}
+
+	public function test_reset_progress_returns_500_when_service_declines(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$this->page_by_slug['free-course'] = $this->course_post( 10 );
+
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE ) );
+		$this->reset_service->shouldReceive( 'reset' )
+			->once()
+			->with( 5, 10 )
+			->andReturn( null );
+
+		$result = $this->controller->reset_progress( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'progress_reset_failed', $result->get_error_code() );
+		self::assertSame( 500, $result->get_error_data()['status'] );
 	}
 
 	// ---------------------------------------------------------------------

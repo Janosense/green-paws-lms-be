@@ -22,7 +22,7 @@ namespace VL\LMS\Database;
 final class SchemaManager {
 
 	public const string DB_VERSION_OPTION  = 'vl_lms_db_version';
-	public const string CURRENT_DB_VERSION = '9';
+	public const string CURRENT_DB_VERSION = '10';
 
 	/**
 	 * Returns the full prefixed table name for a base suffix.
@@ -194,6 +194,11 @@ final class SchemaManager {
 	 * two spaces between column name and type, uppercase keywords, `PRIMARY
 	 * KEY` / `UNIQUE KEY` / `KEY` each on their own line. `dbDelta` is
 	 * sensitive to whitespace — reformatting this SQL will break upgrades.
+	 *
+	 * `progress_reset_at` (v10) marks the learner's most recent self-service
+	 * progress reset. Gate-feeding reads in `QuizAttemptRepository` join on
+	 * `uk_user_course` and exclude attempts started before it; no dedicated
+	 * index is needed.
 	 */
 	private static function create_enrollments_table(): void {
 		global $wpdb;
@@ -219,6 +224,7 @@ final class SchemaManager {
 			revoked_by BIGINT UNSIGNED NULL DEFAULT NULL,
 			revoke_reason VARCHAR(255) NULL DEFAULT NULL,
 			progress_pct TINYINT UNSIGNED NOT NULL DEFAULT 0,
+			progress_reset_at DATETIME NULL DEFAULT NULL,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
 			PRIMARY KEY  (id),

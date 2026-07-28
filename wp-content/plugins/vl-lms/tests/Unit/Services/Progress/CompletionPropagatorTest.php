@@ -418,6 +418,50 @@ final class CompletionPropagatorTest extends TestCase {
 		self::assertFalse( $flipped );
 	}
 
+	public function test_reevaluate_ignores_final_exam_pass_from_before_progress_reset(): void {
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [ 999 ];
+
+		// The learner passed the exam, then reset progress: the pass
+		// pre-dates the epoch, so the final-exam arm must re-arm and the
+		// course must not re-complete on lesson progress alone.
+		$this->seed_passed_attempt( 1, 100, 999 );
+		$this->quiz_attempts->set_progress_reset_at( 1, 100, $this->now->modify( '+1 day' ) );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		$flipped = $this->propagator()->reevaluate_course_completion( 1, 100 );
+
+		self::assertFalse( $flipped );
+		$row = $this->enrollments->find_for_user_and_course( 1, 100 );
+		self::assertNotNull( $row );
+		self::assertSame( EnrollmentStatus::ACTIVE, $row->status );
+	}
+
+	public function test_reevaluate_flips_on_final_exam_pass_after_progress_reset(): void {
+		$this->recompute_pct       = 100;
+		$this->final_exam_quiz_ids = [ 999 ];
+
+		$this->seed_passed_attempt( 1, 100, 999 );
+		$this->quiz_attempts->set_progress_reset_at( 1, 100, $this->now->modify( '-1 hour' ) );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		$flipped = $this->propagator()->reevaluate_course_completion( 1, 100 );
+
+		self::assertTrue( $flipped );
+	}
+
 	public function test_propagate_at_100_pct_with_final_exam_does_not_flip(): void {
 		$lesson = $this->post( 200, 'vl_lesson' );
 		$this->hierarchy->shouldReceive( 'resolveModule' )->with( $lesson )->andReturn( null );

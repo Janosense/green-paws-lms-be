@@ -323,4 +323,25 @@ final class ProgressRepositoryTest extends TestCase {
 
 		self::assertSame( 0, $this->repo->delete_for_user( 5 ) );
 	}
+
+	public function test_delete_for_user_in_course_scopes_delete_to_both_columns(): void {
+		$this->wpdb->shouldReceive( 'delete' )
+			->once()
+			->with(
+				Mockery::any(),
+				[
+					'user_id'   => 5,
+					'course_id' => 7,
+				]
+			)
+			->andReturn( 4 );
+
+		self::assertSame( 4, $this->repo->delete_for_user_in_course( 5, 7 ) );
+	}
+
+	public function test_delete_for_user_in_course_returns_zero_on_wpdb_failure(): void {
+		$this->wpdb->shouldReceive( 'delete' )->once()->andReturn( false );
+
+		self::assertSame( 0, $this->repo->delete_for_user_in_course( 5, 7 ) );
+	}
 }

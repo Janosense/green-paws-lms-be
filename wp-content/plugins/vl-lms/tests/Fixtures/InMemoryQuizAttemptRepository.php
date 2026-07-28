@@ -28,6 +28,14 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 	private $clock_fn;
 
 	/**
+	 * Progress-reset epochs keyed `"{user_id}:{course_id}"`, mirroring the
+	 * real repository's LEFT JOIN on `vl_enrollments.progress_reset_at`.
+	 *
+	 * @var array<string, \DateTimeImmutable>
+	 */
+	private array $progress_reset_at = [];
+
+	/**
 	 * @param (callable():\DateTimeImmutable)|null $clock UTC clock; defaults to wall-clock UTC.
 	 */
 	public function __construct( ?callable $clock = null ) {
@@ -63,7 +71,7 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 	public function count_for_user_in_quiz( int $user_id, int $quiz_id ): int {
 		$count = 0;
 		foreach ( $this->rows as $row ) {
-			if ( $row->user_id === $user_id && $row->quiz_id === $quiz_id ) {
+			if ( $row->user_id === $user_id && $row->quiz_id === $quiz_id && $this->counts( $row ) ) {
 				++$count;
 			}
 		}
@@ -76,6 +84,7 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 			if ( $row->quiz_id === $quiz_id
 				&& $row->user_id === $user_id
 				&& QuizAttemptStatus::IN_PROGRESS !== $row->status
+				&& $this->counts( $row )
 			) {
 				++$count;
 			}
@@ -91,6 +100,7 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 				|| QuizAttemptStatus::SUBMITTED !== $row->status
 				|| null === $row->score
 				|| $row->max_score <= 0
+				|| ! $this->counts( $row )
 			) {
 				continue;
 			}
@@ -172,6 +182,7 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 			if ( $row->user_id === $user_id
 				&& $row->quiz_id === $quiz_id
 				&& QuizAttemptStatus::SUBMITTED === $row->status
+				&& $this->counts( $row )
 			) {
 				$candidates[] = $row;
 			}
@@ -223,6 +234,7 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 				&& $row->quiz_id === $final_exam_quiz_id
 				&& QuizAttemptStatus::SUBMITTED === $row->status
 				&& true === $row->passed
+				&& $this->counts( $row )
 			) {
 				$candidates[] = $row;
 			}
@@ -232,6 +244,47 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 		}
 		usort( $candidates, static fn ( QuizAttempt $a, QuizAttempt $b ): int => $b->submitted_at <=> $a->submitted_at );
 		return $candidates[0];
+	}
+
+	public function abandon_in_progress_for_user_in_course( int $user_id, int $course_id ): int {
+		$updated = 0;
+		foreach ( $this->rows as $id => $row ) {
+			if ( $row->user_id !== $user_id
+				|| $row->course_id !== $course_id
+				|| QuizAttemptStatus::IN_PROGRESS !== $row->status
+			) {
+				continue;
+			}
+			$this->update_status( $id, QuizAttemptStatus::ABANDONED );
+			++$updated;
+		}
+		return $updated;
+	}
+
+	/**
+	 * Test seam mirroring `vl_enrollments.progress_reset_at` for the
+	 * counting reads. Pass `null` to clear a previously-set epoch.
+	 */
+	public function set_progress_reset_at( int $user_id, int $course_id, ?\DateTimeImmutable $at ): void {
+		$key = $user_id . ':' . $course_id;
+		if ( null === $at ) {
+			unset( $this->progress_reset_at[ $key ] );
+			return;
+		}
+		$this->progress_reset_at[ $key ] = $at;
+	}
+
+	/**
+	 * In-memory twin of the real repository's COUNTING_PREDICATE: a row
+	 * counts unless its (user, course) pair has an epoch newer than the
+	 * row's `started_at` (`>=` keeps a same-second attempt counting).
+	 */
+	private function counts( QuizAttempt $row ): bool {
+		$epoch = $this->progress_reset_at[ $row->user_id . ':' . $row->course_id ] ?? null;
+		if ( null === $epoch ) {
+			return true;
+		}
+		return $row->started_at >= $epoch;
 	}
 
 	public function insert( QuizAttempt $attempt ): int {

@@ -12,8 +12,10 @@ namespace VL\LMS\Domain\Quiz;
  * learner submits; `EXPIRED` is the server-detected time-limit overrun
  * variant — the same scoring write happens, only the final-status column
  * differs so analytics and the resume-attempt path can distinguish the two.
- * `ABANDONED` is reserved for a future cleanup sweeper that closes out
- * stale `IN_PROGRESS` rows; it is not produced by any code path in 6.0/6.1.
+ * `ABANDONED` closes out `IN_PROGRESS` rows without scoring them. Its one
+ * producer is the self-service progress reset
+ * ({@see \VL\LMS\Repositories\QuizAttemptRepository::abandon_in_progress_for_user_in_course()});
+ * a future cleanup sweeper for stale rows would reuse it.
  *
  * @author Tymofii Synianskyi
  */

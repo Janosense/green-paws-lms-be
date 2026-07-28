@@ -10,6 +10,7 @@ use VL\LMS\Domain\Enrollment\EnrollmentSource;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Services\Enrollment\EnrollmentService;
+use VL\LMS\Services\Progress\ProgressResetService;
 use WP_Error;
 use WP_Post;
 use WP_REST_Request;
@@ -19,11 +20,14 @@ use WP_User;
 /**
  * REST controller for `/vl/v1/enrollments` and `/vl/v1/enrollments/me`.
  *
- * Two endpoints in Phase 4.1:
- *
- * - `POST /vl/v1/enrollments`   — enroll the authed caller into a free course.
- * - `GET  /vl/v1/enrollments/me` — list the authed caller's enrollments
- *                                  (active + completed only).
+ * - `POST   /vl/v1/enrollments`    — enroll the authed caller into a free
+ *                                    course (Phase 4.1).
+ * - `GET    /vl/v1/enrollments/me` — list the authed caller's enrollments,
+ *                                    active + completed only (Phase 4.1).
+ * - `DELETE /vl/v1/enrollments/me/{course_slug}` — self-revoke a free-tier
+ *                                    enrollment (Phase 8.3).
+ * - `DELETE /vl/v1/enrollments/me/{course_slug}/progress` — self-service
+ *                                    progress reset (Phase 11).
  *
  * Authentication is delegated to {@see RestAuthenticator} (production wires
  * to `\VLJwtAuth\Auth::user_from_request()`) so the JWT contract stays in
@@ -38,9 +42,10 @@ use WP_User;
  */
 final class EnrollmentsController {
 
-	public const string ENROLLMENTS_ROUTE         = '/enrollments';
-	public const string ENROLLMENTS_ME_ROUTE      = '/enrollments/me';
-	public const string ENROLLMENTS_ME_ITEM_ROUTE = '/enrollments/me/(?P<course_slug>[a-z0-9][a-z0-9-]*)';
+	public const string ENROLLMENTS_ROUTE                  = '/enrollments';
+	public const string ENROLLMENTS_ME_ROUTE               = '/enrollments/me';
+	public const string ENROLLMENTS_ME_ITEM_ROUTE          = '/enrollments/me/(?P<course_slug>[a-z0-9][a-z0-9-]*)';
+	public const string ENROLLMENTS_ME_ITEM_PROGRESS_ROUTE = '/enrollments/me/(?P<course_slug>[a-z0-9][a-z0-9-]*)/progress';
 
 	public const string ENROLL_CAPABILITY  = 'vl_enroll_in_course';
 	public const string SELF_REVOKE_REASON = 'user_self_revoke';
@@ -51,6 +56,7 @@ final class EnrollmentsController {
 		private readonly EnrollmentService $service,
 		private readonly EnrollmentRepository $repository,
 		private readonly EnrollmentRecordTransformer $transformer,
+		private readonly ProgressResetService $reset_service,
 	) {
 	}
 
@@ -87,6 +93,23 @@ final class EnrollmentsController {
 			[
 				'methods'             => 'DELETE',
 				'callback'            => [ $this, 'self_revoke' ],
+				'permission_callback' => [ $this, 'permission_list_mine' ],
+				'args'                => [
+					'course_slug' => [
+						'type'              => 'string',
+						'required'          => true,
+						'sanitize_callback' => 'sanitize_title',
+					],
+				],
+			]
+		);
+
+		register_rest_route(
+			$this->rest_namespace,
+			self::ENROLLMENTS_ME_ITEM_PROGRESS_ROUTE,
+			[
+				'methods'             => 'DELETE',
+				'callback'            => [ $this, 'reset_progress' ],
 				'permission_callback' => [ $this, 'permission_list_mine' ],
 				'args'                => [
 					'course_slug' => [
@@ -288,6 +311,62 @@ final class EnrollmentsController {
 			[
 				'success' => true,
 				'data'    => $this->transformer->transform( $revoked, $course ),
+			]
+		);
+	}
+
+	/**
+	 * `DELETE /vl/v1/enrollments/me/{course_slug}/progress` — self-service
+	 * progress reset ("fresh start with preserved history"; see
+	 * {@see ProgressResetService} for what is wiped vs kept).
+	 *
+	 * Unlike {@see self::self_revoke()}, there is deliberately no
+	 * PURCHASE-source gate: a reset never touches access, so a paying
+	 * learner may restart their course without a refund flow.
+	 *
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function reset_progress( WP_REST_Request $request ) {
+		$user = $this->authenticator->user_from_request( $request );
+		if ( ! $user instanceof WP_User ) {
+			return $this->not_logged_in();
+		}
+		$user_id = (int) $user->ID;
+
+		$slug = (string) $request->get_param( 'course_slug' );
+		if ( '' === $slug ) {
+			return $this->course_not_found();
+		}
+
+		$course = get_page_by_path( $slug, OBJECT, 'vl_course' );
+		if ( ! $course instanceof WP_Post ) {
+			return $this->course_not_found();
+		}
+
+		$enrollment = $this->service->find_for_user_and_course( $user_id, (int) $course->ID );
+		if ( ! $enrollment instanceof Enrollment ) {
+			return $this->enrollment_not_found();
+		}
+		if ( EnrollmentStatus::ACTIVE !== $enrollment->status && EnrollmentStatus::COMPLETED !== $enrollment->status ) {
+			// Same masking as self_revoke: a revoked / refunded / expired
+			// enrollment has nothing the learner may reset, and the row's
+			// existence is not theirs to probe.
+			return $this->enrollment_not_found();
+		}
+
+		$reset = $this->reset_service->reset( $user_id, (int) $course->ID );
+		if ( ! $reset instanceof Enrollment ) {
+			return new WP_Error(
+				'progress_reset_failed',
+				__( 'Не вдалося скинути прогрес.', 'vl-lms' ),
+				[ 'status' => 500 ]
+			);
+		}
+
+		return rest_ensure_response(
+			[
+				'success' => true,
+				'data'    => $this->transformer->transform( $reset, $course ),
 			]
 		);
 	}

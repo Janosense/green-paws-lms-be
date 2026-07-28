@@ -434,6 +434,60 @@ final class EnrollmentRepositoryTest extends TestCase {
 		);
 	}
 
+	public function test_mark_progress_reset_writes_reset_state_to_user_course_row(): void {
+		$captured_data  = null;
+		$captured_where = null;
+
+		$this->wpdb->shouldReceive( 'update' )
+			->once()
+			->andReturnUsing(
+				function ( string $table, array $data, array $where ) use ( &$captured_data, &$captured_where ): int {
+					$captured_data  = $data;
+					$captured_where = $where;
+					return 1;
+				}
+			);
+
+		$now = new \DateTimeImmutable( '2026-04-28 12:34:56', new \DateTimeZone( 'UTC' ) );
+
+		$ok = $this->repo->mark_progress_reset( 7, 100, $now );
+
+		self::assertTrue( $ok );
+		self::assertSame(
+			[
+				'user_id'   => 7,
+				'course_id' => 100,
+			],
+			$captured_where
+		);
+		self::assertSame(
+			[
+				'progress_pct'      => 0,
+				'status'            => 'active',
+				'completed_at'      => null,
+				'progress_reset_at' => '2026-04-28 12:34:56',
+				'updated_at'        => '2026-04-28 12:34:56',
+			],
+			$captured_data
+		);
+	}
+
+	public function test_mark_progress_reset_returns_false_on_miss(): void {
+		$this->wpdb->shouldReceive( 'update' )->once()->andReturn( 0 );
+
+		$now = new \DateTimeImmutable( '2026-04-28 12:34:56', new \DateTimeZone( 'UTC' ) );
+
+		self::assertFalse( $this->repo->mark_progress_reset( 999, 999, $now ) );
+	}
+
+	public function test_mark_progress_reset_returns_false_on_wpdb_failure(): void {
+		$this->wpdb->shouldReceive( 'update' )->once()->andReturn( false );
+
+		$now = new \DateTimeImmutable( '2026-04-28 12:34:56', new \DateTimeZone( 'UTC' ) );
+
+		self::assertFalse( $this->repo->mark_progress_reset( 7, 100, $now ) );
+	}
+
 	public function test_find_by_id_hydrates_non_null_source_order_id(): void {
 		$row                    = self::row();
 		$row['source_order_id'] = '99';

@@ -342,6 +342,46 @@ class EnrollmentRepository {
 	}
 
 	/**
+	 * Self-service progress reset, keyed on `(user_id, course_id)`: one
+	 * atomic UPDATE that reactivates the enrollment, zeroes `progress_pct`,
+	 * clears `completed_at`, and stamps `progress_reset_at` — the epoch the
+	 * counting reads in {@see QuizAttemptRepository} filter against.
+	 *
+	 * The `now` instant is injected so the calling service reuses one
+	 * timestamp across the abandon + stamp + wipe sequence. Returns `true`
+	 * only when a row matched and changed; the caller pre-guards status, so
+	 * the no-op ambiguity `update_progress_state()` documents does not
+	 * arise here (a reset always moves `progress_reset_at`).
+	 */
+	public function mark_progress_reset( int $user_id, int $course_id, \DateTimeImmutable $now ): bool {
+		$wpdb = $this->wpdb();
+
+		$data = [
+			'progress_pct'      => 0,
+			'status'            => EnrollmentStatus::ACTIVE->value,
+			'completed_at'      => null,
+			'progress_reset_at' => $now->format( 'Y-m-d H:i:s' ),
+			'updated_at'        => $now->format( 'Y-m-d H:i:s' ),
+		];
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$result = $wpdb->update(
+			$this->table(),
+			$data,
+			[
+				'user_id'   => $user_id,
+				'course_id' => $course_id,
+			]
+		);
+
+		if ( false === $result ) {
+			return false;
+		}
+
+		return (int) $result > 0;
+	}
+
+	/**
 	 * @return list<Enrollment>
 	 */
 	private function hydrate_list( string $sql ): array {

@@ -263,4 +263,80 @@ final class QuizAttemptHistoryTransformerTest extends TestCase {
 		self::assertArrayNotHasKey( 'question_order', $out['attempts'][0] );
 		self::assertArrayNotHasKey( 'time_remaining_seconds', $out['attempts'][0] );
 	}
+
+	// ------------------------------------------------------------------
+	// Progress-reset epoch — rows stay all-time, the summary counts
+	// post-reset sittings only, matching the repository's counting reads.
+	// ------------------------------------------------------------------
+
+	private static function epoch( string $value ): \DateTimeImmutable {
+		return new \DateTimeImmutable( $value, new \DateTimeZone( 'UTC' ) );
+	}
+
+	public function test_epoch_keeps_rows_but_recounts_the_summary(): void {
+		$this->transformer->max_attempts_meta[101] = 3;
+
+		$out = $this->transformer->transform(
+			101,
+			[
+				$this->attempt( 1, QuizAttemptStatus::SUBMITTED, 90, true, '2026-05-01 10:00:00', '2026-05-01 10:04:00' ),
+				$this->attempt( 2, QuizAttemptStatus::SUBMITTED, 40, false, '2026-05-03 10:00:00', '2026-05-03 10:04:00' ),
+			],
+			self::epoch( '2026-05-02 00:00:00' )
+		);
+
+		// Rows stay all-time with all-time numbering.
+		self::assertSame( [ 1, 2 ], array_column( $out['attempts'], 'id' ) );
+		self::assertSame( [ 1, 2 ], array_column( $out['attempts'], 'attempt_number' ) );
+		self::assertSame( 2, $out['total_attempts'] );
+		// The pre-reset pass no longer counts: fresh allowance, no pass,
+		// best_score from the post-reset sitting only.
+		self::assertSame( 1, $out['graded_attempts'] );
+		self::assertSame( 2, $out['attempts_remaining'] );
+		self::assertFalse( $out['passed'] );
+		self::assertNull( $out['passed_on_attempt'] );
+		self::assertSame( 40.0, $out['best_score'] );
+	}
+
+	public function test_epoch_passed_on_attempt_keeps_all_time_numbering_for_a_counting_pass(): void {
+		$out = $this->transformer->transform(
+			101,
+			[
+				$this->attempt( 1, QuizAttemptStatus::SUBMITTED, 40, false, '2026-05-01 10:00:00', '2026-05-01 10:04:00' ),
+				$this->attempt( 2, QuizAttemptStatus::SUBMITTED, 80, true, '2026-05-03 10:00:00', '2026-05-03 10:04:00' ),
+			],
+			self::epoch( '2026-05-02 00:00:00' )
+		);
+
+		self::assertTrue( $out['passed'] );
+		// The counting pass is the second all-time sitting.
+		self::assertSame( 2, $out['passed_on_attempt'] );
+	}
+
+	public function test_epoch_boundary_attempt_still_counts(): void {
+		$out = $this->transformer->transform(
+			101,
+			[ $this->attempt( 1, QuizAttemptStatus::SUBMITTED, 80, true, '2026-05-02 00:00:00', '2026-05-02 00:04:00' ) ],
+			self::epoch( '2026-05-02 00:00:00' )
+		);
+
+		// `>=`: a sitting started in the reset instant counts, mirroring
+		// the SQL predicate.
+		self::assertTrue( $out['passed'] );
+		self::assertSame( 80.0, $out['best_score'] );
+	}
+
+	public function test_null_epoch_preserves_all_time_summary(): void {
+		$out = $this->transformer->transform(
+			101,
+			[
+				$this->attempt( 1, QuizAttemptStatus::SUBMITTED, 90, true, '2026-05-01 10:00:00', '2026-05-01 10:04:00' ),
+			],
+			null
+		);
+
+		self::assertTrue( $out['passed'] );
+		self::assertSame( 1, $out['graded_attempts'] );
+		self::assertSame( 90.0, $out['best_score'] );
+	}
 }

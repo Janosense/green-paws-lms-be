@@ -235,6 +235,7 @@ use VL\LMS\Services\Zoom\ZoomApiHttpClient;
 use VL\LMS\Services\Zoom\ZoomClient;
 use VL\LMS\Services\Progress\CourseProgressCalculator;
 use VL\LMS\Services\Progress\PositionWriteRule;
+use VL\LMS\Services\Progress\ProgressResetService;
 use VL\LMS\Services\Progress\ProgressService;
 use VL\LMS\Services\Progress\SessionAttendanceProgressListener;
 use VL\LMS\Mail\CertificateIssuedMailer;
@@ -1165,12 +1166,15 @@ final class Plugin {
 				assert( $repository instanceof EnrollmentRepository );
 				$transformer = $c->get( EnrollmentRecordTransformer::class );
 				assert( $transformer instanceof EnrollmentRecordTransformer );
+				$reset_service = $c->get( ProgressResetService::class );
+				assert( $reset_service instanceof ProgressResetService );
 				return new EnrollmentsController(
 					VL_LMS_API_NAMESPACE,
 					$authenticator,
 					$service,
 					$repository,
-					$transformer
+					$transformer,
+					$reset_service
 				);
 			}
 		);
@@ -1570,6 +1574,19 @@ final class Plugin {
 		);
 
 		$container->set(
+			ProgressResetService::class,
+			static function ( Container $c ): ProgressResetService {
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				$quiz_attempts = $c->get( QuizAttemptRepository::class );
+				assert( $quiz_attempts instanceof QuizAttemptRepository );
+				return new ProgressResetService( $enrollments, $progress, $quiz_attempts );
+			}
+		);
+
+		$container->set(
 			SessionAttendanceProgressListener::class,
 			static function ( Container $c ): SessionAttendanceProgressListener {
 				$calculator = $c->get( CourseProgressCalculator::class );
@@ -1757,13 +1774,16 @@ final class Plugin {
 				assert( $transformer instanceof QuizAttemptStateTransformer );
 				$history = $c->get( QuizAttemptHistoryTransformer::class );
 				assert( $history instanceof QuizAttemptHistoryTransformer );
+				$enrollments = $c->get( EnrollmentRepository::class );
+				assert( $enrollments instanceof EnrollmentRepository );
 				return new QuizAttemptsController(
 					VL_LMS_API_NAMESPACE,
 					$service,
 					$authenticator,
 					$logger,
 					$transformer,
-					$history
+					$history,
+					$enrollments
 				);
 			}
 		);

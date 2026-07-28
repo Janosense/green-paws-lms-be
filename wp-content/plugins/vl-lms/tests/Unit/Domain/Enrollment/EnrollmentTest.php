@@ -98,6 +98,23 @@ final class EnrollmentTest extends TestCase {
 		self::assertNull( $enrollment->revoked_at );
 		self::assertNull( $enrollment->revoked_by );
 		self::assertNull( $enrollment->revoke_reason );
+		self::assertNull( $enrollment->progress_reset_at );
+	}
+
+	public function test_from_row_hydrates_progress_reset_at(): void {
+		$row                      = self::sample_row();
+		$row['progress_reset_at'] = '2026-05-10 08:00:00';
+
+		$enrollment = Enrollment::from_row( $row );
+
+		self::assertSame( '2026-05-10 08:00:00', $enrollment->progress_reset_at );
+	}
+
+	public function test_from_row_defaults_progress_reset_at_when_column_absent(): void {
+		// A row read before the v10 migration ran carries no such key.
+		$enrollment = Enrollment::from_row( self::sample_row() );
+
+		self::assertNull( $enrollment->progress_reset_at );
 	}
 
 	public function test_from_row_clamps_progress_pct_high(): void {

@@ -14,6 +14,7 @@ use VL\LMS\Quiz\AttemptStateResult;
 use VL\LMS\Quiz\QuizAttemptException;
 use VL\LMS\Quiz\QuizAttemptService;
 use VL\LMS\Quiz\SaveAnswerResult;
+use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Support\Logger;
 use WP_Error;
 use WP_Post;
@@ -58,7 +59,8 @@ final class QuizAttemptsController {
 		private readonly RestAuthenticator $authenticator,
 		private readonly Logger $logger,
 		private readonly QuizAttemptStateTransformer $attempt_transformer,
-		private readonly QuizAttemptHistoryTransformer $history_transformer
+		private readonly QuizAttemptHistoryTransformer $history_transformer,
+		private readonly EnrollmentRepository $enrollments
 	) {
 	}
 
@@ -234,9 +236,35 @@ final class QuizAttemptsController {
 		}
 
 		return $this->success(
-			$this->history_transformer->transform( (int) $quiz->ID, $attempts ),
+			$this->history_transformer->transform(
+				(int) $quiz->ID,
+				$attempts,
+				$this->progress_reset_epoch( (int) $user->ID, $attempts )
+			),
 			200
 		);
+	}
+
+	/**
+	 * The enrollment's progress-reset epoch for the course the attempts
+	 * belong to, or `null` when there is none. Resolved here — not in the
+	 * transformer, which stays query-free — from the snapshotted
+	 * `course_id` on the first row; with zero attempts there is nothing
+	 * the epoch could exclude, so the lookup is skipped.
+	 *
+	 * @param list<QuizAttempt> $attempts
+	 */
+	private function progress_reset_epoch( int $user_id, array $attempts ): ?\DateTimeImmutable {
+		if ( ! isset( $attempts[0] ) ) {
+			return null;
+		}
+
+		$enrollment = $this->enrollments->find_for_user_and_course( $user_id, $attempts[0]->course_id );
+		if ( null === $enrollment || null === $enrollment->progress_reset_at ) {
+			return null;
+		}
+
+		return new \DateTimeImmutable( $enrollment->progress_reset_at, new \DateTimeZone( 'UTC' ) );
 	}
 
 	/**
