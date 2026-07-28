@@ -10,6 +10,7 @@ use Brain\Monkey\Functions;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use VL\LMS\Database\SchemaManager;
 use VL\LMS\Plugin;
 
 final class PluginTest extends TestCase {
@@ -51,10 +52,11 @@ final class PluginTest extends TestCase {
 	public function test_boot_registers_hooks_and_fires_action_when_dependencies_present(): void {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 
-		// Five hooks fire on `init`: textdomain loading, CPT registration,
-		// taxonomy registration, instructor profile user-meta registration,
-		// and the Phase 9.0 admin meta-box provider boot.
-		Actions\expectAdded( 'init' )->times( 5 );
+		// Six hooks fire on `init`: schema self-migration, textdomain
+		// loading, CPT registration, taxonomy registration, instructor
+		// profile user-meta registration, and the Phase 9.0 admin meta-box
+		// provider boot.
+		Actions\expectAdded( 'init' )->times( 6 );
 		Actions\expectAdded( 'rest_api_init' )->once();
 		Actions\expectAdded( 'after_setup_theme' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
@@ -65,10 +67,11 @@ final class PluginTest extends TestCase {
 	public function test_boot_is_idempotent(): void {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 
-		// Five hooks fire on `init`: textdomain loading, CPT registration,
-		// taxonomy registration, instructor profile user-meta registration,
-		// and the Phase 9.0 admin meta-box provider boot.
-		Actions\expectAdded( 'init' )->times( 5 );
+		// Six hooks fire on `init`: schema self-migration, textdomain
+		// loading, CPT registration, taxonomy registration, instructor
+		// profile user-meta registration, and the Phase 9.0 admin meta-box
+		// provider boot.
+		Actions\expectAdded( 'init' )->times( 6 );
 		Actions\expectAdded( 'rest_api_init' )->once();
 		Actions\expectAdded( 'after_setup_theme' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
@@ -79,13 +82,28 @@ final class PluginTest extends TestCase {
 		$plugin->boot();
 	}
 
+	public function test_boot_registers_schema_self_migration_on_init(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		// A file-level deploy never fires the activation hook, so boot must
+		// queue SchemaManager::install() itself or a schema bump ships code
+		// that queries columns the live DB doesn't have yet.
+		Actions\expectAdded( 'init' )
+			->once()
+			->with( [ SchemaManager::class, 'install' ] );
+		Actions\expectAdded( 'init' )->zeroOrMoreTimes();
+
+		Plugin::instance()->boot();
+	}
+
 	public function test_boot_registers_first_run_listener_when_pending_flag_is_set(): void {
 		Plugin::set_dependency_checker( static fn (): bool => true );
 		Functions\when( 'get_option' )->justReturn( '1' );
 
-		// Six init listeners now: textdomain, CPTs, taxonomies, instructor
-		// profile meta, first-run tasks, and the Phase 9.0 admin provider.
-		Actions\expectAdded( 'init' )->times( 6 );
+		// Seven init listeners now: schema self-migration, textdomain, CPTs,
+		// taxonomies, instructor profile meta, first-run tasks, and the
+		// Phase 9.0 admin provider.
+		Actions\expectAdded( 'init' )->times( 7 );
 
 		Plugin::instance()->boot();
 	}

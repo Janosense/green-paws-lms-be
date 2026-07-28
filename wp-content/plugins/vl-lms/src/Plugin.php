@@ -141,6 +141,7 @@ use VL\LMS\Catalog\Transformers\CoverImageTransformer;
 use VL\LMS\Catalog\Transformers\LeadInstructorTransformer;
 use VL\LMS\Catalog\Transformers\WebinarCardTransformer;
 use VL\LMS\CPT\CptRegistrar;
+use VL\LMS\Database\SchemaManager;
 use VL\LMS\Learn\Access\LessonAccessGate;
 use VL\LMS\Learn\Content\BlockParser;
 use VL\LMS\Learn\Content\BlockTransformerRegistry;
@@ -318,6 +319,16 @@ final class Plugin {
 
 		$this->booted    = true;
 		$this->container = $this->build_container();
+
+		// Self-heal pending schema migrations. The activation hook only fires
+		// on manual (de)activation, so a file-level deploy that bumps
+		// CURRENT_DB_VERSION would otherwise keep serving new code against
+		// the old schema until someone reactivates the plugin — with queries
+		// referencing columns that don't exist yet. `init` fires on web,
+		// REST, and cron requests alike, and install() short-circuits on a
+		// version match against an autoloaded option, so the steady-state
+		// cost is one string compare per request.
+		add_action( 'init', [ SchemaManager::class, 'install' ] );
 
 		add_action( 'init', [ $this, 'load_textdomain' ] );
 		add_action( 'rest_api_init', [ $this, 'register_rest_routes' ] );
