@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VL\LMS\Database;
 
+use VL\LMS\Support\Logger;
+
 /**
  * Owns every custom DB table the plugin ships and the version option that
  * gates schema migrations.
@@ -108,10 +110,19 @@ final class SchemaManager {
 	/**
 	 * Installs (or migrates) the schema when the stored DB version is
 	 * behind {@see self::CURRENT_DB_VERSION}. Safe to call on every
-	 * activation — it is a no-op after the first successful run.
+	 * activation and on every `init` (registered in `Plugin::boot()`) —
+	 * it is a no-op after the first successful run.
 	 *
 	 * `dbDelta` is idempotent on individual `CREATE TABLE` statements, so
 	 * re-running the enrollments create on a v1→v2 upgrade is harmless.
+	 *
+	 * The version is stamped only after {@see self::schema_landed()}
+	 * confirms the migration actually reached the database. `dbDelta`
+	 * swallows failed ALTERs (missing privileges, locks) silently;
+	 * stamping over a failed migration would short-circuit every later
+	 * `install()` while the shipped code queries columns that don't
+	 * exist. Leaving the version stale instead makes the next request
+	 * retry, and the log names the failure.
 	 */
 	public static function install(): void {
 		$current = get_option( self::DB_VERSION_OPTION );
@@ -137,7 +148,45 @@ final class SchemaManager {
 		self::create_user_activity_daily_table();
 		self::create_assignment_submissions_table();
 
+		if ( ! self::schema_landed() ) {
+			return;
+		}
+
 		update_option( self::DB_VERSION_OPTION, self::CURRENT_DB_VERSION );
+	}
+
+	/**
+	 * Post-`dbDelta` verification that the current migration reached the
+	 * database, checked via a sentinel added by the most recent schema
+	 * bump. **Update the sentinel when bumping
+	 * {@see self::CURRENT_DB_VERSION}** to something that version adds.
+	 *
+	 * v10 sentinel: `progress_reset_at` on `vl_enrollments`.
+	 */
+	private static function schema_landed(): bool {
+		global $wpdb;
+
+		$table = self::enrollments_table();
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table resolves to a SchemaManager accessor; the sentinel name binds through %s.
+		$sql = $wpdb->prepare( "SHOW COLUMNS FROM {$table} LIKE %s", 'progress_reset_at' );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$column = $wpdb->get_var( $sql );
+
+		if ( 'progress_reset_at' === $column ) {
+			return true;
+		}
+
+		( new Logger() )->error(
+			'Schema migration did not land; version not stamped, will retry next request.',
+			[
+				'expected_version' => self::CURRENT_DB_VERSION,
+				'missing_sentinel' => $table . '.progress_reset_at',
+				'hint'             => 'Check the DB user\'s ALTER privilege and the MySQL error log.',
+			]
+		);
+
+		return false;
 	}
 
 	/**

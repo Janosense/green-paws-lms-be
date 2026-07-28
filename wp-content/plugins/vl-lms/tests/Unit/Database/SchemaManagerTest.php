@@ -25,6 +25,11 @@ final class SchemaManagerTest extends TestCase {
 		$wpdb         = Mockery::mock();
 		$wpdb->prefix = 'wp_';
 		$wpdb->shouldReceive( 'get_charset_collate' )->andReturn( 'DEFAULT CHARACTER SET utf8mb4' );
+		// Post-dbDelta sentinel verification: default to "the migration
+		// landed" so the happy-path install tests stamp the version; the
+		// failure-path test overrides get_var to null.
+		$wpdb->shouldReceive( 'prepare' )->andReturnUsing( static fn ( string $sql ): string => $sql )->byDefault();
+		$wpdb->shouldReceive( 'get_var' )->andReturn( 'progress_reset_at' )->byDefault();
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test double for $wpdb.
 		$GLOBALS['wpdb'] = $wpdb;
 	}
@@ -198,6 +203,21 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( '2' );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )->times( 17 )->andReturn( [] );
+
+		SchemaManager::install();
+	}
+
+	public function test_install_does_not_stamp_version_when_sentinel_column_missing(): void {
+		// dbDelta swallows failed ALTERs silently. Stamping the version over
+		// a failed migration would short-circuit every later install() while
+		// the shipped code queries columns that don't exist — leave the
+		// version stale so the next request retries.
+		Functions\when( 'get_option' )->justReturn( '9' );
+		Functions\when( 'dbDelta' )->justReturn( [] );
+		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
+		Functions\expect( 'update_option' )->never();
+
+		$GLOBALS['wpdb']->shouldReceive( 'get_var' )->andReturn( null );
 
 		SchemaManager::install();
 	}
