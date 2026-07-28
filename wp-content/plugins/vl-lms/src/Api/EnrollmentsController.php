@@ -10,6 +10,7 @@ use VL\LMS\Domain\Enrollment\EnrollmentSource;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Services\Enrollment\EnrollmentService;
+use VL\LMS\Services\Enrollment\EnrollmentStatsService;
 use VL\LMS\Services\Progress\ProgressResetService;
 use WP_Error;
 use WP_Post;
@@ -57,6 +58,7 @@ final class EnrollmentsController {
 		private readonly EnrollmentRepository $repository,
 		private readonly EnrollmentRecordTransformer $transformer,
 		private readonly ProgressResetService $reset_service,
+		private readonly EnrollmentStatsService $stats,
 	) {
 	}
 
@@ -194,7 +196,11 @@ final class EnrollmentsController {
 			return rest_ensure_response(
 				[
 					'success' => true,
-					'data'    => $this->transformer->transform( $existing, $course ),
+					'data'    => $this->transformer->transform(
+						$existing,
+						$course,
+						$this->stats->for_user_in_course( $user_id, (int) $course->ID )
+					),
 				]
 			);
 		}
@@ -214,7 +220,11 @@ final class EnrollmentsController {
 		$response = rest_ensure_response(
 			[
 				'success' => true,
-				'data'    => $this->transformer->transform( $enrollment, $course ),
+				'data'    => $this->transformer->transform(
+					$enrollment,
+					$course,
+					$this->stats->for_user_in_course( $user_id, (int) $course->ID )
+				),
 			]
 		);
 		$response->set_status( 201 );
@@ -237,7 +247,7 @@ final class EnrollmentsController {
 			[ EnrollmentStatus::ACTIVE, EnrollmentStatus::COMPLETED ]
 		);
 
-		$items = [];
+		$resolved = [];
 		foreach ( $enrollments as $enrollment ) {
 			$course = get_post( $enrollment->course_id );
 			if ( ! $course instanceof WP_Post ) {
@@ -245,7 +255,17 @@ final class EnrollmentsController {
 				// Skip rather than 500 — the dashboard renders what we have.
 				continue;
 			}
-			$items[] = $this->transformer->transform( $enrollment, $course );
+			$resolved[] = [ $enrollment, $course ];
+		}
+
+		$stats = $this->stats->for_user_in_courses(
+			(int) $user->ID,
+			array_map( static fn ( array $pair ): int => (int) $pair[1]->ID, $resolved )
+		);
+
+		$items = [];
+		foreach ( $resolved as [ $enrollment, $course ] ) {
+			$items[] = $this->transformer->transform( $enrollment, $course, $stats[ (int) $course->ID ] );
 		}
 
 		return rest_ensure_response(
@@ -310,7 +330,11 @@ final class EnrollmentsController {
 		return rest_ensure_response(
 			[
 				'success' => true,
-				'data'    => $this->transformer->transform( $revoked, $course ),
+				'data'    => $this->transformer->transform(
+					$revoked,
+					$course,
+					$this->stats->for_user_in_course( $user_id, (int) $course->ID )
+				),
 			]
 		);
 	}
@@ -366,7 +390,13 @@ final class EnrollmentsController {
 		return rest_ensure_response(
 			[
 				'success' => true,
-				'data'    => $this->transformer->transform( $reset, $course ),
+				// Stats are computed after the wipe, so completed / passed
+				// arrive already zeroed alongside the reset progress_pct.
+				'data'    => $this->transformer->transform(
+					$reset,
+					$course,
+					$this->stats->for_user_in_course( $user_id, (int) $course->ID )
+				),
 			]
 		);
 	}

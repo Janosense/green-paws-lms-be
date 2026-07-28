@@ -17,6 +17,7 @@ use VL\LMS\Domain\Enrollment\EnrollmentSource;
 use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Services\Enrollment\EnrollmentService;
+use VL\LMS\Services\Enrollment\EnrollmentStatsService;
 use VL\LMS\Services\Progress\ProgressResetService;
 use WP_Error;
 use WP_Post;
@@ -37,6 +38,9 @@ final class EnrollmentsControllerTest extends TestCase {
 
 	/** @var Mockery\MockInterface&ProgressResetService */
 	private $reset_service;
+
+	/** @var Mockery\MockInterface&EnrollmentStatsService */
+	private $stats_service;
 
 	private EnrollmentService $service;
 
@@ -100,6 +104,19 @@ final class EnrollmentsControllerTest extends TestCase {
 		$this->repository    = Mockery::mock( EnrollmentRepository::class );
 		$this->transformer   = Mockery::mock( EnrollmentRecordTransformer::class );
 		$this->reset_service = Mockery::mock( ProgressResetService::class );
+		$this->stats_service = Mockery::mock( EnrollmentStatsService::class );
+
+		// Permissive defaults so tests exercising other concerns don't have
+		// to wire stats; the dedicated stats tests override with `once()`.
+		$this->stats_service->shouldReceive( 'for_user_in_course' )
+			->andReturn( self::zero_stats() )
+			->byDefault();
+		$this->stats_service->shouldReceive( 'for_user_in_courses' )
+			->andReturnUsing(
+				static fn ( int $user_id, array $course_ids ): array =>
+					array_fill_keys( $course_ids, self::zero_stats() )
+			)
+			->byDefault();
 
 		// EnrollmentService is final and cannot be mocked. Use the real
 		// implementation backed by the mocked repository — its outputs are
@@ -114,7 +131,8 @@ final class EnrollmentsControllerTest extends TestCase {
 			$this->service,
 			$this->repository,
 			$this->transformer,
-			$this->reset_service
+			$this->reset_service,
+			$this->stats_service
 		);
 	}
 
@@ -337,7 +355,7 @@ final class EnrollmentsControllerTest extends TestCase {
 		$this->stub_successful_insert( $persisted );
 		$this->transformer->shouldReceive( 'transform' )
 			->once()
-			->with( Mockery::type( Enrollment::class ), $this->posts[10] )
+			->with( Mockery::type( Enrollment::class ), $this->posts[10], Mockery::type( 'array' ) )
 			->andReturn( [ 'id' => 100 ] );
 
 		$result = $this->controller->create( $this->request( [ 'course_id' => 10 ] ) );
@@ -380,7 +398,7 @@ final class EnrollmentsControllerTest extends TestCase {
 		$this->stub_successful_insert( $enrollment );
 		$this->transformer->shouldReceive( 'transform' )
 			->once()
-			->with( Mockery::type( Enrollment::class ), $this->posts[10] )
+			->with( Mockery::type( Enrollment::class ), $this->posts[10], Mockery::type( 'array' ) )
 			->andReturn( [ 'id' => 100 ] );
 
 		$response = $this->controller->create( $this->request( [ 'course_id' => 10 ] ) );
@@ -407,7 +425,7 @@ final class EnrollmentsControllerTest extends TestCase {
 
 		$this->transformer->shouldReceive( 'transform' )
 			->once()
-			->with( $existing, $this->posts[10] )
+			->with( $existing, $this->posts[10], Mockery::type( 'array' ) )
 			->andReturn( [ 'id' => 100 ] );
 
 		$response = $this->controller->create( $this->request( [ 'course_id' => 10 ] ) );
@@ -512,10 +530,10 @@ final class EnrollmentsControllerTest extends TestCase {
 			->andReturn( [ $newest, $older ] );
 
 		$this->transformer->shouldReceive( 'transform' )
-			->with( $newest, $this->posts[10] )
+			->with( $newest, $this->posts[10], Mockery::type( 'array' ) )
 			->andReturn( [ 'id' => 100 ] );
 		$this->transformer->shouldReceive( 'transform' )
-			->with( $older, $this->posts[11] )
+			->with( $older, $this->posts[11], Mockery::type( 'array' ) )
 			->andReturn( [ 'id' => 101 ] );
 
 		$response = $this->controller->list_mine( $this->request() );
@@ -536,7 +554,7 @@ final class EnrollmentsControllerTest extends TestCase {
 
 		$this->transformer->shouldReceive( 'transform' )
 			->once()
-			->with( $enrollment, $this->posts[10] )
+			->with( $enrollment, $this->posts[10], Mockery::type( 'array' ) )
 			->andReturn(
 				[
 					'id'     => 100,
@@ -584,6 +602,76 @@ final class EnrollmentsControllerTest extends TestCase {
 		$item     = $response->get_data()['data']['items'][0];
 
 		self::assertNull( $item['course']['cover'] );
+	}
+
+	public function test_get_batches_stats_once_and_passes_each_course_share_to_the_transformer(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$this->posts[10] = $this->course_post( 10 );
+		$this->posts[11] = $this->course_post( 11 );
+
+		$first  = $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE );
+		$second = $this->enrollment( 101, 5, 11, EnrollmentStatus::COMPLETED );
+		$this->repository->shouldReceive( 'list_for_user_in_statuses' )
+			->once()
+			->andReturn( [ $first, $second ] );
+
+		$stats_10 = self::zero_stats();
+		$stats_11 = self::zero_stats();
+
+		$stats_10['lessons']['total']          = 12;
+		$stats_11['quizzes']['has_final_exam'] = true;
+
+		$this->stats_service->shouldReceive( 'for_user_in_courses' )
+			->once()
+			->with(
+				5,
+				[ 10, 11 ]
+			)
+			->andReturn(
+				[
+					10 => $stats_10,
+					11 => $stats_11,
+				]
+			);
+
+		$this->transformer->shouldReceive( 'transform' )
+			->once()
+			->with( $first, $this->posts[10], $stats_10 )
+			->andReturn( [ 'id' => 100 ] );
+		$this->transformer->shouldReceive( 'transform' )
+			->once()
+			->with( $second, $this->posts[11], $stats_11 )
+			->andReturn( [ 'id' => 101 ] );
+
+		$response = $this->controller->list_mine( $this->request() );
+
+		self::assertCount( 2, $response->get_data()['data']['items'] );
+	}
+
+	public function test_get_excludes_deleted_courses_from_the_stats_batch(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$this->posts[10] = $this->course_post( 10 );
+		// Course 99 has no post — deleted out from under the enrollment row.
+
+		$kept     = $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE );
+		$orphaned = $this->enrollment( 101, 5, 99, EnrollmentStatus::ACTIVE );
+		$this->repository->shouldReceive( 'list_for_user_in_statuses' )
+			->once()
+			->andReturn( [ $kept, $orphaned ] );
+
+		$this->stats_service->shouldReceive( 'for_user_in_courses' )
+			->once()
+			->with( 5, [ 10 ] )
+			->andReturn( [ 10 => self::zero_stats() ] );
+
+		$this->transformer->shouldReceive( 'transform' )
+			->once()
+			->with( $kept, $this->posts[10], self::zero_stats() )
+			->andReturn( [ 'id' => 100 ] );
+
+		$response = $this->controller->list_mine( $this->request() );
+
+		self::assertCount( 1, $response->get_data()['data']['items'] );
 	}
 
 	// ---------------------------------------------------------------------
@@ -827,7 +915,7 @@ final class EnrollmentsControllerTest extends TestCase {
 			->andReturn( $refreshed );
 		$this->transformer->shouldReceive( 'transform' )
 			->once()
-			->with( $refreshed, $course )
+			->with( $refreshed, $course, Mockery::type( 'array' ) )
 			->andReturn(
 				[
 					'id'           => 100,
@@ -842,6 +930,37 @@ final class EnrollmentsControllerTest extends TestCase {
 		$data = $response->get_data();
 		self::assertTrue( $data['success'] );
 		self::assertSame( 0, $data['data']['progress_pct'] );
+	}
+
+	public function test_reset_progress_passes_freshly_computed_stats_to_the_transformer(): void {
+		$this->stage_user( $this->user( 5 ) );
+		$course                            = $this->course_post( 10 );
+		$this->page_by_slug['free-course'] = $course;
+
+		$this->repository->shouldReceive( 'find_for_user_and_course' )
+			->with( 5, 10 )
+			->andReturn( $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE ) );
+
+		$refreshed = $this->enrollment( 100, 5, 10, EnrollmentStatus::ACTIVE );
+		$this->reset_service->shouldReceive( 'reset' )
+			->once()
+			->with( 5, 10 )
+			->andReturn( $refreshed );
+
+		// Computed after the wipe — the record the store upserts carries the
+		// zeroed stats, not the pre-reset ones.
+		$this->stats_service->shouldReceive( 'for_user_in_course' )
+			->once()
+			->with( 5, 10 )
+			->andReturn( self::zero_stats() );
+		$this->transformer->shouldReceive( 'transform' )
+			->once()
+			->with( $refreshed, $course, self::zero_stats() )
+			->andReturn( [ 'id' => 100 ] );
+
+		$response = $this->controller->reset_progress( $this->request( [ 'course_slug' => 'free-course' ] ) );
+
+		self::assertInstanceOf( WP_REST_Response::class, $response );
 	}
 
 	public function test_reset_progress_returns_500_when_service_declines(): void {
@@ -869,6 +988,36 @@ final class EnrollmentsControllerTest extends TestCase {
 
 	private function stage_user( ?\WP_User $user ): void {
 		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $user );
+	}
+
+	/**
+	 * @return array{
+	 *     modules: array{total: int, completed: int},
+	 *     lessons: array{total: int, completed: int},
+	 *     topics: array{total: int, completed: int},
+	 *     quizzes: array{total: int, passed: int, has_final_exam: bool}
+	 * }
+	 */
+	private static function zero_stats(): array {
+		return [
+			'modules' => [
+				'total'     => 0,
+				'completed' => 0,
+			],
+			'lessons' => [
+				'total'     => 0,
+				'completed' => 0,
+			],
+			'topics'  => [
+				'total'     => 0,
+				'completed' => 0,
+			],
+			'quizzes' => [
+				'total'          => 0,
+				'passed'         => 0,
+				'has_final_exam' => false,
+			],
+		];
 	}
 
 	/**

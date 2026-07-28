@@ -290,6 +290,65 @@ class QuizAttemptRepository {
 	}
 
 	/**
+	 * Bulk DISTINCT passed-quiz counts for one learner across many courses,
+	 * for the dashboard enrollment-stats read.
+	 *
+	 * Counting read — attempts started before the enrollment's
+	 * `progress_reset_at` are excluded, so after a reset the dashboard card
+	 * reads 0 passed, matching the zeroed `progress_pct` (don't "fix" this
+	 * with the epoch-blind {@see self::attempt_summary_for_users()}, which
+	 * is an all-time admin record). DISTINCT so a learner who failed a quiz
+	 * twice then passed contributes one, not three. Courses with no
+	 * counted attempts are absent from the map; callers default to 0.
+	 * Empty input short-circuits to an empty array — avoids generating a
+	 * malformed `IN ()` clause.
+	 *
+	 * @param list<int> $course_ids
+	 * @return array<int, int>
+	 */
+	public function passed_quiz_counts_for_user_in_courses( int $user_id, array $course_ids ): array {
+		if ( [] === $course_ids ) {
+			return [];
+		}
+
+		$wpdb      = $this->wpdb();
+		$table     = $this->table();
+		$join      = $this->counting_join();
+		$predicate = self::COUNTING_PREDICATE;
+
+		$placeholders = implode( ', ', array_fill( 0, count( $course_ids ), '%d' ) );
+		// The epoch predicate compares two columns and adds no placeholders,
+		// so the args stay user id first, then the IN run.
+		$args = [ $user_id, ...array_values( $course_ids ) ];
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table resolves to SchemaManager::quiz_attempts_table(), $join / $predicate are class-local SQL fragments, and $placeholders is a locally-built run of %d; every value binds through $args. The interpolations sit mid-string, so a single-line phpcs:ignore cannot reach them.
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- Placeholder count varies with the batch size by design.
+			"SELECT a.course_id,
+				COUNT(DISTINCT CASE WHEN a.passed = 1 THEN a.quiz_id ELSE NULL END) AS quizzes_passed
+			FROM {$table} a
+			{$join}
+			WHERE a.user_id = %d AND a.course_id IN ({$placeholders}) {$predicate}
+			GROUP BY a.course_id",
+			$args
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) || ! isset( $row['course_id'] ) ) {
+					continue;
+				}
+				$out[ (int) $row['course_id'] ] = (int) ( $row['quizzes_passed'] ?? 0 );
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Deliberately epoch-blind: no production caller today, and as a
 	 * record read ("every pass the learner ever had") it stays complete.
 	 *

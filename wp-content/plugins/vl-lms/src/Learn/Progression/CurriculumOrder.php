@@ -47,6 +47,14 @@ class CurriculumOrder {
 	private array $memo = [];
 
 	/**
+	 * Modules are not stops, so `counts_for()` cannot recover their number
+	 * from the stop list — `build()` records it here as a side product.
+	 *
+	 * @var array<int, int>
+	 */
+	private array $module_counts = [];
+
+	/**
 	 * Canonical stop list for a course, memoised per request.
 	 *
 	 * @return list<CurriculumStop>
@@ -65,17 +73,19 @@ class CurriculumOrder {
 		$modules    = $this->query_children( $course_id, 'vl_module' );
 		$module_ids = $this->ids_of( $modules );
 
+		$this->module_counts[ $course_id ] = count( $modules );
+
 		// One query covers both module-owned lessons and course-direct
 		// orphan lessons; they are bucketed by `post_parent` below.
-		$lessons        = $this->query_children_of_many( [ $course_id, ...$module_ids ], 'vl_lesson' );
+		$lessons           = $this->query_children_of_many( [ $course_id, ...$module_ids ], 'vl_lesson' );
 		$lessons_by_parent = $this->bucket_by_parent( $lessons );
-		$lesson_ids     = $this->ids_of( $lessons );
+		$lesson_ids        = $this->ids_of( $lessons );
 
 		$topics_by_parent = [] === $lesson_ids
 			? []
 			: $this->bucket_by_parent( $this->query_children_of_many( $lesson_ids, 'vl_topic' ) );
 
-		$sessions = $this->is_cohort_course( $course_id )
+		$sessions    = $this->is_cohort_course( $course_id )
 			? $this->query_sessions( $course_id )
 			: [];
 		$session_ids = $this->ids_of( $sessions );
@@ -167,6 +177,45 @@ class CurriculumOrder {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Curriculum tallies for the dashboard stats surface, derived from the
+	 * memoised stop list plus the module count `build()` records — a
+	 * second consumer in the same request pays zero extra queries.
+	 * Sessions are not tallied; see {@see CurriculumCounts} for the exact
+	 * semantics.
+	 */
+	public function counts_for( int $course_id ): CurriculumCounts {
+		$stops = $this->for_course( $course_id );
+
+		$lessons        = 0;
+		$topics         = 0;
+		$quizzes        = 0;
+		$has_final_exam = false;
+
+		foreach ( $stops as $stop ) {
+			switch ( $stop->kind ) {
+				case CurriculumStop::KIND_LESSON:
+					++$lessons;
+					break;
+				case CurriculumStop::KIND_TOPIC:
+					++$topics;
+					break;
+				case CurriculumStop::KIND_QUIZ:
+					++$quizzes;
+					$has_final_exam = $has_final_exam || $stop->is_final_exam;
+					break;
+			}
+		}
+
+		return new CurriculumCounts(
+			$this->module_counts[ $course_id ] ?? 0,
+			$lessons,
+			$topics,
+			$quizzes,
+			$has_final_exam
+		);
 	}
 
 	/**

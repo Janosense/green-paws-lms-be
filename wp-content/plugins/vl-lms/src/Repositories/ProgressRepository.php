@@ -107,6 +107,55 @@ class ProgressRepository {
 	}
 
 	/**
+	 * Bulk COMPLETED-row counts for one learner across many courses, for
+	 * the dashboard enrollment-stats read.
+	 *
+	 * Returns `course_id => entity_type => count` for `(course, type)`
+	 * pairs with at least one completed row; callers default missing keys
+	 * to 0. Covered by `idx_user_course_status`. No reset-epoch filtering
+	 * is needed here — the self-service progress reset hard-deletes this
+	 * table's rows. Empty input short-circuits to an empty array — avoids
+	 * generating a malformed `IN ()` clause.
+	 *
+	 * @param list<int> $course_ids
+	 * @return array<int, array<string, int>>
+	 */
+	public function completed_counts_for_user_in_courses( int $user_id, array $course_ids ): array {
+		if ( [] === $course_ids ) {
+			return [];
+		}
+
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+
+		$placeholders = implode( ', ', array_fill( 0, count( $course_ids ), '%d' ) );
+		// Positional binds in SQL order: user id, the IN run, then status.
+		$args = array_values( $course_ids );
+		array_unshift( $args, $user_id );
+		$args[] = ProgressStatus::COMPLETED->value;
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $table and $placeholders are SQL fragments built locally; %d / %s placeholders for $args are valid.
+			"SELECT course_id, entity_type, COUNT(*) AS total FROM {$table} WHERE user_id = %d AND course_id IN ({$placeholders}) AND status = %s GROUP BY course_id, entity_type",
+			$args
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) || ! isset( $row['course_id'], $row['entity_type'], $row['total'] ) ) {
+					continue;
+				}
+				$out[ (int) $row['course_id'] ][ (string) $row['entity_type'] ] = (int) $row['total'];
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Insert-or-update on the `(user_id, entity_type, entity_id)` triplet.
 	 *
 	 * On insert, both audit columns are stamped with the clock's "now"; on

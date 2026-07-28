@@ -200,6 +200,7 @@ use VL\LMS\Services\Assignments\AssignmentCompletionListener;
 use VL\LMS\Services\Assignments\AssignmentSubmissionService;
 use VL\LMS\Services\CourseInstructors\AuthorSyncService;
 use VL\LMS\Services\Enrollment\EnrollmentService;
+use VL\LMS\Services\Enrollment\EnrollmentStatsService;
 use VL\LMS\Services\Groups\GroupEnrollmentService;
 use VL\LMS\Services\Groups\GroupService;
 use VL\LMS\Services\JoinWindowPolicy;
@@ -1167,6 +1168,19 @@ final class Plugin {
 		);
 
 		$container->set(
+			EnrollmentStatsService::class,
+			static function ( Container $c ): EnrollmentStatsService {
+				$order = $c->get( CurriculumOrder::class );
+				assert( $order instanceof CurriculumOrder );
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				$attempts = $c->get( QuizAttemptRepository::class );
+				assert( $attempts instanceof QuizAttemptRepository );
+				return new EnrollmentStatsService( $order, $progress, $attempts );
+			}
+		);
+
+		$container->set(
 			EnrollmentsController::class,
 			static function ( Container $c ): EnrollmentsController {
 				$authenticator = $c->get( RestAuthenticator::class );
@@ -1179,13 +1193,16 @@ final class Plugin {
 				assert( $transformer instanceof EnrollmentRecordTransformer );
 				$reset_service = $c->get( ProgressResetService::class );
 				assert( $reset_service instanceof ProgressResetService );
+				$stats = $c->get( EnrollmentStatsService::class );
+				assert( $stats instanceof EnrollmentStatsService );
 				return new EnrollmentsController(
 					VL_LMS_API_NAMESPACE,
 					$authenticator,
 					$service,
 					$repository,
 					$transformer,
-					$reset_service
+					$reset_service,
+					$stats
 				);
 			}
 		);

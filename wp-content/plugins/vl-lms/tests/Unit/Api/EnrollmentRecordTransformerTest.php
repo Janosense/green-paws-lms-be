@@ -64,7 +64,8 @@ final class EnrollmentRecordTransformerTest extends TestCase {
 
 		$record = $this->transformer->transform(
 			$this->enrollment( 100, 10, EnrollmentStatus::ACTIVE ),
-			$this->course_post( 10, 'cardiology', 'Cardiology Fundamentals' )
+			$this->course_post( 10, 'cardiology', 'Cardiology Fundamentals' ),
+			self::stats()
 		);
 
 		self::assertSame( 100, $record['id'] );
@@ -88,7 +89,8 @@ final class EnrollmentRecordTransformerTest extends TestCase {
 				status: EnrollmentStatus::COMPLETED,
 				completed_at: '2026-04-20 09:30:00'
 			),
-			$this->course_post( 10, 'free-course', 'Free Course' )
+			$this->course_post( 10, 'free-course', 'Free Course' ),
+			self::stats()
 		);
 
 		self::assertSame( 'completed', $record['status'] );
@@ -103,7 +105,8 @@ final class EnrollmentRecordTransformerTest extends TestCase {
 
 		$record = $this->transformer->transform(
 			$this->enrollment( 100, 10, EnrollmentStatus::ACTIVE ),
-			$this->course_post( 10, 'cardio', 'Cardio' )
+			$this->course_post( 10, 'cardio', 'Cardio' ),
+			self::stats()
 		);
 		self::assertNull( $record['course']['cover'] );
 
@@ -112,7 +115,8 @@ final class EnrollmentRecordTransformerTest extends TestCase {
 
 		$record = $this->transformer->transform(
 			$this->enrollment( 100, 11, EnrollmentStatus::ACTIVE ),
-			$this->course_post( 11, 'derma', 'Derma' )
+			$this->course_post( 11, 'derma', 'Derma' ),
+			self::stats()
 		);
 		self::assertNull( $record['course']['cover'] );
 	}
@@ -132,7 +136,8 @@ final class EnrollmentRecordTransformerTest extends TestCase {
 
 		$record = $this->transformer->transform(
 			$this->enrollment( 100, 10, EnrollmentStatus::ACTIVE ),
-			$this->course_post( 10, 'cardio', 'Cardio' )
+			$this->course_post( 10, 'cardio', 'Cardio' ),
+			self::stats()
 		);
 
 		self::assertArrayHasKey( 'card', $record['course']['cover'] );
@@ -144,7 +149,8 @@ final class EnrollmentRecordTransformerTest extends TestCase {
 	public function test_includes_course_slug_and_title(): void {
 		$record = $this->transformer->transform(
 			$this->enrollment( 100, 10, EnrollmentStatus::ACTIVE ),
-			$this->course_post( 10, 'spring-cardio-2026', 'Spring Cardiology 2026' )
+			$this->course_post( 10, 'spring-cardio-2026', 'Spring Cardiology 2026' ),
+			self::stats()
 		);
 
 		self::assertSame( 'spring-cardio-2026', $record['course']['slug'] );
@@ -161,12 +167,59 @@ final class EnrollmentRecordTransformerTest extends TestCase {
 				completed_at: '2026-04-20 09:30:45',
 				expires_at: '2026-12-31 23:59:59'
 			),
-			$this->course_post( 10, 'cardio', 'Cardio' )
+			$this->course_post( 10, 'cardio', 'Cardio' ),
+			self::stats()
 		);
 
 		self::assertSame( '2026-04-15T12:00:00Z', $record['enrolled_at'] );
 		self::assertSame( '2026-04-20T09:30:45Z', $record['completed_at'] );
 		self::assertSame( '2026-12-31T23:59:59Z', $record['expires_at'] );
+	}
+
+	public function test_embeds_stats_block_verbatim(): void {
+		$stats = self::stats( lessons_total: 12, lessons_completed: 5, has_final_exam: true );
+
+		$record = $this->transformer->transform(
+			$this->enrollment( 100, 10, EnrollmentStatus::ACTIVE ),
+			$this->course_post( 10, 'cardio', 'Cardio' ),
+			$stats
+		);
+
+		self::assertSame( $stats, $record['stats'] );
+	}
+
+	/**
+	 * @return array{
+	 *     modules: array{total: int, completed: int},
+	 *     lessons: array{total: int, completed: int},
+	 *     topics: array{total: int, completed: int},
+	 *     quizzes: array{total: int, passed: int, has_final_exam: bool}
+	 * }
+	 */
+	private static function stats(
+		int $lessons_total = 0,
+		int $lessons_completed = 0,
+		bool $has_final_exam = false
+	): array {
+		return [
+			'modules' => [
+				'total'     => 0,
+				'completed' => 0,
+			],
+			'lessons' => [
+				'total'     => $lessons_total,
+				'completed' => $lessons_completed,
+			],
+			'topics'  => [
+				'total'     => 0,
+				'completed' => 0,
+			],
+			'quizzes' => [
+				'total'          => 0,
+				'passed'         => 0,
+				'has_final_exam' => $has_final_exam,
+			],
+		];
 	}
 
 	private function course_post( int $id, string $slug, string $title ): WP_Post {

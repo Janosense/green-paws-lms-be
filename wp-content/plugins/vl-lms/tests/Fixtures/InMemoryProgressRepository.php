@@ -75,6 +75,30 @@ final class InMemoryProgressRepository extends ProgressRepository {
 		return $out;
 	}
 
+	/**
+	 * @param list<int> $course_ids
+	 * @return array<int, array<string, int>>
+	 */
+	public function completed_counts_for_user_in_courses( int $user_id, array $course_ids ): array {
+		$out = [];
+		foreach ( $this->rows as $row ) {
+			if ( (int) $row['user_id'] !== $user_id ) {
+				continue;
+			}
+			if ( ! in_array( (int) $row['course_id'], $course_ids, true ) ) {
+				continue;
+			}
+			if ( ProgressStatus::COMPLETED->value !== $row['status'] ) {
+				continue;
+			}
+			$course_id   = (int) $row['course_id'];
+			$entity_type = (string) $row['entity_type'];
+
+			$out[ $course_id ][ $entity_type ] = ( $out[ $course_id ][ $entity_type ] ?? 0 ) + 1;
+		}
+		return $out;
+	}
+
 	public function upsert(
 		int $user_id,
 		EntityType $entity_type,

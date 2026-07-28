@@ -251,4 +251,74 @@ final class CurriculumOrderTest extends TestCase {
 	public function test_empty_course_yields_no_stops(): void {
 		self::assertSame( [], $this->keys() );
 	}
+
+	public function test_counts_for_tallies_modules_lessons_topics_and_quizzes(): void {
+		$this->post( 10, 'vl_module', 1 );
+		$this->post( 11, 'vl_module', 1 );    // empty module still counts
+		$this->post( 100, 'vl_lesson', 10 );
+		$this->post( 200, 'vl_lesson', 1 );   // course-direct orphan
+		$this->post( 1000, 'vl_topic', 100 );
+		$this->post( 1001, 'vl_topic', 100 );
+		$this->post( 500, 'vl_quiz', 100 );   // lesson quiz
+		$this->post( 501, 'vl_quiz', 10 );    // module quiz
+		$this->post( 900, 'vl_quiz', 1 );     // course quiz
+
+		$counts = $this->order()->counts_for( 1 );
+
+		self::assertSame( 2, $counts->modules );
+		self::assertSame( 2, $counts->lessons );
+		self::assertSame( 2, $counts->topics );
+		self::assertSame( 3, $counts->quizzes );
+		self::assertFalse( $counts->has_final_exam );
+	}
+
+	public function test_counts_for_flags_final_exam_only_when_meta_is_set(): void {
+		$this->post( 900, 'vl_quiz', 1 );
+		$this->flag( 900, '_vl_quiz_is_final_exam' );
+
+		self::assertTrue( $this->order()->counts_for( 1 )->has_final_exam );
+	}
+
+	public function test_counts_for_excludes_session_quizzes_on_self_paced_courses(): void {
+		$this->post( 300, 'vl_session', 1 );
+		$this->post( 600, 'vl_quiz', 300 );
+
+		self::assertSame( 0, $this->order()->counts_for( 1 )->quizzes );
+	}
+
+	public function test_counts_for_includes_session_quizzes_but_not_sessions_on_cohort_courses(): void {
+		$this->cohort = true;
+		$this->post( 300, 'vl_session', 1 );
+		$this->post( 600, 'vl_quiz', 300 );
+
+		$counts = $this->order()->counts_for( 1 );
+
+		self::assertSame( 1, $counts->quizzes );
+		self::assertSame( 0, $counts->modules );
+		self::assertSame( 0, $counts->lessons );
+	}
+
+	public function test_counts_for_adds_no_queries_beyond_for_course(): void {
+		$this->post( 10, 'vl_module', 1 );
+		$this->post( 100, 'vl_lesson', 10 );
+		$order = $this->order();
+
+		$order->counts_for( 1 );
+		$cold = $this->query_count;
+		$order->counts_for( 1 );
+
+		// modules, lessons, topics, quizzes — four on a self-paced course.
+		self::assertSame( 4, $cold );
+		self::assertSame( $cold, $this->query_count );
+	}
+
+	public function test_counts_for_empty_course_is_all_zero(): void {
+		$counts = $this->order()->counts_for( 1 );
+
+		self::assertSame( 0, $counts->modules );
+		self::assertSame( 0, $counts->lessons );
+		self::assertSame( 0, $counts->topics );
+		self::assertSame( 0, $counts->quizzes );
+		self::assertFalse( $counts->has_final_exam );
+	}
 }

@@ -292,7 +292,7 @@ final class QuizAttemptRepositoryTest extends TestCase {
 			->once()
 			->andReturnUsing(
 				function ( string $sql, ...$args ) use ( &$prepared ): string {
-					$values = is_array( $args[0] ?? null ) ? $args[0] : $args;
+					$values   = is_array( $args[0] ?? null ) ? $args[0] : $args;
 					$prepared = preg_replace_callback(
 						'/%[ds]/',
 						static function () use ( &$values ): string {
@@ -456,6 +456,54 @@ final class QuizAttemptRepositoryTest extends TestCase {
 		self::assertStringContainsString( self::EPOCH_JOIN, (string) $prepared );
 		self::assertStringContainsString( self::EPOCH_PREDICATE, (string) $prepared );
 		self::assertStringContainsString( 'GROUP BY a.quiz_id', (string) $prepared );
+	}
+
+	public function test_passed_quiz_counts_for_user_in_courses_short_circuits_on_empty_input(): void {
+		self::assertSame( [], $this->repo->passed_quiz_counts_for_user_in_courses( 5, [] ) );
+	}
+
+	public function test_passed_quiz_counts_for_user_in_courses_applies_epoch_join_and_binds_in_source_order(): void {
+		$prepared = null;
+		$this->expect_prepare_substituting( $prepared );
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );
+
+		$this->repo->passed_quiz_counts_for_user_in_courses( 7, [ 10, 20 ] );
+
+		self::assertStringContainsString( 'a.user_id = 7 AND a.course_id IN (10, 20)', (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_JOIN, (string) $prepared );
+		self::assertStringContainsString( self::EPOCH_PREDICATE, (string) $prepared );
+		self::assertStringContainsString( 'COUNT(DISTINCT CASE WHEN a.passed = 1', (string) $prepared );
+		self::assertStringContainsString( 'GROUP BY a.course_id', (string) $prepared );
+	}
+
+	public function test_passed_quiz_counts_for_user_in_courses_maps_rows_and_skips_malformed(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_results' )
+			->once()
+			->andReturn(
+				[
+					[
+						'course_id'      => '10',
+						'quizzes_passed' => '2',
+					],
+					[
+						'course_id'      => '20',
+						'quizzes_passed' => '0',
+					],
+					[ 'quizzes_passed' => '9' ], // malformed — skipped
+					'not-an-array',
+				]
+			);
+
+		$counts = $this->repo->passed_quiz_counts_for_user_in_courses( 7, [ 10, 20 ] );
+
+		self::assertSame(
+			[
+				10 => 2,
+				20 => 0,
+			],
+			$counts
+		);
 	}
 
 	public function test_find_passed_final_exam_applies_epoch_join_and_predicate(): void {

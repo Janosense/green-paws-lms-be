@@ -153,6 +153,85 @@ final class ProgressRepositoryTest extends TestCase {
 		self::assertSame( 102, $rows[1]->entity_id );
 	}
 
+	public function test_completed_counts_for_user_in_courses_short_circuits_on_empty_input(): void {
+		self::assertSame( [], $this->repo->completed_counts_for_user_in_courses( 5, [] ) );
+	}
+
+	/**
+	 * `prepare()` binds positionally, and the test double never substitutes,
+	 * so asserting the args array would pass even with the binds reversed —
+	 * which would count a different learner's rows. Assert against the
+	 * substituted SQL instead. See `CODING-STANDARDS.md`.
+	 */
+	public function test_completed_counts_for_user_in_courses_binds_placeholders_in_source_order(): void {
+		$prepared = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				static function ( string $sql, ...$args ) use ( &$prepared ): string {
+					$values   = is_array( $args[0] ?? null ) ? $args[0] : $args;
+					$prepared = preg_replace_callback(
+						'/%[ds]/',
+						static function () use ( &$values ): string {
+							$next = array_shift( $values );
+							return is_string( $next ) ? "'" . $next . "'" : (string) $next;
+						},
+						$sql
+					);
+					return (string) $prepared;
+				}
+			);
+		$this->wpdb->shouldReceive( 'get_results' )->once()->andReturn( [] );
+
+		$this->repo->completed_counts_for_user_in_courses( 7, [ 10, 20 ] );
+
+		self::assertStringContainsString( 'user_id = 7', (string) $prepared );
+		self::assertStringContainsString( 'course_id IN (10, 20)', (string) $prepared );
+		self::assertStringContainsString( "status = 'completed'", (string) $prepared );
+		self::assertStringContainsString( 'GROUP BY course_id, entity_type', (string) $prepared );
+	}
+
+	public function test_completed_counts_for_user_in_courses_maps_rows_and_skips_malformed(): void {
+		$this->wpdb->shouldReceive( 'prepare' )->once()->andReturn( 'SQL' );
+		$this->wpdb->shouldReceive( 'get_results' )
+			->once()
+			->andReturn(
+				[
+					[
+						'course_id'   => '10',
+						'entity_type' => 'lesson',
+						'total'       => '3',
+					],
+					[
+						'course_id'   => '10',
+						'entity_type' => 'topic',
+						'total'       => '7',
+					],
+					[
+						'course_id'   => '20',
+						'entity_type' => 'module',
+						'total'       => '1',
+					],
+					[ 'course_id' => '30' ], // malformed — skipped
+					'not-an-array',
+				]
+			);
+
+		$counts = $this->repo->completed_counts_for_user_in_courses( 7, [ 10, 20, 30 ] );
+
+		self::assertSame(
+			[
+				10 => [
+					'lesson' => 3,
+					'topic'  => 7,
+				],
+				20 => [ 'module' => 1 ],
+			],
+			$counts
+		);
+	}
+
 	public function test_upsert_inserts_when_no_row_exists(): void {
 		$this->clock_ticks = [
 			new \DateTimeImmutable( '2026-04-28 10:00:00', new \DateTimeZone( 'UTC' ) ),

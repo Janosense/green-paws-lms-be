@@ -176,6 +176,36 @@ final class InMemoryQuizAttemptRepository extends QuizAttemptRepository {
 		return $out;
 	}
 
+	/**
+	 * @param list<int> $course_ids
+	 * @return array<int, int>
+	 */
+	public function passed_quiz_counts_for_user_in_courses( int $user_id, array $course_ids ): array {
+		if ( [] === $course_ids ) {
+			return [];
+		}
+
+		$wanted = array_flip( $course_ids );
+		$passed = [];
+
+		foreach ( $this->rows as $row ) {
+			if ( $row->user_id !== $user_id
+				|| ! isset( $wanted[ $row->course_id ] )
+				|| true !== $row->passed
+				|| ! $this->counts( $row )
+			) {
+				continue;
+			}
+			$passed[ $row->course_id ][ $row->quiz_id ] = true;
+		}
+
+		$out = [];
+		foreach ( $passed as $course_id => $quiz_ids ) {
+			$out[ $course_id ] = count( $quiz_ids );
+		}
+		return $out;
+	}
+
 	public function find_best_score_for_user_in_quiz( int $user_id, int $quiz_id ): ?QuizAttempt {
 		$candidates = [];
 		foreach ( $this->rows as $row ) {

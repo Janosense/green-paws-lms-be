@@ -207,6 +207,44 @@ final class InMemoryQuizAttemptRepositoryTest extends TestCase {
 	// Progress-reset epoch — mirrors the real repository's counting join.
 	// ------------------------------------------------------------------
 
+	public function test_passed_quiz_counts_for_user_in_courses_counts_distinct_quizzes(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		// Quiz 101: failed once, passed twice — contributes one.
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 40, false ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 80, true ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 90, true ) );
+		// Quiz 102 in another requested course.
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 102, 8, 75, true ) );
+		// Never-passed quiz and foreign user/course don't contribute.
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 103, 7, 10, false ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 6, 101, 7, 95, true ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 104, 99, 95, true ) );
+
+		self::assertSame(
+			[
+				7 => 1,
+				8 => 1,
+			],
+			$repo->passed_quiz_counts_for_user_in_courses( 5, [ 7, 8 ] )
+		);
+	}
+
+	public function test_passed_quiz_counts_for_user_in_courses_is_empty_for_empty_input(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 80, true ) );
+
+		self::assertSame( [], $repo->passed_quiz_counts_for_user_in_courses( 5, [] ) );
+	}
+
+	public function test_passed_quiz_counts_for_user_in_courses_excludes_pre_reset_attempts(): void {
+		$repo = new InMemoryQuizAttemptRepository();
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 80, true, '2026-04-28 10:00:00' ) );
+		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 102, 7, 85, true, '2026-05-02 10:00:00' ) );
+		$repo->set_progress_reset_at( 5, 7, self::utc( '2026-05-01 00:00:00' ) );
+
+		self::assertSame( [ 7 => 1 ], $repo->passed_quiz_counts_for_user_in_courses( 5, [ 7 ] ) );
+	}
+
 	public function test_counting_reads_exclude_pre_reset_attempts(): void {
 		$repo = new InMemoryQuizAttemptRepository();
 		$repo->insert( self::attempt( QuizAttemptStatus::SUBMITTED, 5, 101, 7, 90, true, '2026-04-28 09:00:00', '2026-04-28 09:30:00' ) );

@@ -18,6 +18,15 @@ use WP_Post;
  * must not leak into enrollment records (the dashboard fetches a course
  * detail separately when it needs them).
  *
+ * The `stats` block is the one enrollment-scoped addition: per-course
+ * curriculum tallies computed by
+ * {@see \VL\LMS\Services\Enrollment\EnrollmentStatsService} and passed in
+ * by the controller, so this class stays a pure projector and the
+ * single-record POST / DELETE paths pay only their own course's queries.
+ * The parameter is required on purpose — a forgotten call site is a
+ * fatal, not a silently stats-less record that blanks the dashboard card
+ * when the store upserts it.
+ *
  * Cover-image projection delegates to {@see CoverImageTransformer} so all
  * call sites emit the same `{thumbnail, card, hero, full}` shape; the
  * dashboard renders the `card` size today, but the others are kept for
@@ -36,6 +45,13 @@ class EnrollmentRecordTransformer {
 	}
 
 	/**
+	 * @param array{
+	 *     modules: array{total: int, completed: int},
+	 *     lessons: array{total: int, completed: int},
+	 *     topics: array{total: int, completed: int},
+	 *     quizzes: array{total: int, passed: int, has_final_exam: bool}
+	 * } $stats
+	 *
 	 * @return array{
 	 *     id: int,
 	 *     course: array{id: int, slug: string, title: string, cover: array<string, mixed>|null},
@@ -44,10 +60,16 @@ class EnrollmentRecordTransformer {
 	 *     progress_pct: int,
 	 *     enrolled_at: string,
 	 *     completed_at: string|null,
-	 *     expires_at: string|null
+	 *     expires_at: string|null,
+	 *     stats: array{
+	 *         modules: array{total: int, completed: int},
+	 *         lessons: array{total: int, completed: int},
+	 *         topics: array{total: int, completed: int},
+	 *         quizzes: array{total: int, passed: int, has_final_exam: bool}
+	 *     }
 	 * }
 	 */
-	public function transform( Enrollment $enrollment, WP_Post $course ): array {
+	public function transform( Enrollment $enrollment, WP_Post $course, array $stats ): array {
 		$cover_id = (int) get_post_meta( (int) $course->ID, '_vl_course_cover_image_id', true );
 
 		return [
@@ -64,6 +86,7 @@ class EnrollmentRecordTransformer {
 			'enrolled_at'  => $this->to_iso( $enrollment->enrolled_at ),
 			'completed_at' => null === $enrollment->completed_at ? null : $this->to_iso( $enrollment->completed_at ),
 			'expires_at'   => null === $enrollment->expires_at ? null : $this->to_iso( $enrollment->expires_at ),
+			'stats'        => $stats,
 		];
 	}
 
