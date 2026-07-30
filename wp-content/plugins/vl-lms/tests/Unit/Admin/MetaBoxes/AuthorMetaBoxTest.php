@@ -23,6 +23,7 @@ final class AuthorMetaBoxTest extends TestCase {
 		Functions\when( '__' )->returnArg();
 		Functions\when( 'esc_html__' )->returnArg();
 		Functions\when( 'esc_html' )->returnArg();
+		Functions\when( 'esc_attr' )->returnArg();
 	}
 
 	protected function tearDown(): void {
@@ -40,13 +41,16 @@ final class AuthorMetaBoxTest extends TestCase {
 	}
 
 	/**
-	 * `get_post_type_object` double deriving the one cap the box reads
+	 * `get_post_type_object` double deriving the two caps the box reads
 	 * from the post type it is asked for.
 	 */
 	private function stub_post_type_object(): void {
 		Functions\when( 'get_post_type_object' )->alias(
 			static fn ( string $post_type ): object => (object) [
-				'cap' => (object) [ 'edit_others_posts' => str_replace( 'vl_', 'edit_others_vl_', $post_type ) . 's' ],
+				'cap' => (object) [
+					'edit_others_posts' => str_replace( 'vl_', 'edit_others_vl_', $post_type ) . 's',
+					'edit_posts'        => str_replace( 'vl_', 'edit_vl_', $post_type ) . 's',
+				],
 			]
 		);
 	}
@@ -71,7 +75,7 @@ final class AuthorMetaBoxTest extends TestCase {
 		self::assertSame( 'high', $box->priority() );
 	}
 
-	public function test_render_outputs_instructor_dropdown_for_cap_holders(): void {
+	public function test_render_outputs_capability_filtered_dropdown_for_cap_holders(): void {
 		$this->stub_post_type_object();
 		Functions\when( 'current_user_can' )->alias(
 			static fn ( string $cap ): bool => 'edit_others_vl_courses' === $cap
@@ -83,18 +87,45 @@ final class AuthorMetaBoxTest extends TestCase {
 				Mockery::on(
 					static fn ( array $args ): bool =>
 						'post_author_override' === $args['name']
-						&& 'instructor' === $args['role']
+						&& [ 'edit_vl_courses' ] === $args['capability']
 						&& 7 === $args['selected']
 						&& true === $args['include_selected']
+						&& false === $args['echo']
 				)
-			);
+			)
+			->andReturn( '<select id="vl-lms-author" name="post_author_override"></select>' );
 
 		ob_start();
 		( new AuthorMetaBox( 'vl_course' ) )->render( $this->postMock( 7 ) );
 		$html = (string) ob_get_clean();
 
 		self::assertStringContainsString( 'Автор (головний інструктор)', $html );
+		self::assertStringContainsString( '<select id="vl-lms-author"', $html );
 		self::assertStringContainsString( 'залишиться в команді як ко-інструктор', $html );
+	}
+
+	/**
+	 * `wp_dropdown_users()` renders nothing at all when its query matches
+	 * no users — the box must degrade to a read-only author row plus a
+	 * visible notice, never a label with a silent void under it.
+	 */
+	public function test_render_shows_notice_when_no_candidate_users_exist(): void {
+		$this->stub_post_type_object();
+		Functions\when( 'current_user_can' )->justReturn( true );
+		Functions\expect( 'wp_dropdown_users' )->once()->andReturn( '' );
+
+		$author               = new WP_User();
+		$author->ID           = 7;
+		$author->display_name = 'Олена Іваненко';
+		Functions\when( 'get_userdata' )->justReturn( $author );
+
+		ob_start();
+		( new AuthorMetaBox( 'vl_course' ) )->render( $this->postMock( 7 ) );
+		$html = (string) ob_get_clean();
+
+		self::assertStringContainsString( 'Олена Іваненко', $html );
+		self::assertStringContainsString( 'notice-warning', $html );
+		self::assertStringNotContainsString( 'post_author_override', $html );
 	}
 
 	/**
@@ -111,7 +142,14 @@ final class AuthorMetaBoxTest extends TestCase {
 				return true;
 			}
 		);
-		Functions\expect( 'wp_dropdown_users' )->once();
+		Functions\expect( 'wp_dropdown_users' )
+			->once()
+			->with(
+				Mockery::on(
+					static fn ( array $args ): bool => [ 'edit_vl_webinars' ] === $args['capability']
+				)
+			)
+			->andReturn( '<select></select>' );
 
 		ob_start();
 		( new AuthorMetaBox( 'vl_webinar' ) )->render( $this->postMock( 7, 'vl_webinar' ) );
