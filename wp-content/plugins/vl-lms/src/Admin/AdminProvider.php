@@ -29,8 +29,8 @@ use WP_User;
  *  - Routes `save_post` writes through each meta-box's `save()` method.
  *  - Removes the default WordPress "Custom Fields" meta-box from every
  *    LMS CPT screen so authors are not faced with the raw key/value
- *    table, and core's `authordiv` from the course screen in favour of
- *    the typed `CourseAuthorMetaBox`.
+ *    table, and core's `authordiv` from the course and webinar screens
+ *    in favour of the typed `AuthorMetaBox`.
  *  - Enqueues `admin-meta-boxes.{js,css}` only on the LMS CPT post-edit
  *    screens.
  *  - Backs the `wp_ajax_vl_lms_search_instructors` action used by the
@@ -172,10 +172,11 @@ class AdminProvider {
 			remove_meta_box( 'postcustom', $cpt, 'normal' );
 		}
 
-		// Core's author box would duplicate `CourseAuthorMetaBox` — both
-		// post `post_author_override`, and with two selects sharing one
-		// name the last in the DOM silently wins.
+		// Core's author box would duplicate `AuthorMetaBox` — both post
+		// `post_author_override`, and with two selects sharing one name
+		// the last in the DOM silently wins.
 		remove_meta_box( 'authordiv', 'vl_course', 'normal' );
+		remove_meta_box( 'authordiv', 'vl_webinar', 'normal' );
 	}
 
 	public function enqueue_assets( string $hook ): void {

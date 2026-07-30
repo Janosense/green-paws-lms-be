@@ -37,7 +37,7 @@ use VL\LMS\Admin\MetaBoxes\ChildList\QuestionListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\QuizListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\AssignmentListMetaBox;
 use VL\LMS\Admin\MetaBoxes\ChildList\TopicListMetaBox;
-use VL\LMS\Admin\MetaBoxes\CourseAuthorMetaBox;
+use VL\LMS\Admin\MetaBoxes\AuthorMetaBox;
 use VL\LMS\Admin\MetaBoxes\CourseInstructorsMetaBox;
 use VL\LMS\Admin\MetaBoxes\CourseMetaBox;
 use VL\LMS\Admin\MetaBoxes\LessonMetaBox;
@@ -2932,7 +2932,6 @@ final class Plugin {
 		// --- Phase 9.0 — typed CPT meta-boxes + co-instructor UI ---
 
 		$container->set( CourseMetaBox::class, static fn (): CourseMetaBox => new CourseMetaBox() );
-		$container->set( CourseAuthorMetaBox::class, static fn (): CourseAuthorMetaBox => new CourseAuthorMetaBox() );
 		$container->set( ModuleMetaBox::class, static fn (): ModuleMetaBox => new ModuleMetaBox() );
 		$container->set( LessonMetaBox::class, static fn (): LessonMetaBox => new LessonMetaBox() );
 		$container->set( TopicMetaBox::class, static fn (): TopicMetaBox => new TopicMetaBox() );
@@ -2973,7 +2972,10 @@ final class Plugin {
 			static function ( Container $c ): AdminProvider {
 				$boxes            = [
 					$c->get( CourseMetaBox::class ),
-					$c->get( CourseAuthorMetaBox::class ),
+					// Author (lead instructor) selector — one instance per
+					// post type whose post_author AuthorSyncService mirrors.
+					new AuthorMetaBox( 'vl_course' ),
+					new AuthorMetaBox( 'vl_webinar' ),
 					$c->get( CourseInstructorsMetaBox::class ),
 					$c->get( ModuleMetaBox::class ),
 					$c->get( LessonMetaBox::class ),
