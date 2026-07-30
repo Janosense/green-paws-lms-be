@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Tests\Unit\Services\CourseInstructors;
 
 use Brain\Monkey;
+use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -180,6 +181,60 @@ final class AuthorSyncServiceTest extends TestCase {
 		$this->service->on_post_deleted( 500, $post );
 
 		self::assertCount( 1, $this->repo->list_for_entity( InstructorEntityType::COURSE, 500 ) );
+	}
+
+	/**
+	 * The service must hook the GENERIC `save_post`, not
+	 * `save_post_{$type}` — the typed hooks fire before the generic one,
+	 * i.e. before AdminProvider's meta-box fan-out (priority 10) has run
+	 * the co-instructor diff. Priority 20 keeps the lead reconciliation
+	 * after that diff; see the interplay test below for what breaks
+	 * otherwise.
+	 */
+	public function test_register_hooks_uses_generic_save_post_after_meta_box_fanout(): void {
+		Actions\expectAdded( 'save_post' )
+			->once()
+			->with( [ $this->service, 'on_save_post' ], 20, 3 );
+		Actions\expectAdded( 'deleted_post' )
+			->once()
+			->with( [ $this->service, 'on_post_deleted' ], 10, 2 );
+
+		$this->service->register_hooks();
+	}
+
+	/**
+	 * Form-save order on an author change: core writes the new
+	 * `post_author` first, the co-instructor diff runs at `save_post`
+	 * priority 10 against the submitted list (rendered while the outgoing
+	 * lead was still lead, so it never contains them), and only then does
+	 * this service demote the outgoing lead. Run the other way around,
+	 * the freshly demoted co row would be diffed away in the same save.
+	 */
+	public function test_author_change_after_co_instructor_diff_preserves_demoted_lead(): void {
+		Functions\when( 'get_current_user_id' )->justReturn( 1 );
+
+		$this->service->on_save_post( 500, $this->make_post( 500, 7 ), false );
+		$this->instructor_service->add_instructor(
+			InstructorEntityType::COURSE,
+			500,
+			9,
+			InstructorRole::CO_INSTRUCTOR,
+			1
+		);
+
+		$this->instructor_service->sync_co_instructors( 500, [ 9 ] );
+		$this->service->on_save_post( 500, $this->make_post( 500, 8 ), true );
+
+		$user_7 = $this->repo->find_assignment( InstructorEntityType::COURSE, 500, 7 );
+		$user_8 = $this->repo->find_assignment( InstructorEntityType::COURSE, 500, 8 );
+		$user_9 = $this->repo->find_assignment( InstructorEntityType::COURSE, 500, 9 );
+
+		self::assertNotNull( $user_7, 'Outgoing lead must survive the co-instructor diff.' );
+		self::assertSame( InstructorRole::CO_INSTRUCTOR, $user_7->role_in_course );
+		self::assertNotNull( $user_8 );
+		self::assertSame( InstructorRole::LEAD, $user_8->role_in_course );
+		self::assertNotNull( $user_9 );
+		self::assertSame( InstructorRole::CO_INSTRUCTOR, $user_9->role_in_course );
 	}
 
 	public function test_on_save_post_ignores_zero_author(): void {

@@ -43,13 +43,21 @@ final class AuthorSyncService {
 	}
 
 	public function register_hooks(): void {
-		add_action( 'save_post_vl_course', [ $this, 'on_save_post' ], 20, 3 );
-		add_action( 'save_post_vl_webinar', [ $this, 'on_save_post' ], 20, 3 );
+		// Generic `save_post` at 20 — deliberately not `save_post_{$type}`,
+		// which core fires *before* the generic hook and therefore before
+		// AdminProvider's meta-box fan-out (priority 10) has run
+		// `sync_co_instructors()`. Running after that diff means an
+		// author change demotes the outgoing lead once the co-instructor
+		// list is already reconciled, so the demoted row survives the save
+		// instead of being diffed away (the submitted list was rendered
+		// while they were still lead, so it never contains them).
+		// `map_post_type()` filters out every other post type.
+		add_action( 'save_post', [ $this, 'on_save_post' ], 20, 3 );
 		add_action( 'deleted_post', [ $this, 'on_post_deleted' ], 10, 2 );
 	}
 
 	/**
-	 * `save_post_{post_type}` handler.
+	 * `save_post` handler.
 	 *
 	 * The third argument `$update` is unused — we re-derive state from
 	 * the table rather than trusting whether WP considers this a new
