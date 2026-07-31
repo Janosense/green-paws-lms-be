@@ -1377,7 +1377,9 @@ final class Plugin {
 				assert( $order instanceof CurriculumOrder );
 				$attempts = $c->get( QuizAttemptRepository::class );
 				assert( $attempts instanceof QuizAttemptRepository );
-				return new ProgressionGate( $order, $attempts );
+				$progress = $c->get( ProgressRepository::class );
+				assert( $progress instanceof ProgressRepository );
+				return new ProgressionGate( $order, $attempts, $progress );
 			}
 		);
 
@@ -1656,12 +1658,15 @@ final class Plugin {
 				assert( $hierarchy instanceof EntityHierarchy );
 				$service = $c->get( ProgressService::class );
 				assert( $service instanceof ProgressService );
+				$progression = $c->get( ProgressionGate::class );
+				assert( $progression instanceof ProgressionGate );
 				return new ProgressController(
 					VL_LMS_API_NAMESPACE,
 					$authenticator,
 					$enrollments,
 					$hierarchy,
-					$service
+					$service,
+					$progression
 				);
 			}
 		);

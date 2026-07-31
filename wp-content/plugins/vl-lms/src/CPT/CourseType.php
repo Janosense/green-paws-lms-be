@@ -187,6 +187,15 @@ final class CourseType extends AbstractCptRegistrar {
 				'auth_callback'     => $auth,
 				'description'       => 'Completion threshold in percent (0–100).',
 			],
+			'_vl_course_completion_mode'      => [
+				'type'              => 'string',
+				'single'            => true,
+				'default'           => 'free',
+				'show_in_rest'      => false,
+				'sanitize_callback' => static fn ( mixed $v ): string => self::sanitize_course_completion_mode( $v ),
+				'auth_callback'     => $auth,
+				'description'       => 'Lesson unlocking — "free" (any order) or "sequential" (each lesson unlocks the next). Effective on self-paced courses only.',
+			],
 		];
 	}
 
@@ -210,6 +219,16 @@ final class CourseType extends AbstractCptRegistrar {
 			return $value;
 		}
 		return 'self_paced';
+	}
+
+	/**
+	 * Enum: "free" | "sequential". Unknown values fall back to "free".
+	 */
+	private static function sanitize_course_completion_mode( mixed $value ): string {
+		if ( is_string( $value ) && in_array( $value, [ 'free', 'sequential' ], true ) ) {
+			return $value;
+		}
+		return 'free';
 	}
 
 	/**

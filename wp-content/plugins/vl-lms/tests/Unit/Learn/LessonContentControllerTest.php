@@ -13,6 +13,8 @@ use VL\LMS\Learn\Access\AccessDecision;
 use VL\LMS\Learn\Access\LessonAccessGate;
 use VL\LMS\Learn\LessonContentController;
 use VL\LMS\Learn\LessonContentTransformer;
+use VL\LMS\Learn\Progression\EntityRef;
+use VL\LMS\Learn\Progression\LockState;
 use VL\LMS\Learn\TopicContentTransformer;
 use VL\LMS\Auth\RestAuthenticator;
 use WP_Error;
@@ -235,6 +237,34 @@ final class LessonContentControllerTest extends TestCase {
 		self::assertInstanceOf( WP_Error::class, $result );
 		self::assertSame( 'not_enrolled', $result->get_error_code() );
 		self::assertSame( 403, $result->get_error_data()['status'] );
+	}
+
+	/**
+	 * 403 like the other lock arms — a 404 would land in the frontend's
+	 * `NOT_FOUND_CODES` and render "lesson not found" to an enrolled
+	 * learner. The lock payload rides along so the client can name the
+	 * lesson that opens this one.
+	 */
+	public function test_lesson_handler_maps_previous_incomplete_to_403_with_lock_payload(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		$this->seed_published_post( $this->post( 123, 'vl_lesson', 'intro' ) );
+		$lock = LockState::previous_incomplete( new EntityRef( 'lesson', 9, 'vstup', 'Вступ' ) );
+		$this->gate->shouldReceive( 'check' )->andReturn( AccessDecision::deny_locked( $lock, 100 ) );
+
+		$result = $this->controller->handle_lesson( $this->request( 'intro' ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'previous_incomplete', $result->get_error_code() );
+		self::assertSame( 403, $result->get_error_data()['status'] );
+		self::assertSame(
+			[
+				'kind'  => 'lesson',
+				'id'    => 9,
+				'slug'  => 'vstup',
+				'title' => 'Вступ',
+			],
+			$result->get_error_data()['lock']['blocking_entity']
+		);
 	}
 
 	public function test_lesson_handler_returns_envelope_on_success(): void {

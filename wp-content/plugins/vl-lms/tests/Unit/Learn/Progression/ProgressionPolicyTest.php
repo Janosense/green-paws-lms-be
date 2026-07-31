@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Tests\Unit\Learn\Progression;
 
 use PHPUnit\Framework\TestCase;
+use VL\LMS\Learn\Progression\CompletedSet;
 use VL\LMS\Learn\Progression\CurriculumStop;
 use VL\LMS\Learn\Progression\LockState;
 use VL\LMS\Learn\Progression\ProgressionPolicy;
@@ -19,12 +20,25 @@ final class ProgressionPolicyTest extends TestCase {
 		$this->policy = new ProgressionPolicy();
 	}
 
-	private function lesson( int $id ): CurriculumStop {
-		return new CurriculumStop( CurriculumStop::KIND_LESSON, $id );
+	private function lesson( int $id, bool $has_topics = false ): CurriculumStop {
+		return new CurriculumStop(
+			CurriculumStop::KIND_LESSON,
+			$id,
+			'lesson-' . $id,
+			'Lesson ' . $id,
+			has_topics: $has_topics
+		);
 	}
 
 	private function topic( int $id ): CurriculumStop {
-		return new CurriculumStop( CurriculumStop::KIND_TOPIC, $id );
+		return new CurriculumStop( CurriculumStop::KIND_TOPIC, $id, 'topic-' . $id, 'Topic ' . $id );
+	}
+
+	/**
+	 * @param list<string> $keys
+	 */
+	private function completed( array $keys ): CompletedSet {
+		return CompletedSet::fromKeys( $keys );
 	}
 
 	private function session( int $id ): CurriculumStop {
@@ -324,6 +338,257 @@ final class ProgressionPolicyTest extends TestCase {
 					'title' => 'Quiz 10',
 				],
 				'remaining_quiz_count' => 0,
+				'blocking_entity'      => null,
+			],
+			$map->to_node_value( CurriculumStop::KIND_LESSON, 2 )
+		);
+	}
+
+	// --- Sequential completion mode ---
+
+	public function test_sequential_locks_every_stop_after_the_frontier_with_previous_incomplete(): void {
+		$stops = [
+			$this->lesson( 1 ),
+			$this->quiz( 20 ),
+			$this->lesson( 3, has_topics: true ),
+			$this->topic( 4 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [] ),
+			sequential: true,
+			completed: $this->completed( [] )
+		);
+
+		// The frontier itself stays open — the learner must reach it to clear it.
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_LESSON, 1 ) );
+
+		foreach ( [ [ CurriculumStop::KIND_QUIZ, 20 ], [ CurriculumStop::KIND_LESSON, 3 ], [ CurriculumStop::KIND_TOPIC, 4 ] ] as [ $kind, $id ] ) {
+			$lock = $map->for_entity( $kind, $id );
+			self::assertSame( LockState::REASON_PREVIOUS_INCOMPLETE, $lock?->reason, "{$kind}:{$id}" );
+			self::assertNull( $lock?->blocking_quiz );
+			self::assertSame( 'lesson', $lock?->blocking_entity?->kind );
+			self::assertSame( 1, $lock?->blocking_entity?->id );
+			self::assertSame( 'lesson-1', $lock?->blocking_entity?->slug );
+			self::assertSame( 'Lesson 1', $lock?->blocking_entity?->title );
+		}
+	}
+
+	public function test_sequential_completed_prefix_advances_the_frontier(): void {
+		$stops = [
+			$this->lesson( 1 ),
+			$this->lesson( 2 ),
+			$this->lesson( 3 ),
+			$this->lesson( 4 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [] ),
+			sequential: true,
+			completed: $this->completed( [ 'lesson:1', 'lesson:2' ] )
+		);
+
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_LESSON, 1 ) );
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_LESSON, 2 ) );
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_LESSON, 3 ) );
+		self::assertSame( 3, $map->for_entity( CurriculumStop::KIND_LESSON, 4 )?->blocking_entity?->id );
+	}
+
+	/**
+	 * A lesson-with-topics stop precedes its own topics in canonical order,
+	 * but its progress row only completes after all of them do — treating it
+	 * as a blocker would deadlock its first topic forever.
+	 */
+	public function test_sequential_lesson_with_topics_is_transparent_but_lockable(): void {
+		$stops = [
+			$this->lesson( 1, has_topics: true ),
+			$this->topic( 2 ),
+			$this->topic( 3 ),
+			$this->lesson( 4, has_topics: true ),
+			$this->topic( 5 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [] ),
+			sequential: true,
+			completed: $this->completed( [] )
+		);
+
+		// Not a frontier candidate: its first topic is the frontier instead.
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_LESSON, 1 ) );
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_TOPIC, 2 ) );
+		self::assertSame( 2, $map->for_entity( CurriculumStop::KIND_TOPIC, 3 )?->blocking_entity?->id );
+		// A later lesson-with-topics is still an ordinary lockable stop.
+		self::assertSame( 2, $map->for_entity( CurriculumStop::KIND_LESSON, 4 )?->blocking_entity?->id );
+		self::assertSame( 2, $map->for_entity( CurriculumStop::KIND_TOPIC, 5 )?->blocking_entity?->id );
+	}
+
+	/**
+	 * Quiz gating stays opt-in per quiz — sequential mode must not silently
+	 * turn every quiz into a gate.
+	 */
+	public function test_unflagged_quiz_never_defines_the_sequential_frontier(): void {
+		$stops = [
+			$this->lesson( 1 ),
+			$this->quiz( 20 ),
+			$this->lesson( 3 ),
+			$this->lesson( 4 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [] ),
+			sequential: true,
+			completed: $this->completed( [ 'lesson:1' ] )
+		);
+
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_QUIZ, 20 ) );
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_LESSON, 3 ) );
+		$lock = $map->for_entity( CurriculumStop::KIND_LESSON, 4 );
+		self::assertSame( LockState::REASON_PREVIOUS_INCOMPLETE, $lock?->reason );
+		self::assertSame( 3, $lock?->blocking_entity?->id );
+	}
+
+	public function test_earlier_quiz_frontier_wins_over_later_sequential_frontier(): void {
+		$stops = [
+			$this->lesson( 1 ),
+			$this->quiz( 20, blocks: true ),
+			$this->lesson( 3 ),
+			$this->lesson( 4 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [ 20 => 'failed' ] ),
+			sequential: true,
+			completed: $this->completed( [ 'lesson:1' ] )
+		);
+
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_QUIZ, 20 ) );
+		// Even the sequential frontier stop itself sits behind the quiz gate.
+		$lock = $map->for_entity( CurriculumStop::KIND_LESSON, 3 );
+		self::assertSame( LockState::REASON_PROGRESSION, $lock?->reason );
+		self::assertSame( 20, $lock?->blocking_quiz?->id );
+		self::assertSame( 20, $map->for_entity( CurriculumStop::KIND_LESSON, 4 )?->blocking_quiz?->id );
+	}
+
+	public function test_earlier_sequential_frontier_wins_over_later_quiz_frontier(): void {
+		$stops = [
+			$this->lesson( 1 ),
+			$this->quiz( 20, blocks: true ),
+			$this->lesson( 3 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [ 20 => 'failed' ] ),
+			sequential: true,
+			completed: $this->completed( [] )
+		);
+
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_LESSON, 1 ) );
+		// The blocking quiz loses its "frontier stays open" privilege when an
+		// earlier lesson is the actual next step.
+		$lock = $map->for_entity( CurriculumStop::KIND_QUIZ, 20 );
+		self::assertSame( LockState::REASON_PREVIOUS_INCOMPLETE, $lock?->reason );
+		self::assertSame( 1, $lock?->blocking_entity?->id );
+		self::assertSame( 1, $map->for_entity( CurriculumStop::KIND_LESSON, 3 )?->blocking_entity?->id );
+	}
+
+	public function test_sequential_sessions_are_never_locked_but_do_not_clear_the_frontier(): void {
+		$stops = [
+			$this->lesson( 1 ),
+			$this->session( 40 ),
+			$this->quiz( 41 ),
+			$this->lesson( 5 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [] ),
+			sequential: true,
+			completed: $this->completed( [] )
+		);
+
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_SESSION, 40 ) );
+		self::assertNotNull( $map->for_entity( CurriculumStop::KIND_QUIZ, 41 ) );
+		self::assertNotNull( $map->for_entity( CurriculumStop::KIND_LESSON, 5 ) );
+	}
+
+	public function test_sequential_fully_completed_course_locks_nothing(): void {
+		$stops = [
+			$this->lesson( 1 ),
+			$this->quiz( 20 ),
+			$this->lesson( 3, has_topics: true ),
+			$this->topic( 4 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [] ),
+			sequential: true,
+			completed: $this->completed( [ 'lesson:1', 'topic:4' ] )
+		);
+
+		self::assertTrue( $map->is_empty() );
+	}
+
+	public function test_requires_all_still_applies_before_the_sequential_frontier(): void {
+		$stops = [
+			$this->quiz( 99, requires_all: true, is_final: true ),
+			$this->quiz( 10 ),
+			$this->lesson( 1 ),
+		];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [ 10 => 'failed' ] ),
+			sequential: true,
+			completed: $this->completed( [] )
+		);
+
+		$lock = $map->for_entity( CurriculumStop::KIND_QUIZ, 99 );
+		self::assertSame( LockState::REASON_COURSE_INCOMPLETE, $lock?->reason );
+		self::assertSame( 1, $lock?->remaining_quiz_count );
+		self::assertNull( $map->for_entity( CurriculumStop::KIND_LESSON, 1 ) );
+	}
+
+	/**
+	 * Defensive contract: the flag without the set must fail open, never
+	 * lock a course on a caller mistake.
+	 */
+	public function test_sequential_without_a_completed_set_locks_nothing(): void {
+		$stops = [ $this->lesson( 1 ), $this->lesson( 2 ) ];
+
+		$map = $this->policy->evaluate( $stops, $this->overlay( [] ), sequential: true );
+
+		self::assertTrue( $map->is_empty() );
+	}
+
+	public function test_previous_incomplete_serializes_to_the_wire_shape(): void {
+		$stops = [ $this->lesson( 1 ), $this->lesson( 2 ) ];
+
+		$map = $this->policy->evaluate(
+			$stops,
+			$this->overlay( [] ),
+			sequential: true,
+			completed: $this->completed( [] )
+		);
+
+		self::assertSame(
+			[
+				'reason'               => 'previous_incomplete',
+				'blocking_quiz'        => null,
+				'remaining_quiz_count' => 0,
+				'blocking_entity'      => [
+					'kind'  => 'lesson',
+					'id'    => 1,
+					'slug'  => 'lesson-1',
+					'title' => 'Lesson 1',
+				],
 			],
 			$map->to_node_value( CurriculumStop::KIND_LESSON, 2 )
 		);

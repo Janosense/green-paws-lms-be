@@ -7,10 +7,14 @@ namespace VL\LMS\Tests\Unit\Learn\Progression;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
+use VL\LMS\Domain\Progress\EntityType;
+use VL\LMS\Domain\Progress\Progress;
+use VL\LMS\Domain\Progress\ProgressStatus;
 use VL\LMS\Learn\Progression\CurriculumOrder;
 use VL\LMS\Learn\Progression\CurriculumStop;
 use VL\LMS\Learn\Progression\LockState;
 use VL\LMS\Learn\Progression\ProgressionGate;
+use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Repositories\QuizAttemptRepository;
 
 final class ProgressionGateTest extends TestCase {
@@ -20,12 +24,13 @@ final class ProgressionGateTest extends TestCase {
 	/**
 	 * @param list<CurriculumStop> $stops
 	 */
-	private function order( array $stops, ?int &$build_count = null ): CurriculumOrder {
-		return new class( $stops, $build_count ) extends CurriculumOrder {
+	private function order( array $stops, bool $sequential = false, ?int &$build_count = null ): CurriculumOrder {
+		return new class( $stops, $sequential, $build_count ) extends CurriculumOrder {
 
 			/** @param list<CurriculumStop> $stops */
 			public function __construct(
 				private array $stops,
+				private bool $sequential,
 				private ?int &$build_count
 			) {
 			}
@@ -36,6 +41,10 @@ final class ProgressionGateTest extends TestCase {
 				}
 				return $this->stops;
 			}
+
+			public function is_sequential_course( int $course_id ): bool {
+				return $this->sequential;
+			}
 		};
 	}
 
@@ -45,17 +54,24 @@ final class ProgressionGateTest extends TestCase {
 	private function gate(
 		array $stops,
 		QuizAttemptRepository $attempts,
+		?ProgressRepository $progress = null,
 		bool $can_edit = false,
+		bool $sequential = false,
 		?int &$build_count = null
 	): ProgressionGate {
-		return new class( $this->order( $stops, $build_count ), $attempts, $can_edit ) extends ProgressionGate {
+		$progress ??= Mockery::mock( ProgressRepository::class );
+		assert( $progress instanceof ProgressRepository );
+		$order = $this->order( $stops, $sequential, $build_count );
+
+		return new class( $order, $attempts, $progress, $can_edit ) extends ProgressionGate {
 
 			public function __construct(
 				CurriculumOrder $order,
 				QuizAttemptRepository $attempts,
+				ProgressRepository $progress,
 				private bool $can_edit
 			) {
-				parent::__construct( $order, $attempts );
+				parent::__construct( $order, $attempts, $progress );
 			}
 
 			protected function can_edit_course( int $user_id, int $course_id ): bool {
@@ -68,22 +84,105 @@ final class ProgressionGateTest extends TestCase {
 		return new CurriculumStop( CurriculumStop::KIND_QUIZ, $id, 'quiz-' . $id, 'Quiz ' . $id, true );
 	}
 
+	private function lesson( int $id ): CurriculumStop {
+		return new CurriculumStop( CurriculumStop::KIND_LESSON, $id, 'lesson-' . $id, 'Lesson ' . $id );
+	}
+
+	private function completed_row( EntityType $type, int $entity_id ): Progress {
+		$now = new \DateTimeImmutable( '2026-07-31T00:00:00Z' );
+		return new Progress(
+			1,
+			5,
+			$type,
+			$entity_id,
+			1,
+			ProgressStatus::COMPLETED,
+			null,
+			$now,
+			$now,
+			$now,
+			$now
+		);
+	}
+
 	/**
-	 * The point of the ungated fast path: no per-learner attempt aggregation
-	 * is issued for a course that does not use the feature.
+	 * The point of the ungated fast path: no per-learner aggregation of any
+	 * kind is issued for a course that uses neither gating feature.
 	 */
 	public function test_ungated_course_never_touches_the_attempt_repository(): void {
 		$attempts = Mockery::mock( QuizAttemptRepository::class );
 		$attempts->shouldNotReceive( 'status_map_for_user_in_course' );
+		$progress = Mockery::mock( ProgressRepository::class );
+		$progress->shouldNotReceive( 'list_for_user_in_course' );
+		assert( $progress instanceof ProgressRepository );
 
 		$stops = [
 			new CurriculumStop( CurriculumStop::KIND_LESSON, 1 ),
 			new CurriculumStop( CurriculumStop::KIND_QUIZ, 10, 'quiz-10', 'Quiz 10' ),
 		];
 
-		$map = $this->gate( $stops, $attempts )->lock_map( 5, 1 );
+		$map = $this->gate( $stops, $attempts, $progress )->lock_map( 5, 1 );
 
 		self::assertTrue( $map->is_empty() );
+	}
+
+	/**
+	 * Each per-learner read is tied to the rule that consumes it: a
+	 * sequential course with no gated quiz reads progress but never
+	 * aggregates quiz attempts.
+	 */
+	public function test_sequential_ungated_course_skips_the_attempt_repository_but_reads_progress(): void {
+		$attempts = Mockery::mock( QuizAttemptRepository::class );
+		$attempts->shouldNotReceive( 'status_map_for_user_in_course' );
+		$progress = Mockery::mock( ProgressRepository::class );
+		$progress->shouldReceive( 'list_for_user_in_course' )->once()->with( 5, 1 )->andReturn( [] );
+		assert( $progress instanceof ProgressRepository );
+
+		$gate = $this->gate( [ $this->lesson( 1 ), $this->lesson( 2 ) ], $attempts, $progress, sequential: true );
+
+		$lock = $gate->check( 5, 1, CurriculumStop::KIND_LESSON, 2 );
+
+		self::assertSame( LockState::REASON_PREVIOUS_INCOMPLETE, $lock?->reason );
+		self::assertSame( 1, $lock?->blocking_entity?->id );
+	}
+
+	public function test_free_gated_course_never_touches_the_progress_repository(): void {
+		$attempts = Mockery::mock( QuizAttemptRepository::class );
+		$attempts->shouldReceive( 'status_map_for_user_in_course' )->once()->andReturn( [] );
+		$progress = Mockery::mock( ProgressRepository::class );
+		$progress->shouldNotReceive( 'list_for_user_in_course' );
+		assert( $progress instanceof ProgressRepository );
+
+		$gate = $this->gate( [ $this->blocking_quiz( 10 ), $this->lesson( 2 ) ], $attempts, $progress );
+
+		$lock = $gate->check( 5, 1, CurriculumStop::KIND_LESSON, 2 );
+
+		self::assertSame( LockState::REASON_PROGRESSION, $lock?->reason );
+	}
+
+	public function test_sequential_course_resolves_the_frontier_from_completed_rows(): void {
+		$attempts = Mockery::mock( QuizAttemptRepository::class );
+		$attempts->shouldNotReceive( 'status_map_for_user_in_course' );
+		$progress = Mockery::mock( ProgressRepository::class );
+		$progress->shouldReceive( 'list_for_user_in_course' )->andReturn(
+			[
+				$this->completed_row( EntityType::LESSON, 1 ),
+				// Module and session rows never feed the frontier.
+				$this->completed_row( EntityType::MODULE, 999 ),
+			]
+		);
+		assert( $progress instanceof ProgressRepository );
+
+		$gate = $this->gate(
+			[ $this->lesson( 1 ), $this->lesson( 2 ), $this->lesson( 3 ) ],
+			$attempts,
+			$progress,
+			sequential: true
+		);
+
+		self::assertNull( $gate->check( 5, 1, CurriculumStop::KIND_LESSON, 1 ) );
+		self::assertNull( $gate->check( 5, 1, CurriculumStop::KIND_LESSON, 2 ) );
+		self::assertSame( 2, $gate->check( 5, 1, CurriculumStop::KIND_LESSON, 3 )?->blocking_entity?->id );
 	}
 
 	/**

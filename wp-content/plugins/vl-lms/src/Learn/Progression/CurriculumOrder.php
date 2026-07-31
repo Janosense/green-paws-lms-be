@@ -134,11 +134,25 @@ class CurriculumOrder {
 		array $quizzes_by_parent
 	): void {
 		$lesson_id = (int) $lesson->ID;
+		$topics    = $topics_by_parent[ $lesson_id ] ?? [];
 
-		$stops[] = new CurriculumStop( CurriculumStop::KIND_LESSON, $lesson_id );
+		// Slug and title feed the `blocking_entity` lock payload; raw
+		// `post_title` for the same reason `quiz_title()` documents.
+		$stops[] = new CurriculumStop(
+			CurriculumStop::KIND_LESSON,
+			$lesson_id,
+			(string) $lesson->post_name,
+			(string) $lesson->post_title,
+			has_topics: [] !== $topics
+		);
 
-		foreach ( $topics_by_parent[ $lesson_id ] ?? [] as $topic ) {
-			$stops[] = new CurriculumStop( CurriculumStop::KIND_TOPIC, (int) $topic->ID );
+		foreach ( $topics as $topic ) {
+			$stops[] = new CurriculumStop(
+				CurriculumStop::KIND_TOPIC,
+				(int) $topic->ID,
+				(string) $topic->post_name,
+				(string) $topic->post_title
+			);
 		}
 
 		$this->emit_quizzes( $stops, $quizzes_by_parent[ $lesson_id ] ?? [] );
@@ -238,6 +252,21 @@ class CurriculumOrder {
 
 	protected function is_cohort_course( int $course_id ): bool {
 		return 'cohort' === (string) get_post_meta( $course_id, '_vl_course_type', true );
+	}
+
+	/**
+	 * `true` when the course unlocks lessons one at a time. The mode meta
+	 * is only honoured on self-paced courses — cohort pacing comes from
+	 * the session schedule, so a stale `sequential` value left behind by
+	 * a course-type switch must not lock anything.
+	 */
+	public function is_sequential_course( int $course_id ): bool {
+		return ! $this->is_cohort_course( $course_id )
+			&& 'sequential' === $this->completion_mode( $course_id );
+	}
+
+	protected function completion_mode( int $course_id ): string {
+		return (string) get_post_meta( $course_id, '_vl_course_completion_mode', true );
 	}
 
 	/**

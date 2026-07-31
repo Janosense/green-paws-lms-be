@@ -15,11 +15,15 @@ use VL\LMS\Domain\Progress\EntityType;
 use VL\LMS\Domain\Progress\Progress;
 use VL\LMS\Domain\Progress\ProgressStatus;
 use VL\LMS\Learn\EntityHierarchy;
+use VL\LMS\Learn\Progression\EntityRef;
+use VL\LMS\Learn\Progression\LockState;
+use VL\LMS\Learn\Progression\QuizRef;
 use VL\LMS\Repositories\EnrollmentRepository;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Progress\ProgressEventResult;
 use VL\LMS\Services\Progress\ProgressService;
 use VL\LMS\Tests\Fixtures\InMemoryEnrollmentRepository;
+use VL\LMS\Tests\Fixtures\StubProgressionGate;
 use WP_Error;
 use WP_Post;
 use WP_REST_Request;
@@ -44,6 +48,8 @@ final class ProgressControllerTest extends TestCase {
 	private InMemoryEnrollmentRepository $enroll_repo;
 
 	private EnrollmentService $enroll_service;
+
+	private StubProgressionGate $progression;
 
 	private ProgressController $controller;
 
@@ -85,13 +91,19 @@ final class ProgressControllerTest extends TestCase {
 
 		$this->enroll_repo    = new InMemoryEnrollmentRepository();
 		$this->enroll_service = new EnrollmentService( $this->enroll_repo );
+		$this->progression    = new StubProgressionGate();
 
-		$this->controller = new ProgressController(
+		$this->controller = $this->build_controller( $this->progression );
+	}
+
+	private function build_controller( StubProgressionGate $progression ): ProgressController {
+		return new ProgressController(
 			'vl/v1',
 			$this->authenticator,
 			$this->enroll_service,
 			$this->hierarchy,
-			$this->service
+			$this->service,
+			$progression
 		);
 	}
 
@@ -349,6 +361,63 @@ final class ProgressControllerTest extends TestCase {
 		self::assertSame( 403, $response->get_error_data()['status'] );
 	}
 
+	/**
+	 * The progression check is what turns locks (and sequential mode's
+	 * "mark complete to advance" in particular) from advisory into
+	 * enforceable: a crafted POST against a locked entity must write
+	 * nothing.
+	 */
+	public function test_locked_entity_write_is_refused_with_403_and_lock_payload(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user() );
+		$lesson = $this->post( 200, 'vl_lesson' );
+		$course = $this->post( 100, 'vl_course' );
+		$this->hierarchy->shouldReceive( 'resolveCourse' )->with( $lesson )->andReturn( $course );
+		$this->enroll_repo->seed(
+			[
+				'user_id'   => 7,
+				'course_id' => 100,
+			]
+		);
+
+		$lock       = LockState::previous_incomplete( new EntityRef( 'lesson', 150, 'vstup', 'Вступ' ) );
+		$controller = $this->build_controller( new StubProgressionGate( $lock ) );
+		$this->service->shouldNotReceive( 'record' );
+
+		$response = $controller->handle( $this->request( self::valid_body( [ 'event_type' => 'complete' ] ) ) );
+
+		self::assertInstanceOf( WP_Error::class, $response );
+		self::assertSame( 'previous_incomplete', $response->get_error_code() );
+		self::assertSame( 403, $response->get_error_data()['status'] );
+		self::assertSame( 150, $response->get_error_data()['lock']['blocking_entity']['id'] );
+	}
+
+	/**
+	 * Not just `complete`: a locked entity must accumulate no view journal
+	 * rows either, so heartbeats are refused the same way.
+	 */
+	public function test_heartbeat_on_locked_entity_is_also_refused(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user() );
+		$lesson = $this->post( 200, 'vl_lesson' );
+		$course = $this->post( 100, 'vl_course' );
+		$this->hierarchy->shouldReceive( 'resolveCourse' )->with( $lesson )->andReturn( $course );
+		$this->enroll_repo->seed(
+			[
+				'user_id'   => 7,
+				'course_id' => 100,
+			]
+		);
+
+		$lock       = LockState::progression( new QuizRef( 10, 'quiz-10', 'Quiz 10' ) );
+		$controller = $this->build_controller( new StubProgressionGate( $lock ) );
+		$this->service->shouldNotReceive( 'record' );
+
+		$response = $controller->handle( $this->request( self::valid_body( [ 'event_type' => 'progress' ] ) ) );
+
+		self::assertInstanceOf( WP_Error::class, $response );
+		self::assertSame( 'progression_locked', $response->get_error_code() );
+		self::assertSame( 403, $response->get_error_data()['status'] );
+	}
+
 	public function test_success_returns_201_envelope(): void {
 		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user() );
 		$lesson = $this->post( 200, 'vl_lesson' );
@@ -390,6 +459,19 @@ final class ProgressControllerTest extends TestCase {
 		self::assertNull( $data['data']['progress']['completed_at'] );
 		self::assertSame( 42, $data['data']['fanup']['course_progress_pct'] );
 		self::assertFalse( $data['data']['fanup']['lesson_completed'] );
+
+		// The open path still consults the gate — with the DTO's own kind/id.
+		self::assertSame(
+			[
+				[
+					'user_id'   => 7,
+					'course_id' => 100,
+					'kind'      => 'lesson',
+					'entity_id' => 200,
+				],
+			],
+			$this->progression->calls
+		);
 	}
 
 	public function test_service_runtime_error_maps_to_404(): void {

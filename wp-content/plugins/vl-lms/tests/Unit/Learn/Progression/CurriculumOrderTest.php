@@ -30,14 +30,17 @@ final class CurriculumOrderTest extends TestCase {
 
 	private bool $cohort = false;
 
+	private string $completion_mode = 'free';
+
 	private int $query_count = 0;
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->children    = [];
-		$this->meta        = [];
-		$this->cohort      = false;
-		$this->query_count = 0;
+		$this->children        = [];
+		$this->meta            = [];
+		$this->cohort          = false;
+		$this->completion_mode = 'free';
+		$this->query_count     = 0;
 	}
 
 	private function post( int $id, string $type, int $parent, string $slug = '', string $title = '' ): WP_Post {
@@ -62,9 +65,10 @@ final class CurriculumOrderTest extends TestCase {
 		$children    = &$this->children;
 		$meta        = &$this->meta;
 		$cohort      = &$this->cohort;
+		$mode        = &$this->completion_mode;
 		$query_count = &$this->query_count;
 
-		return new class( $children, $meta, $cohort, $query_count ) extends CurriculumOrder {
+		return new class( $children, $meta, $cohort, $mode, $query_count ) extends CurriculumOrder {
 
 			/**
 			 * @param array<string, array<int, list<WP_Post>>> $children
@@ -74,6 +78,7 @@ final class CurriculumOrderTest extends TestCase {
 				private array &$children,
 				private array &$meta,
 				private bool &$cohort,
+				private string &$mode,
 				private int &$query_count
 			) {
 			}
@@ -108,6 +113,10 @@ final class CurriculumOrderTest extends TestCase {
 
 			protected function is_cohort_course( int $course_id ): bool {
 				return $this->cohort;
+			}
+
+			protected function completion_mode( int $course_id ): string {
+				return $this->mode;
 			}
 		};
 	}
@@ -180,6 +189,48 @@ final class CurriculumOrderTest extends TestCase {
 		$this->post( 1000, 'vl_topic', 100 );
 
 		self::assertSame( [ 'lesson:100', 'topic:1000' ], $this->keys() );
+	}
+
+	/**
+	 * Slug and title feed the sequential lock's `blocking_entity` payload;
+	 * `has_topics` is what keeps a lesson-with-topics out of the sequential
+	 * frontier.
+	 */
+	public function test_lesson_stops_record_identity_and_topic_ownership(): void {
+		$this->post( 100, 'vl_lesson', 1, 'vstup', 'Вступ' );
+		$this->post( 1000, 'vl_topic', 100, 'tema-1', 'Тема 1' );
+		$this->post( 200, 'vl_lesson', 1 );
+
+		$stops = $this->order()->for_course( 1 );
+
+		self::assertSame( 'vstup', $stops[0]->slug );
+		self::assertSame( 'Вступ', $stops[0]->title );
+		self::assertTrue( $stops[0]->has_topics );
+
+		self::assertSame( 'tema-1', $stops[1]->slug );
+		self::assertSame( 'Тема 1', $stops[1]->title );
+
+		self::assertFalse( $stops[2]->has_topics );
+	}
+
+	public function test_is_sequential_course_requires_self_paced_and_sequential_meta(): void {
+		$cases = [
+			[ false, 'sequential', true ],
+			[ false, 'free', false ],
+			[ true, 'sequential', false ],
+			[ true, 'free', false ],
+		];
+
+		foreach ( $cases as [ $cohort, $mode, $expected ] ) {
+			$this->cohort          = $cohort;
+			$this->completion_mode = $mode;
+
+			self::assertSame(
+				$expected,
+				$this->order()->is_sequential_course( 1 ),
+				sprintf( 'cohort=%s mode=%s', $cohort ? 'true' : 'false', $mode )
+			);
+		}
 	}
 
 	public function test_quiz_stops_carry_slug_title_and_the_gating_flags(): void {

@@ -219,6 +219,14 @@ final class LessonContentController {
 					'lock'   => $decision->lock?->to_array(),
 				]
 			),
+			'previous_incomplete'       => new WP_Error(
+				'previous_incomplete',
+				__( 'Complete the previous lesson to unlock this.', 'vl-lms' ),
+				[
+					'status' => 403,
+					'lock'   => $decision->lock?->to_array(),
+				]
+			),
 			default                     => new WP_Error(
 				'access_denied',
 				__( 'Access denied.', 'vl-lms' ),

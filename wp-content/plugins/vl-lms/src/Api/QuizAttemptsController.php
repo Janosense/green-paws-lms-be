@@ -460,6 +460,7 @@ final class QuizAttemptsController {
 			// authorization verdict — they were never allowed to start it.
 			'progression_locked'        => [ 403, __( 'Цей тест ще недоступний. Спочатку складіть попередній тест курсу.', 'vl-lms' ) ],
 			'course_quizzes_incomplete' => [ 403, __( 'Щоб скласти цей тест, спочатку складіть усі інші тести курсу.', 'vl-lms' ) ],
+			'previous_incomplete'       => [ 403, __( 'Цей тест ще недоступний. Спочатку завершіть попередній урок.', 'vl-lms' ) ],
 			'attempt_not_found'         => [ 404, __( 'Спробу не знайдено.', 'vl-lms' ) ],
 			'attempt_expired'           => [ 409, __( 'Час спроби вичерпано.', 'vl-lms' ) ],
 			'attempt_already_finalized' => [ 409, __( 'Спробу вже завершено.', 'vl-lms' ) ],

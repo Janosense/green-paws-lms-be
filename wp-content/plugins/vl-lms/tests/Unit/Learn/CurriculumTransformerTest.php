@@ -346,6 +346,7 @@ final class CurriculumTransformerTest extends TestCase {
 		self::assertSame( 'Feline Cardiology', $payload['course']['title'] );
 		// 300 (lesson_no_topics own duration) + 600 (topics-summed for lesson 123) + 600 (orphan).
 		self::assertSame( 1500, $payload['course']['duration_seconds'] );
+		self::assertSame( 'free', $payload['course']['completion_mode'] );
 
 		// Enrollment block.
 		self::assertSame(
@@ -472,6 +473,32 @@ final class CurriculumTransformerTest extends TestCase {
 		$payload     = $transformer->transform( $course, 5 );
 
 		self::assertNull( $payload['course']['enrollment'] );
+	}
+
+	public function test_course_block_reports_sequential_completion_mode(): void {
+		$course = $this->post( 100, 'vl_course', 'c', 'Course' );
+
+		$this->meta['_vl_course_completion_mode'][100] = 'sequential';
+
+		$payload = $this->makeTransformer()->transform( $course, 5 );
+
+		self::assertSame( 'sequential', $payload['course']['completion_mode'] );
+	}
+
+	/**
+	 * The wire is normalized: the "sequential is self-paced-only" rule
+	 * lives in the backend, so a cohort course reports `free` even when a
+	 * stale meta value says otherwise.
+	 */
+	public function test_cohort_course_reports_free_completion_mode_even_when_meta_says_sequential(): void {
+		$course = $this->post( 100, 'vl_course', 'c', 'Course' );
+
+		$this->cohort_courses[100]                     = true;
+		$this->meta['_vl_course_completion_mode'][100] = 'sequential';
+
+		$payload = $this->makeTransformer()->transform( $course, 5 );
+
+		self::assertSame( 'free', $payload['course']['completion_mode'] );
 	}
 
 	public function test_next_entity_walks_into_modules_then_orphans(): void {

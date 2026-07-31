@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace VL\LMS\Learn\Progression;
 
+use VL\LMS\Domain\Progress\EntityType;
+use VL\LMS\Domain\Progress\ProgressStatus;
 use VL\LMS\Learn\QuizStatusOverlay;
+use VL\LMS\Repositories\ProgressRepository;
 use VL\LMS\Repositories\QuizAttemptRepository;
 
 /**
@@ -26,11 +29,13 @@ use VL\LMS\Repositories\QuizAttemptRepository;
  *   - three to five `WP_Query` calls to build the order, fixed
  *     regardless of course size (see {@see CurriculumOrder});
  *   - **only if** that order contains a quiz carrying a gating flag, one
- *     further `status_map_for_user_in_course()` round trip.
+ *     further `status_map_for_user_in_course()` round trip;
+ *   - **only if** the course is in sequential completion mode, one
+ *     `list_for_user_in_course()` progress read.
  *
- * So a course that never enables the feature — every course that exists
- * today — pays the bounded order build and nothing else, and the
- * per-learner attempt aggregation is skipped entirely.
+ * So a course that enables neither feature pays the bounded order build
+ * and nothing else, and each per-learner aggregation is skipped unless
+ * the rule that consumes it is actually in play.
  *
  * A site-wide `meta_query` pre-check was considered as a cheaper fast
  * path and rejected: it scales with the number of gated quizzes across
@@ -54,7 +59,8 @@ class ProgressionGate {
 
 	public function __construct(
 		private readonly CurriculumOrder $order,
-		private readonly QuizAttemptRepository $attempts
+		private readonly QuizAttemptRepository $attempts,
+		private readonly ProgressRepository $progress
 	) {
 	}
 
@@ -86,16 +92,42 @@ class ProgressionGate {
 			return LockMap::empty();
 		}
 
-		$stops = $this->order->for_course( $course_id );
-		if ( ! $this->order->has_gated_quizzes( $stops ) ) {
+		$stops      = $this->order->for_course( $course_id );
+		$gated      = $this->order->has_gated_quizzes( $stops );
+		$sequential = $this->order->is_sequential_course( $course_id );
+
+		if ( ! $gated && ! $sequential ) {
 			return LockMap::empty();
 		}
 
-		$overlay = QuizStatusOverlay::fromMap(
-			$this->attempts->status_map_for_user_in_course( $user_id, $course_id )
-		);
+		// An empty overlay is safe on an ungated course: both quiz rules
+		// only ever consult it for flagged stops, and there are none.
+		$overlay = $gated
+			? QuizStatusOverlay::fromMap( $this->attempts->status_map_for_user_in_course( $user_id, $course_id ) )
+			: QuizStatusOverlay::fromMap( [] );
 
-		return ( new ProgressionPolicy() )->evaluate( $stops, $overlay );
+		$completed = $sequential ? $this->completed_set( $user_id, $course_id ) : null;
+
+		return ( new ProgressionPolicy() )->evaluate( $stops, $overlay, $sequential, $completed );
+	}
+
+	/**
+	 * COMPLETED lesson/topic rows mapped to {@see CurriculumStop::key()}
+	 * format — the sequential rule's input. Module and session rows are
+	 * irrelevant to the frontier and dropped.
+	 */
+	private function completed_set( int $user_id, int $course_id ): CompletedSet {
+		$keys = [];
+		foreach ( $this->progress->list_for_user_in_course( $user_id, $course_id ) as $row ) {
+			if ( ProgressStatus::COMPLETED !== $row->status ) {
+				continue;
+			}
+			if ( EntityType::LESSON !== $row->entity_type && EntityType::TOPIC !== $row->entity_type ) {
+				continue;
+			}
+			$keys[] = $row->entity_type->value . ':' . $row->entity_id;
+		}
+		return CompletedSet::fromKeys( $keys );
 	}
 
 	/**

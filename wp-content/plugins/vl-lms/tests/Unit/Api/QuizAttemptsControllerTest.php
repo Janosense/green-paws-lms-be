@@ -15,6 +15,8 @@ use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\Domain\Quiz\QuizAnswer;
 use VL\LMS\Domain\Quiz\QuizAttempt;
 use VL\LMS\Domain\Quiz\QuizAttemptStatus;
+use VL\LMS\Learn\Progression\EntityRef;
+use VL\LMS\Learn\Progression\LockState;
 use VL\LMS\Quiz\AttemptStateResult;
 use VL\LMS\Quiz\QuizAttemptException;
 use VL\LMS\Quiz\QuizAttemptService;
@@ -207,6 +209,28 @@ final class QuizAttemptsControllerTest extends TestCase {
 		self::assertInstanceOf( WP_Error::class, $result );
 		self::assertSame( 'attempts_exhausted', $result->get_error_code() );
 		self::assertSame( 409, $result->get_error_data()['status'] );
+	}
+
+	/**
+	 * The sequential-mode denial must have its own match arm: an unmapped
+	 * code falls through to the 500 default, which would report a learner
+	 * hitting a lock as a server error.
+	 */
+	public function test_handle_start_maps_previous_incomplete_to_403_with_lock_payload(): void {
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $this->user( 5 ) );
+		Functions\when( 'get_posts' )->justReturn( [ $this->quiz( 101 ) ] );
+
+		$lock = LockState::previous_incomplete( new EntityRef( 'lesson', 9, 'vstup', 'Вступ' ) );
+		$this->service->shouldReceive( 'start' )
+			->andThrow( new QuizAttemptException( 'previous_incomplete', '', null, $lock ) );
+
+		$result = $this->controller->handle_start( $this->request( [ 'slug' => 'q' ] ) );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'previous_incomplete', $result->get_error_code() );
+		self::assertSame( 403, $result->get_error_data()['status'] );
+		self::assertSame( 'lesson', $result->get_error_data()['lock']['blocking_entity']['kind'] );
+		self::assertSame( 9, $result->get_error_data()['lock']['blocking_entity']['id'] );
 	}
 
 	public function test_handle_fetch_returns_200_with_attempt_envelope(): void {

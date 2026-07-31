@@ -122,4 +122,26 @@ final class CourseMetaBoxTest extends TestCase {
 
 		self::assertSame( [], $this->written_values_for( '_vl_course_type' ), 'unknown enum value must be skipped' );
 	}
+
+	public function test_save_persists_completion_mode(): void {
+		$_POST = [
+			self::NONCE_FIELD            => 'nonce-x',
+			'_vl_course_completion_mode' => 'sequential',
+		];
+
+		( new CourseMetaBox() )->save( 42, self::postMock() );
+
+		self::assertSame( [ 'sequential' ], $this->written_values_for( '_vl_course_completion_mode' ) );
+	}
+
+	public function test_save_rejects_unknown_completion_mode(): void {
+		$_POST = [
+			self::NONCE_FIELD            => 'nonce-x',
+			'_vl_course_completion_mode' => 'random',
+		];
+
+		( new CourseMetaBox() )->save( 42, self::postMock() );
+
+		self::assertSame( [], $this->written_values_for( '_vl_course_completion_mode' ), 'unknown enum value must be skipped' );
+	}
 }

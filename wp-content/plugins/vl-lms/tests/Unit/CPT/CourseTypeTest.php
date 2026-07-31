@@ -36,6 +36,7 @@ final class CourseTypeTest extends TestCase {
 		'_vl_course_preview_video_url',
 		'_vl_course_certificate_enabled',
 		'_vl_course_passing_threshold',
+		'_vl_course_completion_mode',
 	];
 
 	protected function setUp(): void {
@@ -76,11 +77,11 @@ final class CourseTypeTest extends TestCase {
 		self::assertSame( 'dashicons-welcome-learn-more', $this->invoke_protected( 'menu_icon' ) );
 	}
 
-	public function test_meta_fields_contain_exactly_fourteen_documented_keys(): void {
+	public function test_meta_fields_contain_exactly_fifteen_documented_keys(): void {
 		$fields = $this->invoke_protected( 'meta_fields' );
 
 		self::assertSame( self::EXPECTED_META_KEYS, array_keys( $fields ) );
-		self::assertCount( 14, $fields );
+		self::assertCount( 15, $fields );
 	}
 
 	public function test_every_meta_field_is_single_with_show_in_rest_false_and_callable_sanitizer(): void {
@@ -112,6 +113,7 @@ final class CourseTypeTest extends TestCase {
 		self::assertSame( '', $fields['_vl_course_preview_video_url']['default'] );
 		self::assertFalse( $fields['_vl_course_certificate_enabled']['default'] );
 		self::assertSame( 80, $fields['_vl_course_passing_threshold']['default'] );
+		self::assertSame( 'free', $fields['_vl_course_completion_mode']['default'] );
 	}
 
 	public function test_sanitize_course_type(): void {
@@ -120,6 +122,14 @@ final class CourseTypeTest extends TestCase {
 		self::assertSame( 'self_paced', $this->invoke_sanitizer( 'sanitize_course_type', 'garbage' ) );
 		self::assertSame( 'self_paced', $this->invoke_sanitizer( 'sanitize_course_type', '' ) );
 		self::assertSame( 'self_paced', $this->invoke_sanitizer( 'sanitize_course_type', 42 ) );
+	}
+
+	public function test_sanitize_course_completion_mode(): void {
+		self::assertSame( 'free', $this->invoke_sanitizer( 'sanitize_course_completion_mode', 'free' ) );
+		self::assertSame( 'sequential', $this->invoke_sanitizer( 'sanitize_course_completion_mode', 'sequential' ) );
+		self::assertSame( 'free', $this->invoke_sanitizer( 'sanitize_course_completion_mode', 'garbage' ) );
+		self::assertSame( 'free', $this->invoke_sanitizer( 'sanitize_course_completion_mode', '' ) );
+		self::assertSame( 'free', $this->invoke_sanitizer( 'sanitize_course_completion_mode', null ) );
 	}
 
 	public function test_sanitize_currency_code(): void {

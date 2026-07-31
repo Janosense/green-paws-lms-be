@@ -7,6 +7,7 @@ namespace VL\LMS\Api;
 use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\Domain\Progress\EntityType;
 use VL\LMS\Learn\EntityHierarchy;
+use VL\LMS\Learn\Progression\ProgressionGate;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\Services\Progress\ProgressEventRequest;
 use VL\LMS\Services\Progress\ProgressEventResult;
@@ -44,7 +45,8 @@ final class ProgressController {
 		private readonly RestAuthenticator $authenticator,
 		private readonly EnrollmentService $enrollments,
 		private readonly EntityHierarchy $hierarchy,
-		private readonly ProgressService $service
+		private readonly ProgressService $service,
+		private readonly ProgressionGate $progression
 	) {
 	}
 
@@ -139,6 +141,28 @@ final class ProgressController {
 				'not_enrolled',
 				__( 'You are not enrolled in this course.', 'vl-lms' ),
 				[ 'status' => 403 ]
+			);
+		}
+
+		// A locked entity must accumulate no progress or view rows. The
+		// content read already 403s, so the player is never legitimately
+		// open on one — this refusal is what makes progression locks (and
+		// sequential mode's "mark complete to advance" in particular)
+		// enforceable against a crafted POST rather than advisory.
+		$lock = $this->progression->check(
+			(int) $user->ID,
+			(int) $course->ID,
+			$dto->entity_type->value,
+			$dto->entity_id
+		);
+		if ( null !== $lock ) {
+			return new WP_Error(
+				$lock->reason,
+				__( 'This part of the course is not available yet.', 'vl-lms' ),
+				[
+					'status' => 403,
+					'lock'   => $lock->to_array(),
+				]
 			);
 		}
 

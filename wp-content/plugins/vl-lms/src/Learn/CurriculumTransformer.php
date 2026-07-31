@@ -112,6 +112,7 @@ class CurriculumTransformer {
 				'title'            => PlainText::from_html( (string) get_the_title( $course ) ),
 				'duration_seconds' => $total_duration,
 				'enrollment'       => $this->enrollment_payload( $enrollment ),
+				'completion_mode'  => $this->completion_mode( $course_id ),
 			],
 			'modules'        => $modules,
 			'orphan_lessons' => $orphan_lessons,
@@ -127,6 +128,21 @@ class CurriculumTransformer {
 	 */
 	protected function is_cohort_course( int $course_id ): bool {
 		return 'cohort' === (string) get_post_meta( $course_id, '_vl_course_type', true );
+	}
+
+	/**
+	 * Normalized for the wire: cohort courses always report `free`, so the
+	 * frontend never re-implements the "sequential is self-paced-only"
+	 * rule that {@see Progression\CurriculumOrder::is_sequential_course()}
+	 * owns. Drives the mode-specific hint next to the mark-complete button.
+	 */
+	protected function completion_mode( int $course_id ): string {
+		if ( $this->is_cohort_course( $course_id ) ) {
+			return 'free';
+		}
+		return 'sequential' === (string) get_post_meta( $course_id, '_vl_course_completion_mode', true )
+			? 'sequential'
+			: 'free';
 	}
 
 	/**

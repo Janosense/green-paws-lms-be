@@ -194,6 +194,7 @@
 		}
 		var isCohort = $select.val() === 'cohort';
 		$( '[data-vl-cohort-fields]' ).toggle( isCohort );
+		$( '[data-vl-self-paced-fields]' ).toggle( ! isCohort );
 		// Cohort courses are built from live sessions; self-paced from
 		// modules and/or course-direct lessons.
 		$( '#vl_lms_module_list' ).toggle( ! isCohort );

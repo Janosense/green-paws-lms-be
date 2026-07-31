@@ -26,6 +26,12 @@ class CourseMetaBox extends AbstractMetaBox {
 	/** @var list<string> */
 	private const array COURSE_TYPES = [ self::TYPE_SELF_PACED, self::TYPE_COHORT ];
 
+	private const string MODE_FREE       = 'free';
+	private const string MODE_SEQUENTIAL = 'sequential';
+
+	/** @var list<string> */
+	private const array COMPLETION_MODES = [ self::MODE_FREE, self::MODE_SEQUENTIAL ];
+
 	public function __construct() {
 		parent::__construct( 'vl_course' );
 	}
@@ -154,6 +160,20 @@ class CourseMetaBox extends AbstractMetaBox {
 			'Видавати сертифікат при завершенні',
 			$this->meta_bool( $post->ID, '_vl_course_certificate_enabled' )
 		);
+		// Sequential unlocking only exists for self-paced courses (cohort
+		// pacing comes from the session schedule), so the row hides with
+		// the same JS toggle that shows the cohort fields — inverted.
+		echo '<div class="vl-lms-self-paced-fields" data-vl-self-paced-fields>';
+		$this->render_select_row(
+			'_vl_course_completion_mode',
+			'Порядок проходження',
+			$this->meta_string( $post->ID, '_vl_course_completion_mode' ),
+			[
+				self::MODE_FREE       => 'Вільний порядок',
+				self::MODE_SEQUENTIAL => 'Послідовний (крок за кроком)',
+			]
+		);
+		echo '</div>';
 
 		echo '</div>';
 	}
@@ -232,5 +252,10 @@ class CourseMetaBox extends AbstractMetaBox {
 			'_vl_course_certificate_enabled',
 			$this->post_checkbox( '_vl_course_certificate_enabled' )
 		);
+
+		$mode = $this->post_enum( '_vl_course_completion_mode', self::COMPLETION_MODES );
+		if ( null !== $mode ) {
+			update_post_meta( $post_id, '_vl_course_completion_mode', $mode );
+		}
 	}
 }

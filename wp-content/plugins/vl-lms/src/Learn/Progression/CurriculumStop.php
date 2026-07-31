@@ -33,7 +33,8 @@ final class CurriculumStop {
 		public readonly string $title = '',
 		public readonly bool $blocks_progression = false,
 		public readonly bool $requires_all_quizzes = false,
-		public readonly bool $is_final_exam = false
+		public readonly bool $is_final_exam = false,
+		public readonly bool $has_topics = false
 	) {
 	}
 
@@ -47,6 +48,10 @@ final class CurriculumStop {
 
 	public function to_quiz_ref(): QuizRef {
 		return new QuizRef( $this->id, $this->slug, $this->title );
+	}
+
+	public function to_entity_ref(): EntityRef {
+		return new EntityRef( $this->kind, $this->id, $this->slug, $this->title );
 	}
 
 	/**
