@@ -2,7 +2,7 @@
 # This file is distributed under the same license as the Plugins - Akismet Anti-spam: Spam Protection - Stable (latest release) package.
 msgid ""
 msgstr ""
-"PO-Revision-Date: 2025-11-12 16:53:06+0000\n"
+"PO-Revision-Date: 2026-07-10 21:20:21+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -10,6 +10,150 @@ msgstr ""
 "X-Generator: GlotPress/4.0.3\n"
 "Language: uk_UA\n"
 "Project-Id-Version: Plugins - Akismet Anti-spam: Spam Protection - Stable (latest release)\n"
+
+#: class.akismet-admin.php:118
+msgid "Akismet API Key"
+msgstr "API-ключ Akismet"
+
+#: class.akismet-admin.php:119
+msgid "API key for Akismet."
+msgstr "API-ключ для Akismet."
+
+#: views/config.php:72
+msgid "View detailed stats"
+msgstr "Переглянути детальну статистику"
+
+#: views/config.php:104
+msgid "Copy API key"
+msgstr "Копіювати ключ API"
+
+#: class-akismet-connector.php:130
+msgid "Protect your site from spam."
+msgstr "Захистіть свій сайт від спаму."
+
+#: abilities/class-akismet-ability-comment-check.php:33
+msgid "Check comment for spam"
+msgstr "Перевірити коментар на спам"
+
+#: abilities/class-akismet-ability-comment-check.php:56
+msgid "Name of the comment author."
+msgstr "Ім'я автора коментаря."
+
+#: abilities/class-akismet-ability-comment-check.php:60
+msgid "Email address of the comment author."
+msgstr "Адреса ел.пошти автора коментаря."
+
+#: abilities/class-akismet-ability-comment-check.php:65
+msgid "URL/website of the comment author."
+msgstr "URL/сайт автора коментаря."
+
+#: abilities/class-akismet-ability-comment-check.php:70
+msgid "The comment content/text."
+msgstr "Вміст/текст коментаря."
+
+#: abilities/class-akismet-ability-comment-check.php:83
+msgid "The permanent link to the post or page."
+msgstr "Постійне посилання на запис або сторінку."
+
+#: abilities/class-akismet-ability-comment-check.php:88
+msgid "IP address of the commenter."
+msgstr "IP-адреса коментатора."
+
+#: abilities/class-akismet-ability-comment-check.php:96
+msgid "The HTTP_REFERER header."
+msgstr "Заголовок HTTP_REFERER."
+
+#: abilities/class-akismet-ability-get-stats.php:33
+msgid "Get Akismet statistics"
+msgstr "Отримати статистику Akismet"
+
+#: views/config.php:251
+msgid "Tool access"
+msgstr "Доступ до інструментів"
+
+#: views/config.php:264
+msgid "Allow "
+msgstr "Дозволити "
+
+#: views/config.php:264
+msgid "Model Context Protocol"
+msgstr "Протокол контексту моделі"
+
+#: views/config.php:264
+msgid "MCP"
+msgstr "MCP"
+
+#: views/config.php:264
+msgid " clients to access Akismet data and functionality"
+msgstr " доступ до даних та функцій Akismet"
+
+#: abilities/class-akismet-ability-get-stats.php:80
+msgid "Total number of spam comments blocked."
+msgstr "Загальна кількість заблокованих спам-коментарів."
+
+#: abilities/class-akismet-ability-get-stats.php:84
+msgid "Total number of legitimate comments approved."
+msgstr "Загальна кількість схвалених допустимих коментарів."
+
+#: abilities/class-akismet-ability-get-stats.php:88
+msgid "Number of spam comments that were missed."
+msgstr "Кількість пропущених спам-коментарів."
+
+#: abilities/class-akismet-ability-get-stats.php:92
+msgid "Number of legitimate comments incorrectly marked as spam."
+msgstr "Кількість допустимих коментарів, помилково позначених як спам."
+
+#: abilities/class-akismet-ability-get-stats.php:96
+msgid "Accuracy percentage of spam detection."
+msgstr "Точність визначення спаму у відсотках."
+
+#: abilities/class-akismet-ability-get-stats.php:100
+msgid "Estimated time saved by Akismet blocking spam, in seconds."
+msgstr "Приблизний час в секундах, заощаджений Akismet на блокуванні спаму."
+
+#: abilities/class-akismet-ability-get-stats.php:104
+msgid "Monthly breakdown of statistics."
+msgstr "Розбиття статистики по місяцях."
+
+#: abilities/class-akismet-ability-get-stats.php:110
+msgid "Total number of spam comments blocked in this period."
+msgstr "Загальна кількість спам-коментарів, заблокованих за цей період."
+
+#: abilities/class-akismet-ability-get-stats.php:114
+msgid "Total number of legitimate comments approved in this period."
+msgstr "Загальна кількість допустимих коментарів, схвалених за цей період."
+
+#: abilities/class-akismet-ability-get-stats.php:118
+msgid "Number of spam comments that were missed in this period."
+msgstr "Кількість спам-коментарів, пропущених за цей період."
+
+#: abilities/class-akismet-ability-get-stats.php:122
+msgid "Number of legitimate comments incorrectly marked as spam in this period."
+msgstr "Кількість допустимих коментарів, помилково позначених як спам за цей період."
+
+#: abilities/class-akismet-ability-get-stats.php:133
+msgid "The time interval for these stats."
+msgstr "Проміжок часу, до якого належить ця статистика."
+
+#: abilities/class-akismet-ability-get-stats.php:137
+msgid "Error message if the operation could not be completed."
+msgstr "Повідомлення про помилку, якщо операція не може бути виконати."
+
+#: abilities/class-akismet-ability-get-stats.php:189
+msgid "Failed to retrieve stats from Akismet API."
+msgstr "Не вдалося отримати статистики від API Akismet."
+
+#: views/setup-jetpack.php:62
+msgid "Contact support"
+msgstr "Зв'язатися зі службою підтримки"
+
+#: views/setup-jetpack.php:49
+msgid "Choose a plan on Akismet.com"
+msgstr "Виберіть тарифний план на Akismet.com"
+
+#: views/setup.php:71
+msgid "Get started"
+msgstr "Почати"
 
 #: class.akismet-admin.php:739
 msgid "Akismet provisionally cleared this comment."
@@ -316,6 +460,10 @@ msgstr "Ваш сайт не може підключитися до сервер
 #: views/predefined.php:7
 msgid "An Akismet API key has been defined in the %s file for this site."
 msgstr "Ключ API Akismet був визначений для цього сайту в файлі %s."
+
+#: views/predefined.php:2
+msgid "Manual configuration"
+msgstr "Ручне налаштування"
 
 #: class.akismet-admin.php:300
 msgid "On this page, you are able to update your Akismet settings and view spam stats."
@@ -719,14 +867,6 @@ msgstr "Очищено плагіном Akismet"
 msgid "Un-spammed by %s"
 msgstr "Позначено як не спам корисувачем %s"
 
-#. translators: %s: Number of comments.
-#: class.akismet-admin.php:703
-msgid "%s approved"
-msgid_plural "%s approved"
-msgstr[0] "%s узгоджений"
-msgstr[1] "%s узгоджені"
-msgstr[2] "%s узгоджених"
-
 #: class.akismet-admin.php:677
 msgid "History"
 msgstr "Історія"
@@ -985,6 +1125,14 @@ msgstr "Наступна дата виставлення рахунку"
 #: class.akismet.php:2093
 msgid "Akismet %1$s requires WordPress %2$s or higher."
 msgstr "Akismet %1$s вимагає WordPress %2$s або вище."
+
+#. translators: %s: Number of comments.
+#: class.akismet-admin.php:703
+msgid "%s approved"
+msgid_plural "%s approved"
+msgstr[0] "%s схвалений"
+msgstr[1] "%s схвалені"
+msgstr[2] "%s схвалено"
 
 #: class.akismet-admin.php:103
 msgid "Comment History"

@@ -785,22 +785,6 @@ msgstr "https://example.com"
 msgid "Themes"
 msgstr "Теми"
 
-#: patterns/hidden-404.php:36
-msgctxt "404 error message"
-msgid "The page you are looking for doesn't exist, or it has been moved. Please try searching using the form below."
-msgstr "Сторінка, яку ви шукаєте, не існує, або вона була переміщена. Спробуйте знайти за допомогою форми пошуку нижче."
-
-#: patterns/contact-info-locations.php:35
-#: patterns/page-link-in-bio-heading-paragraph-links-image.php:44
-#: patterns/page-link-in-bio-with-tight-margins.php:56
-msgid "TikTok"
-msgstr "TikTok"
-
-#: styles/05-twilight.json styles/colors/05-twilight.json
-msgctxt "Style variation name"
-msgid "Twilight"
-msgstr "Сутінки"
-
 #: patterns/hidden-sidebar.php:38 patterns/page-portfolio-home.php:65
 #: patterns/page-portfolio-home.php:87 patterns/page-portfolio-home.php:121
 #: patterns/page-portfolio-home.php:154 patterns/page-portfolio-home.php:176
@@ -819,6 +803,22 @@ msgstr "Сутінки"
 msgctxt "Message explaining that there are no results returned from a search."
 msgid "Sorry, but nothing was found. Please try a search with different keywords."
 msgstr "Вибачте, але нічого не знайдено. Будь ласка, спробуйте здійснити пошук за іншими ключовими словами."
+
+#: patterns/hidden-404.php:36
+msgctxt "404 error message"
+msgid "The page you are looking for doesn't exist, or it has been moved. Please try searching using the form below."
+msgstr "Сторінка, яку ви шукаєте, не існує, або вона була переміщена. Спробуйте знайти за допомогою форми пошуку нижче."
+
+#: patterns/contact-info-locations.php:35
+#: patterns/page-link-in-bio-heading-paragraph-links-image.php:44
+#: patterns/page-link-in-bio-with-tight-margins.php:56
+msgid "TikTok"
+msgstr "TikTok"
+
+#: styles/05-twilight.json styles/colors/05-twilight.json
+msgctxt "Style variation name"
+msgid "Twilight"
+msgstr "Сутінки"
 
 #: patterns/services-subscriber-only-section.php:55
 msgid "View plans"
@@ -887,6 +887,11 @@ msgctxt "Sample description for banner with flower."
 msgid "Like flowers that bloom in unexpected places, every story unfolds with beauty and resilience, revealing hidden wonders."
 msgstr "Подібно до квітів, що розквітають у несподіваних місцях, кожна історія розгортається з красою і стійкістю, відкриваючи приховані дива."
 
+#: patterns/page-cv-bio.php:31
+msgctxt "Pattern placeholder text."
+msgid "My name is Nora Winslow Keene, and I’m a committed public interest attorney. Living in Denver, Colorado, I’ve spent years championing the rights of underrepresented workers. A graduate of Stanford University, I played a key role in securing critical protections for agricultural laborers, ensuring better wages and access to healthcare. My work has focused on advocating for environmental justice and improving the quality of life for rural communities. Every case I take on is driven by the belief that everyone deserves dignity and fair treatment in the workplace."
+msgstr "Мене звати Нора Вінслоу Кін, і я віддана справі захисту суспільних інтересів. Я живу в Денвері, штат Колорадо, і вже багато років відстоюю права недостатньо представлених працівників. Випускник Стенфордського університету, я відіграв ключову роль у забезпеченні критично важливого захисту працівників сільського господарства, забезпеченні кращої заробітної плати та доступу до охорони здоров'я. Моя робота зосереджена на захисті екологічної справедливості та покращенні якості життя сільських громад. Кожна справа, за яку я беруся, ґрунтується на переконанні, що кожна людина заслуговує на гідне та справедливе ставлення на робочому місці."
+
 #: patterns/banner-intro.php
 msgctxt "Pattern title"
 msgid "Intro with left-aligned description"
@@ -913,11 +918,6 @@ msgstr "Флер."
 msgctxt "Pattern description"
 msgid "A landing page for the book with a hero section, pre-order links, locations, FAQs and newsletter signup."
 msgstr "Цільова сторінка книги з розділом про героя, посиланнями на попереднє замовлення, локаціями, поширеними запитаннями та підпискою на розсилку."
-
-#: patterns/page-cv-bio.php:31
-msgctxt "Pattern placeholder text."
-msgid "My name is Nora Winslow Keene, and I’m a committed public interest attorney. Living in Denver, Colorado, I’ve spent years championing the rights of underrepresented workers. A graduate of Stanford University, I played a key role in securing critical protections for agricultural laborers, ensuring better wages and access to healthcare. My work has focused on advocating for environmental justice and improving the quality of life for rural communities. Every case I take on is driven by the belief that everyone deserves dignity and fair treatment in the workplace."
-msgstr "Мене звати Нора Вінслоу Кін, і я віддана справі захисту суспільних інтересів. Я живу в Денвері, штат Колорадо, і вже багато років відстоюю права недостатньо представлених працівників. Випускник Стенфордського університету, я відіграв ключову роль у забезпеченні критично важливого захисту працівників сільського господарства, забезпеченні кращої заробітної плати та доступу до охорони здоров'я. Моя робота зосереджена на захисті екологічної справедливості та покращенні якості життя сільських громад. Кожна справа, за яку я беруся, ґрунтується на переконанні, що кожна людина заслуговує на гідне та справедливе ставлення на робочому місці."
 
 #: patterns/banner-poster.php:15
 msgid "Picture of a historical building in ruins."
@@ -1046,18 +1046,18 @@ msgctxt "Example event time in pattern."
 msgid "9 AM — 11 AM"
 msgstr "9 - 11"
 
-#. translators: %s is the brand name, e.g., 'Fleurs'.
-#: patterns/banner-with-description-and-images-grid.php:31
-#: patterns/overlapped-images.php:47
-msgid "%s is a flower delivery and subscription business. Based in the EU, our mission is not only to deliver stunning flower arrangements across but also foster knowledge and enthusiasm on the beautiful gift of nature: flowers."
-msgstr "%s - це компанія, що займається доставкою та підпискою на квіти. Наша місія, що базується в ЄС, полягає не лише в тому, щоб доставляти приголомшливі квіткові композиції по всьому світу, але й сприяти поширенню знань та ентузіазму щодо прекрасного дару природи - квітів."
-
 #: patterns/contact-info-locations.php:54
 #: patterns/contact-info-locations.php:66
 #: patterns/contact-info-locations.php:78
 #: patterns/contact-info-locations.php:90
 msgid "123 Example St. Manhattan, NY 10300 United States"
 msgstr "123 Example St. Manhattan, NY 10300 United States"
+
+#. translators: %s is the brand name, e.g., 'Fleurs'.
+#: patterns/banner-with-description-and-images-grid.php:31
+#: patterns/overlapped-images.php:47
+msgid "%s is a flower delivery and subscription business. Based in the EU, our mission is not only to deliver stunning flower arrangements across but also foster knowledge and enthusiasm on the beautiful gift of nature: flowers."
+msgstr "%s - це компанія, що займається доставкою та підпискою на квіти. Наша місія, що базується в ЄС, полягає не лише в тому, щоб доставляти приголомшливі квіткові композиції по всьому світу, але й сприяти поширенню знань та ентузіазму щодо прекрасного дару природи - квітів."
 
 #: patterns/cta-events-list.php:106 patterns/cta-events-list.php:144
 msgid "Thornville, OH, USA"
