@@ -182,6 +182,12 @@ class CertificatesController {
 			$this->repository->update_pdf_path( $cert->id, $generated->relative_path );
 		}
 
+		// stream_pdf() exits before `rest_pre_serve_request` can fire, so the
+		// vl-cors mu-plugin never gets to emit its headers on this path —
+		// ask it to emit them now or the browser discards the response.
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound, WordPress.NamingConventions.ValidHookName.UseUnderscores -- Hook is owned and named by the vl-cors mu-plugin.
+		do_action( 'vl_cors/emit_headers' );
+
 		$this->stream_pdf( $generated->absolute_path, $cert->uuid );
 		return null;
 	}

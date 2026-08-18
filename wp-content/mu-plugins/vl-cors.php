@@ -35,6 +35,15 @@
  *    the configured namespaces, the filter delegates back to
  *    `rest_send_cors_headers()` so WP-Admin, Gutenberg, and any third-
  *    party plugin keep their existing behavior unchanged.
+ * 4. **Offers an explicit emission hook for streaming endpoints.** The
+ *    normal path emits headers on `rest_pre_serve_request`, which only
+ *    fires after the route callback returns. A callback that streams its
+ *    own body and `exit`s (e.g. the certificate PDF download) dies before
+ *    that filter runs and would ship no CORS headers at all — the browser
+ *    then discards the response. Such endpoints fire
+ *    `do_action( 'vl_cors/emit_headers' )` immediately before streaming;
+ *    the policy (origin allowlist, credentials, methods) still lives
+ *    exclusively here.
  *
  * Configuration
  * -------------
@@ -100,6 +109,10 @@ final class Handler {
 		// normally; hook early on `rest_api_init`, which fires on every
 		// REST request.
 		add_action( 'rest_api_init', [ $instance, 'handlePreflight' ], 15 );
+
+		// Escape hatch for route callbacks that stream their own body and
+		// `exit` before `rest_pre_serve_request` can fire (see docblock §4).
+		add_action( 'vl_cors/emit_headers', [ $instance, 'emitHeadersNow' ] );
 	}
 
 	public function registerRestHooks(): void {
@@ -115,6 +128,16 @@ final class Handler {
 
 		$this->emitCorsHeaders();
 		return $served;
+	}
+
+	/**
+	 * `vl_cors/emit_headers` listener: emit the same allowlist-gated
+	 * headers as the REST filter path, for callbacks that bypass it by
+	 * streaming and exiting. The origin allowlist still applies — a
+	 * disallowed origin gets no headers, exactly like the filter path.
+	 */
+	public function emitHeadersNow(): void {
+		$this->emitCorsHeaders();
 	}
 
 	public function handlePreflight(): void {

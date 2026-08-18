@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Tests\Unit\Api;
 
 use Brain\Monkey;
+use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -213,6 +214,11 @@ final class CertificatesControllerTest extends TestCase {
 			->once()
 			->andReturn( new GeneratedPdf( '/tmp/abs.pdf', 'certificates/x.pdf', false ) );
 		$this->repo->shouldReceive( 'update_pdf_path' )->once()->with( $cert->id, 'certificates/x.pdf' );
+
+		// stream_pdf() exits before `rest_pre_serve_request`, so the vl-cors
+		// mu-plugin must be asked to emit CORS headers explicitly — without
+		// this action the browser discards the streamed PDF.
+		Actions\expectDone( 'vl_cors/emit_headers' )->once();
 
 		$res = $this->controller->download( $this->request( [ 'uuid' => $cert->uuid ] ) );
 
