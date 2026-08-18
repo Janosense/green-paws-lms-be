@@ -336,12 +336,31 @@ class CompletionPropagator {
 	 * {@see EntityHierarchy::resolveCourse()}. `O(n_final_exams_in_system)`
 	 * — acceptable until courses commonly host many final exams.
 	 *
-	 * Isolated as a `protected` seam so tests can subclass and supply a
-	 * deterministic curriculum without instantiating `WP_Query`.
+	 * Two-level `protected` seam: tests may override this method to supply
+	 * final-exam ids wholesale, or override only
+	 * {@see self::query_final_exam_quiz_posts()} to feed deterministic
+	 * posts through the real `resolveCourse()` filter.
 	 *
 	 * @return list<int>
 	 */
 	protected function find_final_exam_quiz_ids_in_course( int $course_id ): array {
+		$ids = [];
+		foreach ( $this->query_final_exam_quiz_posts() as $quiz ) {
+			$course = $this->hierarchy->resolveCourse( $quiz );
+			if ( $course instanceof WP_Post && (int) $course->ID === $course_id ) {
+				$ids[] = (int) $quiz->ID;
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * Every published `vl_quiz` flagged `_vl_quiz_is_final_exam=1`,
+	 * course-agnostic. Isolated so tests can bypass `WP_Query`.
+	 *
+	 * @return list<WP_Post>
+	 */
+	protected function query_final_exam_quiz_posts(): array {
 		$query = new WP_Query(
 			[
 				'post_type'              => 'vl_quiz',
@@ -359,17 +378,13 @@ class CompletionPropagator {
 			]
 		);
 
-		$ids = [];
+		$posts = [];
 		foreach ( $query->posts as $quiz ) {
-			if ( ! $quiz instanceof WP_Post ) {
-				continue;
-			}
-			$course = $this->hierarchy->resolveCourse( $quiz );
-			if ( $course instanceof WP_Post && (int) $course->ID === $course_id ) {
-				$ids[] = (int) $quiz->ID;
+			if ( $quiz instanceof WP_Post ) {
+				$posts[] = $quiz;
 			}
 		}
-		return $ids;
+		return $posts;
 	}
 
 	/**

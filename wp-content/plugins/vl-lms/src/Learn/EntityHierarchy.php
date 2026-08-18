@@ -12,8 +12,18 @@ use WP_Query;
  *
  * The four LMS post types form an ordered tree:
  * `vl_course → vl_module → vl_lesson → vl_topic`. A lesson MAY skip the
- * module level and hang directly off a course. Anything else is treated as
- * a missing link and resolved to `null`.
+ * module level and hang directly off a course. The attachment CPTs
+ * `vl_quiz` / `vl_assignment` hang off any of the four parent types the
+ * curriculum picker offers (course, module, lesson, session), and
+ * `vl_session` parents directly to a course — all of them resolve to a
+ * course too. Anything else is treated as a missing link and resolved to
+ * `null`.
+ *
+ * Keep the attachment arms in sync with
+ * {@see \VL\LMS\Admin\MetaBoxes\CurriculumParentPickerTrait}: the E2
+ * final-exam-arm discovery in `CompletionPropagator` filters flagged
+ * quizzes through {@see self::resolveCourse()}, so a missing arm silently
+ * empties the final-exam list and the arm auto-passes.
  *
  * Pure helper — only consumes `get_post()` and `WP_Query`, no DB writes.
  * Used by {@see Access\LessonAccessGate} now and by the curriculum
@@ -33,11 +43,13 @@ class EntityHierarchy {
 	// phpcs:ignore WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Phase 5.1 spec contract; see class docblock.
 	public function resolveCourse( WP_Post $post ): ?WP_Post {
 		return match ( $post->post_type ) {
-			'vl_course' => $post,
-			'vl_module' => $this->parent_of_type( $post, 'vl_course' ),
-			'vl_lesson' => $this->resolve_lesson_course( $post ),
-			'vl_topic'  => $this->resolve_topic_course( $post ),
-			default     => null,
+			'vl_course'  => $post,
+			'vl_module'  => $this->parent_of_type( $post, 'vl_course' ),
+			'vl_lesson'  => $this->resolve_lesson_course( $post ),
+			'vl_topic'   => $this->resolve_topic_course( $post ),
+			'vl_session' => $this->parent_of_type( $post, 'vl_course' ),
+			'vl_quiz', 'vl_assignment' => $this->resolve_attachment_course( $post ),
+			default      => null,
 		};
 	}
 
@@ -123,6 +135,20 @@ class EntityHierarchy {
 			return $this->parent_of_type( $parent, 'vl_course' );
 		}
 		return null;
+	}
+
+	private function resolve_attachment_course( WP_Post $post ): ?WP_Post {
+		$parent = $this->published_post_by_id( (int) $post->post_parent );
+		if ( null === $parent ) {
+			return null;
+		}
+		return match ( $parent->post_type ) {
+			'vl_course'  => $parent,
+			'vl_module'  => $this->parent_of_type( $parent, 'vl_course' ),
+			'vl_lesson'  => $this->resolve_lesson_course( $parent ),
+			'vl_session' => $this->parent_of_type( $parent, 'vl_course' ),
+			default      => null,
+		};
 	}
 
 	private function resolve_topic_course( WP_Post $topic ): ?WP_Post {

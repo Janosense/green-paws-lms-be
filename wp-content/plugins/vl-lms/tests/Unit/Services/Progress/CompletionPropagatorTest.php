@@ -52,11 +52,23 @@ final class CompletionPropagatorTest extends TestCase {
 	/** @var Mockery\MockInterface&EntityHierarchy */
 	private $hierarchy;
 
+	/** @var array<int, WP_Post> */
+	private array $post_index = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
 
 		Functions\when( '__' )->returnArg();
+
+		$this->post_index = [];
+
+		$index = &$this->post_index;
+		Functions\when( 'get_post' )->alias(
+			static function ( int $id ) use ( &$index ): ?WP_Post {
+				return $index[ $id ] ?? null;
+			}
+		);
 
 		$this->now           = new \DateTimeImmutable( '2026-04-28 12:00:00', new \DateTimeZone( 'UTC' ) );
 		$this->progress      = new InMemoryProgressRepository( fn (): \DateTimeImmutable => $this->now );
@@ -138,11 +150,81 @@ final class CompletionPropagatorTest extends TestCase {
 		};
 	}
 
+	/**
+	 * Propagator wired to a REAL `EntityHierarchy` (backed by the `get_post`
+	 * post index) so the `resolveCourse()` filter inside
+	 * `find_final_exam_quiz_ids_in_course()` is actually exercised — only the
+	 * `WP_Query` seam supplying the flagged quiz posts is overridden.
+	 *
+	 * @param list<WP_Post> $final_exam_posts
+	 */
+	private function propagator_with_real_hierarchy( array $final_exam_posts ): CompletionPropagator {
+		return new class(
+			$this->progress,
+			new EntityHierarchy(),
+			$this->calculator,
+			$this->enrollments,
+			$this->quiz_attempts,
+			$this->sibling_topics,
+			$this->sibling_lessons,
+			$final_exam_posts,
+			$this->now
+		) extends CompletionPropagator {
+
+			/**
+			 * @param array<int, list<WP_Post>> $sibling_topics
+			 * @param array<int, list<WP_Post>> $sibling_lessons
+			 * @param list<WP_Post>             $final_exam_posts
+			 */
+			public function __construct(
+				InMemoryProgressRepository $progress,
+				EntityHierarchy $hierarchy,
+				CourseProgressCalculator $calc,
+				EnrollmentRepository $enrollments,
+				InMemoryQuizAttemptRepository $quiz_attempts,
+				private array $sibling_topics,
+				private array $sibling_lessons,
+				private array $final_exam_posts,
+				private \DateTimeImmutable $clock_now
+			) {
+				parent::__construct( $progress, $hierarchy, $calc, $enrollments, $quiz_attempts );
+			}
+
+			protected function query_sibling_topics( int $lesson_id ): array {
+				return $this->sibling_topics[ $lesson_id ] ?? [];
+			}
+
+			protected function query_sibling_lessons( int $parent_id ): array {
+				return $this->sibling_lessons[ $parent_id ] ?? [];
+			}
+
+			protected function query_final_exam_quiz_posts(): array {
+				return $this->final_exam_posts;
+			}
+
+			protected function now(): \DateTimeImmutable {
+				return $this->clock_now;
+			}
+		};
+	}
+
 	private function post( int $id, string $type ): WP_Post {
 		$post            = Mockery::mock( 'WP_Post' );
 		$post->ID        = $id;
 		$post->post_type = $type;
 		assert( $post instanceof WP_Post );
+		return $post;
+	}
+
+	private function indexed_post( int $id, string $type, int $parent_id = 0, string $status = 'publish' ): WP_Post {
+		$post              = Mockery::mock( 'WP_Post' );
+		$post->ID          = $id;
+		$post->post_type   = $type;
+		$post->post_parent = $parent_id;
+		$post->post_status = $status;
+
+		assert( $post instanceof WP_Post );
+		$this->post_index[ $id ] = $post;
 		return $post;
 	}
 
@@ -539,6 +621,84 @@ final class CompletionPropagatorTest extends TestCase {
 		Actions\expectDone( 'vl_lms_course_completed' )->never();
 
 		self::assertFalse( $this->propagator()->reevaluate_course_completion( 1, 100 ) );
+	}
+
+	public function test_final_exam_discovery_resolves_quiz_chain_and_blocks_completion(): void {
+		// Regression pin: `resolveCourse()` used to have no `vl_quiz` arm,
+		// so discovery always came back empty and the final-exam arm
+		// auto-passed — completing the course (and issuing the certificate)
+		// on lesson progress alone.
+		$this->indexed_post( 100, 'vl_course' );
+		$this->indexed_post( 110, 'vl_module', 100 );
+		$this->indexed_post( 200, 'vl_lesson', 110 );
+		$quiz = $this->indexed_post( 999, 'vl_quiz', 200 );
+
+		$this->recompute_pct = 100;
+
+		// No passed attempt seeded — the exam is untaken.
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		Actions\expectDone( 'vl_lms_course_completed' )->never();
+
+		$flipped = $this->propagator_with_real_hierarchy( [ $quiz ] )->reevaluate_course_completion( 1, 100 );
+
+		self::assertFalse( $flipped );
+		$row = $this->enrollments->find_for_user_and_course( 1, 100 );
+		self::assertNotNull( $row );
+		self::assertSame( EnrollmentStatus::ACTIVE, $row->status );
+	}
+
+	public function test_final_exam_discovery_ignores_exams_resolving_to_other_courses(): void {
+		$this->indexed_post( 100, 'vl_course' );
+		$this->indexed_post( 500, 'vl_course' );
+		$quiz = $this->indexed_post( 999, 'vl_quiz', 500 );
+
+		$this->recompute_pct = 100;
+
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		// The only flagged exam belongs to course 500, so course 100 has no
+		// final exam and the arm passes trivially.
+		$flipped = $this->propagator_with_real_hierarchy( [ $quiz ] )->reevaluate_course_completion( 1, 100 );
+
+		self::assertTrue( $flipped );
+	}
+
+	public function test_final_exam_discovery_pass_allows_completion(): void {
+		$this->indexed_post( 100, 'vl_course' );
+		$this->indexed_post( 110, 'vl_module', 100 );
+		$this->indexed_post( 200, 'vl_lesson', 110 );
+		$quiz = $this->indexed_post( 999, 'vl_quiz', 200 );
+
+		$this->recompute_pct = 100;
+
+		$this->seed_passed_attempt( 1, 100, 999 );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+
+		$flipped = $this->propagator_with_real_hierarchy( [ $quiz ] )->reevaluate_course_completion( 1, 100 );
+
+		self::assertTrue( $flipped );
+		$row = $this->enrollments->find_for_user_and_course( 1, 100 );
+		self::assertNotNull( $row );
+		self::assertSame( EnrollmentStatus::COMPLETED, $row->status );
 	}
 
 	private function seed_passed_attempt( int $user_id, int $course_id, int $quiz_id ): void {

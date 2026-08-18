@@ -147,6 +147,84 @@ final class EntityHierarchyTest extends TestCase {
 		self::assertNull( $hierarchy->resolveCourse( $lesson ) );
 	}
 
+	public function test_resolve_course_for_quiz_under_lesson_walks_full_chain(): void {
+		$course = $this->makePost( 1, 'vl_course' );
+		$this->makePost( 2, 'vl_module', 1 );
+		$this->makePost( 3, 'vl_lesson', 2 );
+		$quiz = $this->makePost( 5, 'vl_quiz', 3 );
+
+		$hierarchy = new EntityHierarchy();
+
+		self::assertSame( $course, $hierarchy->resolveCourse( $quiz ) );
+	}
+
+	public function test_resolve_course_for_quiz_directly_under_course(): void {
+		$course = $this->makePost( 1, 'vl_course' );
+		$quiz   = $this->makePost( 5, 'vl_quiz', 1 );
+
+		$hierarchy = new EntityHierarchy();
+
+		self::assertSame( $course, $hierarchy->resolveCourse( $quiz ) );
+	}
+
+	public function test_resolve_course_for_quiz_under_module(): void {
+		$course = $this->makePost( 1, 'vl_course' );
+		$this->makePost( 2, 'vl_module', 1 );
+		$quiz = $this->makePost( 5, 'vl_quiz', 2 );
+
+		$hierarchy = new EntityHierarchy();
+
+		self::assertSame( $course, $hierarchy->resolveCourse( $quiz ) );
+	}
+
+	public function test_resolve_course_for_quiz_under_session(): void {
+		$course = $this->makePost( 1, 'vl_course' );
+		$this->makePost( 6, 'vl_session', 1 );
+		$quiz = $this->makePost( 5, 'vl_quiz', 6 );
+
+		$hierarchy = new EntityHierarchy();
+
+		self::assertSame( $course, $hierarchy->resolveCourse( $quiz ) );
+	}
+
+	public function test_resolve_course_for_assignment_under_lesson(): void {
+		$course = $this->makePost( 1, 'vl_course' );
+		$this->makePost( 2, 'vl_module', 1 );
+		$this->makePost( 3, 'vl_lesson', 2 );
+		$assignment = $this->makePost( 7, 'vl_assignment', 3 );
+
+		$hierarchy = new EntityHierarchy();
+
+		self::assertSame( $course, $hierarchy->resolveCourse( $assignment ) );
+	}
+
+	public function test_resolve_course_for_session_returns_parent_course(): void {
+		$course  = $this->makePost( 1, 'vl_course' );
+		$session = $this->makePost( 6, 'vl_session', 1 );
+
+		$hierarchy = new EntityHierarchy();
+
+		self::assertSame( $course, $hierarchy->resolveCourse( $session ) );
+	}
+
+	public function test_resolve_course_for_quiz_with_unpublished_parent_returns_null(): void {
+		$this->makePost( 1, 'vl_course' );
+		$this->makePost( 3, 'vl_lesson', 1, 'draft' );
+		$quiz = $this->makePost( 5, 'vl_quiz', 3 );
+
+		$hierarchy = new EntityHierarchy();
+
+		self::assertNull( $hierarchy->resolveCourse( $quiz ) );
+	}
+
+	public function test_resolve_course_for_quiz_with_no_parent_returns_null(): void {
+		$quiz = $this->makePost( 5, 'vl_quiz', 0 );
+
+		$hierarchy = new EntityHierarchy();
+
+		self::assertNull( $hierarchy->resolveCourse( $quiz ) );
+	}
+
 	public function test_resolve_module_for_lesson_with_module_returns_module(): void {
 		$this->makePost( 1, 'vl_course' );
 		$module = $this->makePost( 2, 'vl_module', 1 );
