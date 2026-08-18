@@ -53,8 +53,8 @@ class CertificateIssuedMailer {
 		}
 
 		$snapshot     = $certificate->snapshot_data;
-		$course_title = isset( $snapshot['course']['title'] ) && is_string( $snapshot['course']['title'] )
-			? (string) $snapshot['course']['title']
+		$course_title = isset( $snapshot['course_title'] ) && is_string( $snapshot['course_title'] ) && '' !== $snapshot['course_title']
+			? $snapshot['course_title']
 			: __( 'your course', 'vl-lms' );
 
 		$url = $this->url_resolver->path( '/dashboard/certificates/' . $certificate->uuid );
