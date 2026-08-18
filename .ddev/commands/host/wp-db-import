@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+## Description: Import Database WordPress
+## Usage: wp-db-import
+## Example: "ddev wp-db-import"
+
+set -e
+
+ddev import-db --file=mysql.sql
+ddev wp search-replace 'https://admin.greenpaws.vet' 'https://green-paws-lms-backend.ddev.site' --all-tables
+ddev wp user create local-administrator local-administrator@green-paws-lms-backend.ddev.site --role=administrator --user_pass=password
