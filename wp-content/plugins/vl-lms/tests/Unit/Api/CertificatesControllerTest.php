@@ -177,7 +177,9 @@ final class CertificatesControllerTest extends TestCase {
 
 		self::assertSame( 200, $res->status );
 		self::assertSame( $cert->uuid, $body['data']['uuid'] );
-		self::assertSame( '/wp-json/vl/v1/certificates/' . $cert->uuid . '/download', $body['data']['download_url'] );
+		// Namespace-relative on purpose: the frontend joins this onto an API
+		// base that already ends in `/wp-json`.
+		self::assertSame( '/vl/v1/certificates/' . $cert->uuid . '/download', $body['data']['download_url'] );
 		self::assertSame( 'https://example.test/certificates/' . $cert->uuid, $body['data']['verification_url'] );
 	}
 

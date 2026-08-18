@@ -217,7 +217,7 @@ class CertificatesController {
 		$base['learner_full_name'] = isset( $snapshot['learner_full_name'] ) ? (string) $snapshot['learner_full_name'] : '';
 		$base['instructor_names']  = $this->normalise_names( $snapshot['instructor_names'] ?? [] );
 		$base['issuer_name']       = isset( $snapshot['issuer_name'] ) ? (string) $snapshot['issuer_name'] : '';
-		$base['download_url']      = '/wp-json/vl/v1/certificates/' . $cert->uuid . '/download';
+		$base['download_url']      = '/' . $this->rest_namespace . '/certificates/' . $cert->uuid . '/download';
 		$base['verification_url']  = $this->verification_url( $cert->uuid );
 		return $base;
 	}
