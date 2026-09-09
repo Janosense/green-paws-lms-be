@@ -28,7 +28,7 @@ use WP_User;
  */
 class SnapshotBuilder {
 
-	public const string TEMPLATE_VERSION = 'v1';
+	public const string TEMPLATE_VERSION = 'v2';
 
 	public function __construct(
 		private readonly CourseInstructorService $instructors

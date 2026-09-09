@@ -11,10 +11,12 @@ use VL\LMS\Support\Logger;
  * Renders a {@see Certificate} into the HTML+CSS string consumed by
  * dompdf.
  *
- * The renderer captures `templates/certificates/v1.html.php` after
- * extracting the snapshot data and computed display strings into local
- * variables. The template itself is content (HTML+CSS); this class is
- * the thin glue between the snapshot and that file.
+ * The renderer captures `templates/certificates/{version}.html.php`
+ * (version taken from the snapshot, so an old certificate keeps the
+ * template it was issued under) after extracting the snapshot data and
+ * computed display strings into local variables. The template itself is
+ * content (HTML+CSS); this class is the thin glue between the snapshot
+ * and that file.
  *
  * The verification URL is derived from `vl_lms_frontend_url` (Phase
  * 6.4 will own the public verification page) with a fallback to

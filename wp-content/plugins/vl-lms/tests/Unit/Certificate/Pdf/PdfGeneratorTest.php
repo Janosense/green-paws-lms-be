@@ -98,7 +98,45 @@ final class PdfGeneratorTest extends TestCase {
 		};
 	}
 
-	private function certificate( string $uuid = 'abc-1234-5678' ): Certificate {
+	/**
+	 * Variant of generator() whose dompdf mock pins the exact
+	 * setPaper() arguments, so orientation-per-template-version is
+	 * asserted rather than swallowed by andReturnSelf().
+	 */
+	private function generator_expecting_paper( string $orientation ): PdfGenerator {
+		return new class( $this->renderer, $this->logger, $this->tmp_dir, $orientation ) extends PdfGenerator {
+
+			public function __construct(
+				CertificateRenderer $r,
+				Logger $l,
+				private readonly string $tmp_dir,
+				private readonly string $orientation
+			) {
+				parent::__construct( $r, $l );
+			}
+
+			protected function upload_basedir(): string {
+				return $this->tmp_dir;
+			}
+
+			protected function build_dompdf( string $basedir ): \Dompdf\Dompdf {
+				$mock = Mockery::mock( \Dompdf\Dompdf::class );
+				$mock->shouldReceive( 'loadHtml' )->andReturnSelf();
+				$mock->shouldReceive( 'setPaper' )->once()->with( 'A4', $this->orientation )->andReturnSelf();
+				$mock->shouldReceive( 'render' )->andReturnSelf();
+				$mock->shouldReceive( 'output' )->andReturn( "%PDF-1.4 fake binary contents\n%%EOF" );
+				return $mock;
+			}
+		};
+	}
+
+	/**
+	 * @param array<string, mixed> $snapshot
+	 */
+	private function certificate(
+		string $uuid = 'abc-1234-5678',
+		array $snapshot = [ 'course_title' => 'X' ]
+	): Certificate {
 		return new Certificate(
 			1,
 			$uuid,
@@ -109,7 +147,7 @@ final class PdfGeneratorTest extends TestCase {
 			null,
 			null,
 			null,
-			[ 'course_title' => 'X' ],
+			$snapshot,
 			null,
 			$this->now,
 			$this->now
@@ -150,6 +188,32 @@ final class PdfGeneratorTest extends TestCase {
 		self::assertTrue( $second->cache_hit );
 		self::assertSame( $first->absolute_path, $second->absolute_path );
 		self::assertSame( $first->relative_path, $second->relative_path );
+	}
+
+	public function test_v1_snapshot_renders_landscape(): void {
+		$this->renderer->shouldReceive( 'render' )->once()->andReturn( '<html></html>' );
+
+		$cert = $this->certificate( 'v1-uuid', [ 'template_version' => 'v1' ] );
+
+		$this->generator_expecting_paper( 'landscape' )->generate( $cert );
+	}
+
+	public function test_v2_snapshot_renders_portrait(): void {
+		$this->renderer->shouldReceive( 'render' )->once()->andReturn( '<html></html>' );
+
+		$cert = $this->certificate( 'v2-uuid', [ 'template_version' => 'v2' ] );
+
+		$this->generator_expecting_paper( 'portrait' )->generate( $cert );
+	}
+
+	public function test_missing_template_version_defaults_to_landscape(): void {
+		// Pre-v2 rows have no template_version key; they must keep the
+		// landscape paper their v1 template was designed for.
+		$this->renderer->shouldReceive( 'render' )->once()->andReturn( '<html></html>' );
+
+		$cert = $this->certificate( 'legacy-uuid', [ 'course_title' => 'X' ] );
+
+		$this->generator_expecting_paper( 'landscape' )->generate( $cert );
 	}
 
 	public function test_distinct_uuids_yield_distinct_paths(): void {

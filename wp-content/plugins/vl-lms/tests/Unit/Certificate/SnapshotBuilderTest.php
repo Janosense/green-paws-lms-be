@@ -146,7 +146,7 @@ final class SnapshotBuilderTest extends TestCase {
 		self::assertSame( 'Green Paws LMS', $snapshot['issuer_name'] );
 		self::assertSame( '2026-04-29T10:00:00+00:00', $snapshot['issued_at_iso'] );
 		self::assertSame( 92, $snapshot['final_score_pct'] );
-		self::assertSame( 'v1', $snapshot['template_version'] );
+		self::assertSame( 'v2', $snapshot['template_version'] );
 	}
 
 	public function test_falls_back_to_display_name_when_first_last_empty(): void {

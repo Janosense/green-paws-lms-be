@@ -54,7 +54,7 @@ class PdfGenerator {
 
 		$dompdf = $this->build_dompdf( $basedir );
 		$dompdf->loadHtml( $html, 'UTF-8' );
-		$dompdf->setPaper( 'A4', 'landscape' );
+		$dompdf->setPaper( 'A4', $this->paper_orientation( $certificate ) );
 		$dompdf->render();
 
 		$bytes = $dompdf->output();
@@ -70,6 +70,18 @@ class PdfGenerator {
 		}
 
 		return new GeneratedPdf( $abs, $rel, false );
+	}
+
+	/**
+	 * Paper orientation follows the snapshotted template version: v1 is
+	 * the legacy landscape layout, v2+ are portrait. The missing-version
+	 * default of 'v1' mirrors {@see CertificateRenderer::render()} so an
+	 * old row always pairs the v1 template with landscape paper.
+	 */
+	protected function paper_orientation( Certificate $certificate ): string {
+		$snapshot = $certificate->snapshot_data;
+		$version  = isset( $snapshot['template_version'] ) ? (string) $snapshot['template_version'] : 'v1';
+		return 'v1' === $version ? 'landscape' : 'portrait';
 	}
 
 	/**

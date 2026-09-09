@@ -190,6 +190,39 @@ final class CertificateRendererTest extends TestCase {
 		$this->renderer->render( $this->certificate() );
 	}
 
+	public function test_v2_snapshot_renders_v2_template_with_background(): void {
+		$this->qr->shouldReceive( 'generate_for_url' )->andReturn( '' );
+
+		$cert     = $this->certificate();
+		$snapshot = $cert->snapshot_data;
+
+		$snapshot['template_version'] = 'v2';
+
+		$cert = new Certificate(
+			$cert->id,
+			$cert->uuid,
+			$cert->user_id,
+			$cert->course_id,
+			$cert->enrollment_id,
+			$cert->issued_at,
+			$cert->revoked_at,
+			$cert->final_score,
+			$cert->final_max_score,
+			$snapshot,
+			$cert->pdf_path,
+			$cert->created_at,
+			$cert->updated_at
+		);
+
+		$html = $this->renderer->render( $cert );
+
+		// The v2 template inlines its raster background as a data URI;
+		// with the QR stubbed to '' this marker can only come from it.
+		self::assertStringContainsString( 'data:image/png;base64,', $html );
+		self::assertStringContainsString( 'Богдан Коваль', $html );
+		self::assertStringContainsString( 'Анестезіологія для практиків', $html );
+	}
+
 	public function test_html_includes_uuid_for_visible_reference(): void {
 		$this->qr->shouldReceive( 'generate_for_url' )->andReturn( '' );
 
