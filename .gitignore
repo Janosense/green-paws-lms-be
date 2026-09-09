@@ -50,3 +50,12 @@ wp-content/cache/
 *.asf
 *.wmv
 *.avi
+
+# database dumps
+# Schema is owned by SchemaManager (dbDelta, version-gated) — no SQL file
+# in this repo is ever the source of truth, so a *.sql here is always an
+# ad-hoc dump. They routinely carry production user rows and password
+# hashes, and this repo auto-deploys to production over FTP.
+*.sql
+*.sql.gz
+*.sql.zip
