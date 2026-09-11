@@ -15,6 +15,7 @@ use VL\LMS\Import\Convert\LessonHtmlBuilder;
 use VL\LMS\Import\Convert\MarkdownToHtml;
 use VL\LMS\Import\Convert\ModuleHtmlBuilder;
 use VL\LMS\Import\ImportService;
+use VL\LMS\Import\Issue\ImportIssue;
 use VL\LMS\Import\Parser\CourseDocumentParser;
 use VL\LMS\Import\Parser\FrontMatterParser;
 use VL\LMS\Import\Parser\QuizBlockParser;
@@ -23,12 +24,14 @@ use VL\LMS\Import\Validation\CourseValidator;
 use VL\LMS\Import\Write\ImportContext;
 use VL\LMS\Import\Write\Importer;
 use VL\LMS\Import\Write\ImportResult;
+use VL\LMS\Import\Write\MediaImporter;
 use WP_Error;
 
 /**
  * WordPress writes are recorded, not performed: `wp_insert_post` hands out
  * ids from 101 in call order, so the expected parents can be read off the
- * insert sequence.
+ * insert sequence. Sideloaded images get ids from 901. The import folder is a
+ * real, empty folder unless a test puts images into its `assets/`.
  */
 final class ImporterTest extends TestCase {
 
@@ -40,6 +43,9 @@ final class ImporterTest extends TestCase {
 	private const INSTRUCTOR_ID = 5;
 	private const ADMIN_ID      = 1;
 	private const NOW           = 1789120000;
+	private const UPLOADS_URL   = 'https://example.test/wp-content/uploads/2026/09/';
+	private const MONITOR       = 'assets/anesthesia-cesarean-basics/monitor.png';
+	private const SCHEME        = 'assets/anesthesia-cesarean-basics/scheme.png';
 
 	/**
 	 * @var list<array<string, mixed>> `wp_insert_post` arguments as received (slashed).
@@ -62,9 +68,43 @@ final class ImporterTest extends TestCase {
 	private array $term_inserts = [];
 
 	/**
-	 * @var list<int>
+	 * @var list<int> Posts and attachments, in delete order.
 	 */
 	private array $deleted = [];
+
+	/**
+	 * @var list<int>
+	 */
+	private array $deleted_attachments = [];
+
+	/**
+	 * @var list<array{name: string, post_id: int, inserts: int, term_sets: int}> Each sideload, with how many inserts and term assignments came before it.
+	 */
+	private array $sideloads = [];
+
+	/**
+	 * @var array<int, string> Attachment id => file name.
+	 */
+	private array $attachment_names = [];
+
+	/**
+	 * @var list<array<string, mixed>> `wp_update_post` arguments, unslashed.
+	 */
+	private array $updates = [];
+
+	private ?WP_Error $sideload_error = null;
+
+	private bool $fail_update = false;
+
+	/**
+	 * Everything this test writes to disk: the import folder `source/` and the sideload copies.
+	 */
+	private string $root;
+
+	/**
+	 * The import folder passed to the importer.
+	 */
+	private string $source;
 
 	/**
 	 * @var list<array{string, int, string, string, int}>
@@ -96,6 +136,10 @@ final class ImporterTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+
+		$this->root   = sys_get_temp_dir() . '/vl-lms-importer-' . bin2hex( random_bytes( 4 ) );
+		$this->source = $this->root . '/source';
+		mkdir( $this->source, 0o755, true );
 
 		Functions\when( '__' )->returnArg( 1 );
 		Functions\when( 'esc_html' )->alias( static fn ( string $text ): string => htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' ) );
@@ -167,12 +211,55 @@ final class ImporterTest extends TestCase {
 				return $id === $this->undeletable ? false : Mockery::mock( 'WP_Post' );
 			}
 		);
+		Functions\when( 'wp_delete_attachment' )->alias(
+			function ( int $id, bool $force ): mixed {
+				self::assertTrue( $force );
+				$this->deleted[]             = $id;
+				$this->deleted_attachments[] = $id;
+
+				return Mockery::mock( 'WP_Post' );
+			}
+		);
+		Functions\when( 'wp_update_post' )->alias(
+			function ( array $postarr, bool $wp_error ): int|WP_Error {
+				self::assertTrue( $wp_error );
+				$this->updates[] = self::unslash( $postarr );
+
+				return $this->fail_update ? new WP_Error( 'db_update_error', 'Could not update post in the database.' ) : $postarr['ID'];
+			}
+		);
+
+		Functions\when( 'esc_url' )->returnArg( 1 );
+		Functions\when( 'wp_basename' )->alias( static fn ( string $path ): string => urldecode( basename( str_replace( [ '%2F', '%5C' ], '/', urlencode( $path ) ) ) ) );
+		Functions\when( 'wp_delete_file' )->alias( static fn ( string $file ): bool => unlink( $file ) );
+		Functions\when( 'wp_tempnam' )->alias( fn (): string => (string) tempnam( $this->root, 'sideload-' ) );
+		Functions\when( 'media_handle_sideload' )->alias(
+			function ( array $file, int $post_id ): int|WP_Error {
+				$this->sideloads[] = [
+					'name'      => $file['name'],
+					'post_id'   => $post_id,
+					'inserts'   => count( $this->inserts ),
+					'term_sets' => count( $this->term_sets ),
+				];
+				if ( null !== $this->sideload_error ) {
+					return $this->sideload_error;
+				}
+
+				unlink( $file['tmp_name'] );
+				$id                            = 900 + count( $this->sideloads );
+				$this->attachment_names[ $id ] = $file['name'];
+
+				return $id;
+			}
+		);
+		Functions\when( 'wp_get_attachment_url' )->alias( fn ( int $id ): string => self::UPLOADS_URL . $this->attachment_names[ $id ] );
 	}
 
 	protected function tearDown(): void {
 		foreach ( $this->temp_files as $path ) {
 			unlink( $path );
 		}
+		$this->remove( $this->root );
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -347,8 +434,132 @@ final class ImporterTest extends TestCase {
 		self::assertSame( range( 101, 112 ), array_column( $result->entities, 'id' ) );
 		self::assertSame( array_column( $this->inserts, 'post_type' ), array_column( $result->entities, 'type' ) );
 		self::assertSame( array_column( $this->inserts, 'post_title' ), array_column( $result->entities, 'title' ) );
-		self::assertSame( [ CourseValidator::STRUCTURE_IGNORED ], $result->issues->codes() );
+		self::assertSame( [ CourseValidator::STRUCTURE_IGNORED, MediaImporter::IMAGE_MISSING ], $result->issues->codes() );
 		self::assertSame( [], $this->deleted );
+	}
+
+	public function test_the_lesson_image_is_uploaded_after_the_course_and_its_terms_and_before_any_module(): void {
+		$this->put_asset( self::MONITOR );
+
+		$result = $this->run_import( 'course-with-modules.md' );
+
+		self::assertTrue( $result->created );
+		self::assertSame(
+			[
+				[
+					'name'      => 'monitor.png',
+					'post_id'   => 101,
+					'inserts'   => 1,
+					'term_sets' => 3,
+				],
+			],
+			$this->sideloads
+		);
+		self::assertSame(
+			str_replace( 'src="' . self::MONITOR . '"', 'src="' . self::UPLOADS_URL . 'monitor.png"', (string) file_get_contents( self::FIXTURES . 'convert/lesson.html' ) ),
+			$this->inserts[2]['post_content']
+		);
+		self::assertSame( [], $this->updates, 'The course body shows no image, so the course is not updated.' );
+		self::assertSame( array_merge( [ 101, 901 ], range( 102, 112 ) ), array_column( $result->entities, 'id' ) );
+		self::assertSame(
+			[
+				'type'  => 'attachment',
+				'id'    => 901,
+				'title' => 'Монітор під час операції',
+			],
+			$result->entities[1]
+		);
+		self::assertSame( [ CourseValidator::STRUCTURE_IGNORED ], $result->issues->codes() );
+	}
+
+	public function test_an_image_in_the_course_body_updates_the_course_once_after_the_media_pass(): void {
+		$this->put_asset( self::SCHEME );
+		$this->put_asset( self::MONITOR );
+
+		$result = $this->run_import( $this->course_with_images() );
+
+		self::assertTrue( $result->created );
+		self::assertSame( [ 'scheme.png', 'monitor.png' ], array_column( $this->sideloads, 'name' ) );
+		self::assertStringContainsString( 'src="' . self::SCHEME . '"', $this->inserts[0]['post_content'] );
+		self::assertSame(
+			[
+				[
+					'ID'           => 101,
+					'post_content' => str_replace( 'src="' . self::SCHEME . '"', 'src="' . self::UPLOADS_URL . 'scheme.png"', $this->inserts[0]['post_content'] ),
+				],
+			],
+			$this->updates
+		);
+		self::assertStringContainsString( 'src="' . self::UPLOADS_URL . 'monitor.png"', $this->inserts[3]['post_content'] );
+	}
+
+	public function test_a_course_file_without_its_images_keeps_every_reference_and_warns_once_per_image(): void {
+		$result = $this->run_import( $this->course_with_images() );
+
+		self::assertTrue( $result->created );
+		self::assertSame( [], $this->sideloads );
+		self::assertSame( [], $this->updates );
+		self::assertSame(
+			[
+				[ MediaImporter::IMAGE_MISSING, 29 ],
+				[ MediaImporter::IMAGE_MISSING, 73 ],
+			],
+			array_values(
+				array_map(
+					static fn ( ImportIssue $issue ): array => [ $issue->code, $issue->line ],
+					array_filter( $result->issues->all(), static fn ( ImportIssue $issue ): bool => MediaImporter::IMAGE_MISSING === $issue->code )
+				)
+			)
+		);
+		self::assertStringContainsString( 'src="' . self::SCHEME . '"', $this->inserts[0]['post_content'] );
+		self::assertStringContainsString( 'src="' . self::MONITOR . '"', $this->inserts[2]['post_content'] );
+		self::assertStringContainsString( 'src="' . self::MONITOR . '"', $this->inserts[3]['post_content'] );
+	}
+
+	public function test_an_image_file_nobody_references_is_a_warning_and_is_not_uploaded(): void {
+		$this->put_asset( self::MONITOR );
+		$this->put_asset( 'assets/extra.png' );
+
+		$result = $this->run_import( 'course-with-modules.md' );
+
+		self::assertSame( [ 'monitor.png' ], array_column( $this->sideloads, 'name' ) );
+		self::assertContains( MediaImporter::IMAGE_UNUSED, $result->issues->codes() );
+	}
+
+	public function test_a_failed_insert_after_the_media_pass_deletes_the_attachment_with_the_posts(): void {
+		$this->put_asset( self::MONITOR );
+		$this->fail_insert_at = 5;
+
+		$result = $this->run_import( 'course-with-modules.md' );
+
+		self::assertFalse( $result->created );
+		self::assertSame( [ 104, 103, 102, 901, 101 ], $this->deleted );
+		self::assertSame( [ 901 ], $this->deleted_attachments );
+	}
+
+	public function test_a_refused_sideload_rolls_back_the_course(): void {
+		$this->put_asset( self::MONITOR );
+		$this->sideload_error = new WP_Error( 'upload_error', 'Sorry, you are not allowed to upload this file type.' );
+
+		$result = $this->run_import( 'course-with-modules.md' );
+
+		self::assertFalse( $result->created );
+		self::assertSame( 'Sorry, you are not allowed to upload this file type.', $result->reason );
+		self::assertSame( [ 101 ], $this->deleted );
+		self::assertCount( 1, $this->inserts );
+	}
+
+	public function test_a_failed_course_update_rolls_back_the_attachments_and_the_course(): void {
+		$this->put_asset( self::SCHEME );
+		$this->put_asset( self::MONITOR );
+		$this->fail_update = true;
+
+		$result = $this->run_import( $this->course_with_images() );
+
+		self::assertFalse( $result->created );
+		self::assertSame( 'Could not update post in the database.', $result->reason );
+		self::assertSame( [ 902, 901, 101 ], $this->deleted );
+		self::assertCount( 1, $this->inserts );
 	}
 
 	public function test_a_course_without_modules_hangs_lessons_and_the_final_exam_on_the_course(): void {
@@ -513,7 +724,7 @@ final class ImporterTest extends TestCase {
 	private function run_import( string $fixture ): ImportResult {
 		$plan = $this->plan( str_starts_with( $fixture, '/' ) ? $fixture : self::FIXTURES . $fixture );
 
-		return ( new Importer() )->run( $plan, new ImportContext( self::TOKEN, self::INSTRUCTOR_ID, self::ADMIN_ID ) );
+		return ( new Importer( new MediaImporter() ) )->run( $plan, new ImportContext( self::TOKEN, self::INSTRUCTOR_ID, self::ADMIN_ID ), $this->source );
 	}
 
 	private function plan( string $path ): ImportPlan {
@@ -524,7 +735,7 @@ final class ImporterTest extends TestCase {
 			new CourseHtmlBuilder( $markdown_to_html ),
 			new ModuleHtmlBuilder(),
 			new LessonHtmlBuilder( $markdown_to_html ),
-			new Importer(),
+			new Importer( new MediaImporter() ),
 			70
 		);
 
@@ -532,6 +743,45 @@ final class ImporterTest extends TestCase {
 		self::assertNotNull( $plan );
 
 		return $plan;
+	}
+
+	/**
+	 * `course-with-modules.md` with a «Про курс» image (line 29) and a second
+	 * reference to lesson 1.1's image (line 73) in lesson 1.2.
+	 */
+	private function course_with_images(): string {
+		return $this->temp_copy(
+			'course-with-modules.md',
+			[
+				'хочуть безпечно вести породіллю та приплід.' => "хочуть безпечно вести породіллю та приплід.\n\n![Схема](" . self::SCHEME . ')',
+				'Премедикацію обирають так'                   => '![Монітор](' . self::MONITOR . ")\n\nПремедикацію обирають так",
+			]
+		);
+	}
+
+	private function put_asset( string $relative ): void {
+		$path = $this->source . '/' . $relative;
+		if ( ! is_dir( dirname( $path ) ) ) {
+			mkdir( dirname( $path ), 0o755, true );
+		}
+		file_put_contents( $path, 'image bytes of ' . $relative );
+	}
+
+	private function remove( string $path ): void {
+		if ( is_link( $path ) || is_file( $path ) ) {
+			unlink( $path );
+			return;
+		}
+
+		if ( ! is_dir( $path ) ) {
+			return;
+		}
+
+		foreach ( array_diff( (array) scandir( $path ), [ '.', '..' ] ) as $entry ) {
+			$this->remove( $path . '/' . $entry );
+		}
+
+		rmdir( $path );
 	}
 
 	/**

@@ -69,7 +69,10 @@ final class ImportService {
 	 * already refused a file with errors; the import refuses it again instead
 	 * of trusting that, and then creates nothing.
 	 *
-	 * @param string $course_md_path The stored `course.md` (Sprint 1 Step 5 passes its temp-folder path).
+	 * The images come from the folder of that file, where the upload intake
+	 * put `assets/` next to `course.md`.
+	 *
+	 * @param string $course_md_path The stored `course.md` in its import folder.
 	 */
 	public function import( string $course_md_path, ImportContext $context ): ImportResult {
 		$plan = $this->analyse( $course_md_path )->plan;
@@ -78,7 +81,7 @@ final class ImportService {
 			return ImportResult::failed( __( 'Файл курсу містить помилки, тому імпорт не виконано. Перевірте файл і завантажте його знову.', 'vl-lms' ), [] );
 		}
 
-		return $this->importer->run( $plan, $context );
+		return $this->importer->run( $plan, $context, dirname( $course_md_path ) );
 	}
 
 	public function analyse( string $course_md_path ): AnalysisResult {
