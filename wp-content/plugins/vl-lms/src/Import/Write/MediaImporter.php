@@ -22,7 +22,8 @@ use VL\LMS\Import\Issue\IssueList;
  *
  * A referenced image the folder lacks is a warning and keeps its relative
  * `src`; a file in `assets/` nothing references is a warning and is not
- * uploaded (course-import FEATURE.md → Invariants).
+ * uploaded (course-import FEATURE.md → Invariants). {@see self::check()} gives
+ * the preview those warnings before anything is uploaded.
  *
  * @author Tymofii Synianskyi
  */
@@ -39,6 +40,8 @@ final class MediaImporter {
 	 * Uploads every referenced image the folder holds — attached to the course,
 	 * authored by the lead instructor, marked with the import token — and
 	 * records each attachment in the ledger as soon as WordPress creates it.
+	 * The folder is compared with the images by {@see self::check()} first,
+	 * which adds the missing-image and unused-file warnings.
 	 *
 	 * @param list<ImageRef> $images     The plan's images, one per path.
 	 * @param string         $source_dir The folder that holds `course.md` and `assets/`.
@@ -48,26 +51,50 @@ final class MediaImporter {
 	 * @throws RuntimeException When an image cannot be uploaded; {@see Importer::run()} rolls back.
 	 */
 	public function import( array $images, string $source_dir, int $course_id, ImportContext $context, ImportLedger $ledger, IssueList $issues ): array {
+		$found = $this->check( $images, $source_dir, $issues );
+		$urls  = [];
+
+		foreach ( $images as $image ) {
+			if ( in_array( $image->path, $found, true ) ) {
+				$urls[ $image->path ] = $this->upload( $image, $source_dir . '/' . $image->path, $course_id, $context, $ledger );
+			}
+		}
+
+		return $urls;
+	}
+
+	/**
+	 * Compares the images with the regular files under the folder's `assets/`
+	 * without uploading anything: warns about each referenced image the folder
+	 * lacks and each file nothing references. The import preview shows these
+	 * warnings; {@see self::import()} uploads the paths returned.
+	 *
+	 * @param list<ImageRef> $images     The plan's images, one per path.
+	 * @param string         $source_dir The folder that holds `course.md` and `assets/`.
+	 *
+	 * @return list<string> The referenced paths the folder holds, in plan order.
+	 */
+	public function check( array $images, string $source_dir, IssueList $issues ): array {
 		$files      = $this->files( $source_dir );
 		$referenced = [];
-		$urls       = [];
+		$found      = [];
 
 		foreach ( $images as $image ) {
 			$referenced[ $image->path ] = true;
 
-			if ( ! in_array( $image->path, $files, true ) ) {
-				$issues->add(
-					ImportIssue::warning(
-						self::IMAGE_MISSING,
-						$image->line,
-						/* translators: %s: image path inside the course archive, e.g. "assets/course/scheme.png" */
-						sprintf( __( 'Зображення «%s» немає серед завантажених файлів курсу, тому в тексті лишилося посилання на відсутній файл.', 'vl-lms' ), $image->path )
-					)
-				);
+			if ( in_array( $image->path, $files, true ) ) {
+				$found[] = $image->path;
 				continue;
 			}
 
-			$urls[ $image->path ] = $this->upload( $image, $source_dir . '/' . $image->path, $course_id, $context, $ledger );
+			$issues->add(
+				ImportIssue::warning(
+					self::IMAGE_MISSING,
+					$image->line,
+					/* translators: %s: image path inside the course archive, e.g. "assets/course/scheme.png" */
+					sprintf( __( 'Зображення «%s» немає серед завантажених файлів курсу, тому в тексті лишилося посилання на відсутній файл.', 'vl-lms' ), $image->path )
+				)
+			);
 		}
 
 		foreach ( $files as $path ) {
@@ -83,7 +110,7 @@ final class MediaImporter {
 			}
 		}
 
-		return $urls;
+		return $found;
 	}
 
 	/**
