@@ -114,9 +114,9 @@ class AnalyticsPage {
 			return;
 		}
 
-		$script  = "(function(){";
-		$script .= "var data=" . $json . ";";
-		$script .= "function render(){";
+		$script  = '(function(){';
+		$script .= 'var data=' . $json . ';';
+		$script .= 'function render(){';
 		$script .= "var el=document.getElementById('vl-lms-analytics-chart');";
 		$script .= "if(!el||typeof Chart==='undefined')return;";
 		$script .= "new Chart(el,{type:'line',data:{labels:data.labels,datasets:[";
@@ -124,9 +124,9 @@ class AnalyticsPage {
 		$script .= "{label:'Активні',data:data.active,borderColor:'#00a32a',backgroundColor:'rgba(0,163,42,0.15)',tension:0.2},";
 		$script .= "{label:'Завершення',data:data.completions,borderColor:'#dba617',backgroundColor:'rgba(219,166,23,0.15)',tension:0.2}";
 		$script .= "]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false}}});";
-		$script .= "}";
+		$script .= '}';
 		$script .= "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',render);}else{render();}";
-		$script .= "})();";
+		$script .= '})();';
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $script is a static template; only $json (escaped via wp_json_encode) is interpolated.
 		echo '<script>' . $script . '</script>';

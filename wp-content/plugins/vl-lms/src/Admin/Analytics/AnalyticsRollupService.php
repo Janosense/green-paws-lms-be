@@ -38,8 +38,8 @@ class AnalyticsRollupService {
 		$new_enrollments = $this->fetch_counts( $enrollments_sql );
 
 		// 2. Active users per course (lesson-view join chain).
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $lesson_views resolves to SchemaManager::lesson_views_table() and $posts_table to $wpdb->posts; the date binds through prepare(). The interpolations sit mid-string, so a single-line phpcs:ignore cannot reach them.
 		$active_sql = $wpdb->prepare(
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- All interpolated names come from $wpdb / SchemaManager.
 			"SELECT p_course.ID AS course_id, COUNT(DISTINCT lv.user_id) AS cnt
 			FROM {$lesson_views} lv
 			INNER JOIN {$posts_table} p_lesson ON p_lesson.ID = lv.lesson_id
@@ -49,6 +49,7 @@ class AnalyticsRollupService {
 			GROUP BY p_course.ID",
 			$date
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$active_users = $this->fetch_counts( $active_sql );
 
 		// 3. Completions per course.
@@ -61,11 +62,13 @@ class AnalyticsRollupService {
 		$completions = $this->fetch_counts( $completions_sql );
 
 		// 4. Merge keys and upsert one row per course.
-		$course_ids = array_unique( array_merge(
-			array_keys( $new_enrollments ),
-			array_keys( $active_users ),
-			array_keys( $completions )
-		) );
+		$course_ids = array_unique(
+			array_merge(
+				array_keys( $new_enrollments ),
+				array_keys( $active_users ),
+				array_keys( $completions )
+			)
+		);
 
 		foreach ( $course_ids as $course_id ) {
 			$cid       = (int) $course_id;
