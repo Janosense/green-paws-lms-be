@@ -248,8 +248,8 @@ class QuizAttemptRepository {
 		$join      = $this->counting_join();
 		$predicate = self::COUNTING_PREDICATE;
 
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table resolves to SchemaManager::quiz_attempts_table() and $join / $predicate are class-local SQL fragments; every value binds through prepare(). The interpolations sit mid-string, so a single-line phpcs:ignore cannot reach them.
 		$sql = $wpdb->prepare(
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			"SELECT a.quiz_id,
 				MAX(a.passed) AS passed,
 				MAX(CASE WHEN a.status = %s THEN 1 ELSE 0 END) AS in_progress,
@@ -265,6 +265,7 @@ class QuizAttemptRepository {
 			$user_id,
 			$course_id
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
 		$rows = $wpdb->get_results( $sql, ARRAY_A );
 
