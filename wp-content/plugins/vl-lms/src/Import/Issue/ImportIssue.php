@@ -33,4 +33,8 @@ final readonly class ImportIssue {
 	public static function warning( string $code, ?int $line, string $message ): self {
 		return new self( IssueLevel::WARNING, $code, $line, $message );
 	}
+
+	public static function info( string $code, ?int $line, string $message ): self {
+		return new self( IssueLevel::INFO, $code, $line, $message );
+	}
 }

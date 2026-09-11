@@ -45,8 +45,17 @@ final class IssueListTest extends TestCase {
 		self::assertTrue( $issues->has_errors() );
 	}
 
+	public function test_notes_never_count_as_errors(): void {
+		$issues = new IssueList();
+		$issues->add( ImportIssue::info( 'section.structure_ignored', 35, 'message' ) );
+		$issues->add( ImportIssue::warning( 'taxonomy.new_term', 13, 'message' ) );
+
+		self::assertFalse( $issues->has_errors() );
+	}
+
 	public function test_factories_set_the_level(): void {
 		self::assertSame( IssueLevel::ERROR, ImportIssue::error( 'x', 1, 'm' )->level );
 		self::assertSame( IssueLevel::WARNING, ImportIssue::warning( 'x', 1, 'm' )->level );
+		self::assertSame( IssueLevel::INFO, ImportIssue::info( 'x', 1, 'm' )->level );
 	}
 }
