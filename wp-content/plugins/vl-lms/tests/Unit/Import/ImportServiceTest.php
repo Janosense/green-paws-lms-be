@@ -25,6 +25,7 @@ use VL\LMS\Import\Plan\QuestionPlan;
 use VL\LMS\Import\Validation\CourseValidator;
 use VL\LMS\Import\Write\ImportContext;
 use VL\LMS\Import\Write\Importer;
+use VL\LMS\Import\Write\MediaImporter;
 
 final class ImportServiceTest extends TestCase {
 
@@ -38,6 +39,11 @@ final class ImportServiceTest extends TestCase {
 	 * @var list<string>
 	 */
 	private array $temp_files = [];
+
+	/**
+	 * An import folder a test created: `course.md` plus `assets/`.
+	 */
+	private ?string $temp_dir = null;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -55,6 +61,9 @@ final class ImportServiceTest extends TestCase {
 	protected function tearDown(): void {
 		foreach ( $this->temp_files as $path ) {
 			unlink( $path );
+		}
+		if ( null !== $this->temp_dir ) {
+			$this->remove( $this->temp_dir );
 		}
 		Monkey\tearDown();
 		parent::tearDown();
@@ -280,6 +289,47 @@ final class ImportServiceTest extends TestCase {
 		self::assertSame( 'vl_course', $result->entities[0]['type'] );
 	}
 
+	public function test_import_uploads_the_images_the_folder_of_the_course_file_holds(): void {
+		$this->temp_dir = sys_get_temp_dir() . '/vl-lms-import-service-' . bin2hex( random_bytes( 4 ) );
+		mkdir( $this->temp_dir . '/assets/anesthesia-cesarean-basics', 0o755, true );
+		copy( self::FIXTURES . 'course-with-modules.md', $this->temp_dir . '/course.md' );
+		file_put_contents( $this->temp_dir . '/assets/anesthesia-cesarean-basics/monitor.png', 'png' );
+
+		$next_id = 100;
+		Functions\when( 'wp_insert_post' )->alias(
+			static function () use ( &$next_id ): int {
+				return ++$next_id;
+			}
+		);
+		Functions\when( 'wp_slash' )->returnArg( 1 );
+		Functions\when( 'wp_kses_post' )->returnArg( 1 );
+		Functions\when( 'wp_unique_post_slug' )->returnArg( 1 );
+		Functions\when( 'wp_set_object_terms' )->returnArg( 2 );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+		Functions\when( 'time' )->justReturn( 1789120000 );
+		Functions\when( 'esc_url' )->returnArg( 1 );
+		Functions\when( 'wp_basename' )->alias( static fn ( string $path ): string => basename( $path ) );
+		Functions\when( 'wp_tempnam' )->alias( fn (): string => (string) tempnam( (string) $this->temp_dir, 'sideload-' ) );
+		Functions\when( 'wp_delete_file' )->alias( static fn ( string $file ): bool => unlink( $file ) );
+		Functions\when( 'wp_get_attachment_url' )->justReturn( 'https://example.test/wp-content/uploads/2026/09/monitor.png' );
+		$sideloaded = [];
+		Functions\when( 'media_handle_sideload' )->alias(
+			static function ( array $file ) use ( &$sideloaded ): int {
+				$sideloaded[] = $file['name'];
+				unlink( $file['tmp_name'] );
+
+				return 901;
+			}
+		);
+
+		$result = $this->service()->import( $this->temp_dir . '/course.md', new ImportContext( self::TOKEN, 5, 1 ) );
+
+		self::assertTrue( $result->created );
+		self::assertSame( [ 'monitor.png' ], $sideloaded );
+		self::assertCount( 13, $result->entities );
+		self::assertSame( 'attachment', $result->entities[1]['type'] );
+	}
+
 	public function test_analysing_the_same_file_twice_gives_the_same_plan(): void {
 		$service = $this->service();
 
@@ -299,9 +349,26 @@ final class ImportServiceTest extends TestCase {
 			new CourseHtmlBuilder( $markdown_to_html ),
 			new ModuleHtmlBuilder(),
 			new LessonHtmlBuilder( $markdown_to_html ),
-			new Importer(),
+			new Importer( new MediaImporter() ),
 			$default_pass_percent
 		);
+	}
+
+	private function remove( string $path ): void {
+		if ( is_link( $path ) || is_file( $path ) ) {
+			unlink( $path );
+			return;
+		}
+
+		if ( ! is_dir( $path ) ) {
+			return;
+		}
+
+		foreach ( array_diff( (array) scandir( $path ), [ '.', '..' ] ) as $entry ) {
+			$this->remove( $path . '/' . $entry );
+		}
+
+		rmdir( $path );
 	}
 
 	/**

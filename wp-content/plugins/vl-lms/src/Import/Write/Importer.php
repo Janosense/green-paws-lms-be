@@ -15,9 +15,14 @@ use VL\LMS\Import\Plan\QuizPlan;
 
 /**
  * Writes an {@see ImportPlan} as a new draft course tree: `vl_course` →
- * terms → each `vl_module` with its `vl_lesson`s and `vl_quiz` →
- * course-direct lessons → the final exam; every quiz followed by its
- * `vl_quiz_question`s. Parents are always created before their children.
+ * terms → the course's images → each `vl_module` with its `vl_lesson`s and
+ * `vl_quiz` → course-direct lessons → the final exam; every quiz followed by
+ * its `vl_quiz_question`s. Parents are always created before their children.
+ *
+ * Images come from the import folder through {@see MediaImporter}, after the
+ * course they are attached to and before any body that shows them: lessons
+ * are inserted with their image URLs, and the course body, written before its
+ * images existed, is updated once when it shows one.
  *
  * Writes go through WordPress core functions only, in the shapes
  * `docs/DATA-MODEL.md` documents (course-import FEATURE.md → Data):
@@ -70,7 +75,15 @@ final class Importer {
 	 */
 	private const QUESTION_POINTS = 1;
 
-	public function run( ImportPlan $plan, ImportContext $context ): ImportResult {
+	public function __construct(
+		private readonly MediaImporter $media
+	) {
+	}
+
+	/**
+	 * @param string $source_dir The import folder: the `course.md` the plan came from and its `assets/`.
+	 */
+	public function run( ImportPlan $plan, ImportContext $context, string $source_dir ): ImportResult {
 		$ledger = new ImportLedger();
 		$issues = new IssueList();
 		foreach ( $plan->issues->all() as $issue ) {
@@ -80,6 +93,9 @@ final class Importer {
 		try {
 			$course_id = $this->create_course( $plan, $context, $ledger, $issues );
 			$this->assign_terms( $course_id, $plan->course, $issues );
+
+			$urls = $this->media->import( $plan->images, $source_dir, $course_id, $context, $ledger, $issues );
+			$this->link_course_images( $course_id, $plan->course, $urls );
 
 			foreach ( $plan->modules as $module ) {
 				$module_id = $this->insert(
@@ -94,14 +110,14 @@ final class Importer {
 					]
 				);
 
-				$this->create_lessons( $module->lessons, $module_id, $context, $ledger );
+				$this->create_lessons( $module->lessons, $module_id, $urls, $context, $ledger );
 
 				if ( null !== $module->quiz ) {
 					$this->create_quiz( $module->quiz, $module_id, $plan->course->pass_percent, $context, $ledger );
 				}
 			}
 
-			$this->create_lessons( $plan->lessons, $course_id, $context, $ledger );
+			$this->create_lessons( $plan->lessons, $course_id, $urls, $context, $ledger );
 			$this->create_quiz( $plan->final_quiz, $course_id, $plan->course->pass_percent, $context, $ledger );
 		} catch ( Throwable $error ) {
 			return ImportResult::failed( $error->getMessage(), $ledger->rollback() );
@@ -159,6 +175,36 @@ final class Importer {
 			],
 			$meta
 		);
+	}
+
+	/**
+	 * The course is inserted before its images exist, because they are attached
+	 * to it; a course body that shows an uploaded image is updated once.
+	 *
+	 * @param array<string, string> $urls Archive path => attachment URL.
+	 */
+	private function link_course_images( int $course_id, CoursePlan $course, array $urls ): void {
+		$html = $this->media->rewrite( $course->html, $urls );
+		if ( $html === $course->html ) {
+			return;
+		}
+
+		$updated = wp_update_post(
+			wp_slash(
+				[
+					'ID'           => $course_id,
+					'post_content' => wp_kses_post( $html ),
+				]
+			),
+			true
+		);
+
+		if ( is_wp_error( $updated ) ) {
+			$this->fail( $updated->get_error_message() );
+		}
+		if ( 0 === $updated ) {
+			$this->fail( __( 'WordPress не оновив опис курсу зображеннями.', 'vl-lms' ) );
+		}
 	}
 
 	/**
@@ -226,9 +272,10 @@ final class Importer {
 	}
 
 	/**
-	 * @param list<LessonPlan> $lessons
+	 * @param list<LessonPlan>      $lessons
+	 * @param array<string, string> $urls    Archive path => attachment URL, for the lesson images.
 	 */
-	private function create_lessons( array $lessons, int $parent_id, ImportContext $context, ImportLedger $ledger ): void {
+	private function create_lessons( array $lessons, int $parent_id, array $urls, ImportContext $context, ImportLedger $ledger ): void {
 		foreach ( $lessons as $lesson ) {
 			$this->insert(
 				$ledger,
@@ -236,7 +283,7 @@ final class Importer {
 				[
 					'post_type'    => self::LESSON_POST_TYPE,
 					'post_title'   => $lesson->title,
-					'post_content' => wp_kses_post( $lesson->html ),
+					'post_content' => wp_kses_post( $this->media->rewrite( $lesson->html, $urls ) ),
 					'post_parent'  => $parent_id,
 					'menu_order'   => $lesson->menu_order,
 				]
