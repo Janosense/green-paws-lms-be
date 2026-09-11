@@ -23,12 +23,16 @@ use VL\LMS\Import\Plan\ImportSource;
 use VL\LMS\Import\Plan\LessonPlan;
 use VL\LMS\Import\Plan\QuestionPlan;
 use VL\LMS\Import\Validation\CourseValidator;
+use VL\LMS\Import\Write\ImportContext;
+use VL\LMS\Import\Write\Importer;
 
 final class ImportServiceTest extends TestCase {
 
 	use MockeryPHPUnitIntegration;
 
 	private const FIXTURES = __DIR__ . '/../../Fixtures/Import/';
+
+	private const TOKEN = '0123456789abcdef0123456789abcdef';
 
 	/**
 	 * @var list<string>
@@ -243,6 +247,39 @@ final class ImportServiceTest extends TestCase {
 		];
 	}
 
+	public function test_import_refuses_a_file_with_errors_and_writes_nothing(): void {
+		Functions\when( 'term_exists' )->justReturn( null );
+		Functions\expect( 'wp_insert_post' )->never();
+
+		$result = $this->service()->import( self::FIXTURES . 'course-template.md', new ImportContext( self::TOKEN, 5, 1 ) );
+
+		self::assertFalse( $result->created );
+		self::assertNotSame( '', (string) $result->reason );
+		self::assertSame( [], $result->leftovers );
+	}
+
+	public function test_import_writes_the_course_tree_of_a_valid_file(): void {
+		$next_id = 100;
+		Functions\when( 'wp_insert_post' )->alias(
+			static function () use ( &$next_id ): int {
+				return ++$next_id;
+			}
+		);
+		Functions\when( 'wp_slash' )->returnArg( 1 );
+		Functions\when( 'wp_kses_post' )->returnArg( 1 );
+		Functions\when( 'wp_unique_post_slug' )->returnArg( 1 );
+		Functions\when( 'wp_set_object_terms' )->returnArg( 2 );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+		Functions\when( 'time' )->justReturn( 1789120000 );
+
+		$result = $this->service()->import( self::FIXTURES . 'course-with-modules.md', new ImportContext( self::TOKEN, 5, 1 ) );
+
+		self::assertTrue( $result->created );
+		self::assertSame( 101, $result->course_id );
+		self::assertCount( 12, $result->entities );
+		self::assertSame( 'vl_course', $result->entities[0]['type'] );
+	}
+
 	public function test_analysing_the_same_file_twice_gives_the_same_plan(): void {
 		$service = $this->service();
 
@@ -262,6 +299,7 @@ final class ImportServiceTest extends TestCase {
 			new CourseHtmlBuilder( $markdown_to_html ),
 			new ModuleHtmlBuilder(),
 			new LessonHtmlBuilder( $markdown_to_html ),
+			new Importer(),
 			$default_pass_percent
 		);
 	}

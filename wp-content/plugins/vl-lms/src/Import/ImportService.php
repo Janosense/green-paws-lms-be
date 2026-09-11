@@ -29,12 +29,16 @@ use VL\LMS\Import\Plan\QuestionPlan;
 use VL\LMS\Import\Plan\QuizPlan;
 use VL\LMS\Import\Validation\CourseLevel;
 use VL\LMS\Import\Validation\CourseValidator;
+use VL\LMS\Import\Write\ImportContext;
+use VL\LMS\Import\Write\Importer;
+use VL\LMS\Import\Write\ImportResult;
 
 /**
  * Turns an uploaded `course.md` into an {@see ImportPlan}: parse → validate →
- * convert. Pure apart from reading the file and the validator's term lookups,
- * so the confirmation step can re-analyse the stored file and get the plan
- * the preview showed (`docs/DECISIONS.md` 2026-09-11 — temp folder).
+ * convert, and imports it on confirmation. Analysis is pure apart from reading
+ * the file and the validator's term lookups, so the confirmation step
+ * re-analyses the stored file and gets the plan the preview showed
+ * (`docs/DECISIONS.md` 2026-09-11 — temp folder).
  *
  * The validator runs only when the parse had no errors: after a parse error
  * the tree lacks the rejected headings and their children, and validating it
@@ -55,8 +59,26 @@ final class ImportService {
 		private readonly CourseHtmlBuilder $course_html_builder,
 		private readonly ModuleHtmlBuilder $module_html_builder,
 		private readonly LessonHtmlBuilder $lesson_html_builder,
+		private readonly Importer $importer,
 		private readonly int $default_pass_percent
 	) {
+	}
+
+	/**
+	 * Re-analyses the stored file and writes its course tree. The preview has
+	 * already refused a file with errors; the import refuses it again instead
+	 * of trusting that, and then creates nothing.
+	 *
+	 * @param string $course_md_path The stored `course.md` (Sprint 1 Step 5 passes its temp-folder path).
+	 */
+	public function import( string $course_md_path, ImportContext $context ): ImportResult {
+		$plan = $this->analyse( $course_md_path )->plan;
+
+		if ( null === $plan ) {
+			return ImportResult::failed( __( 'Файл курсу містить помилки, тому імпорт не виконано. Перевірте файл і завантажте його знову.', 'vl-lms' ), [] );
+		}
+
+		return $this->importer->run( $plan, $context );
 	}
 
 	public function analyse( string $course_md_path ): AnalysisResult {
