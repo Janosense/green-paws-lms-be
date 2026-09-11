@@ -1,3 +1,4 @@
 {
-    "redefinable-internals": ["time"]
+    "redefinable-internals": ["time"],
+    "blacklist": ["vendor/nette/"]
 }
