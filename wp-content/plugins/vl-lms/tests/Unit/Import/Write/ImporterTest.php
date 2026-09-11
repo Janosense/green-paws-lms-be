@@ -524,6 +524,7 @@ final class ImporterTest extends TestCase {
 			new CourseHtmlBuilder( $markdown_to_html ),
 			new ModuleHtmlBuilder(),
 			new LessonHtmlBuilder( $markdown_to_html ),
+			new Importer(),
 			70
 		);
 
