@@ -16,12 +16,13 @@ use VL\LMS\Import\Storage\TempStore;
 use VL\LMS\Import\Storage\TempStoreException;
 use VL\LMS\Import\Storage\UploadIntake;
 use VL\LMS\Import\Validation\CourseLevel;
+use VL\LMS\Import\Write\Importer;
 use VL\LMS\Import\Write\MediaImporter;
 
 /**
- * wp-admin «Імпорт курсу» (`?page=vl-lms-import`): the screens Import — Upload
- * and, for an upload's token (`&token=…`), Import — Preview. Import — Report is
- * added in Sprint 1 Step 8.
+ * wp-admin «Імпорт курсу» (`?page=vl-lms-import`): Import — Upload, then for an
+ * upload's token (`&token=…`) Import — Preview, and after a confirmed import
+ * (`&done=1`) Import — Report.
  *
  * Every render sweeps the expired token folders (`docs/DECISIONS.md`
  * 2026-09-11 — temp folder), after opening the requested token, so an expired
@@ -29,6 +30,10 @@ use VL\LMS\Import\Write\MediaImporter;
  * `course.md` on each render. It shows what the import would create and every
  * warning, including the image warnings the import will give. Its confirm
  * form carries only the token and the chosen lead instructor.
+ *
+ * The report is read before any token is opened, because a confirmed import
+ * deletes its folder; it is deleted as it is read, so the admin gets it once
+ * (`docs/DECISIONS.md` 2026-09-11 — scope: a one-shot report, no history).
  *
  * @author Tymofii Synianskyi
  */
@@ -40,6 +45,14 @@ final class ImportPage {
 	public const ERROR_QUERY     = 'error';
 	public const DISCARDED_QUERY = 'discarded';
 	public const EXPIRED_QUERY   = 'expired';
+	public const DONE_QUERY      = 'done';
+	public const COURSE_QUERY    = 'course';
+
+	/**
+	 * One import's report waits under this prefix plus its token, for
+	 * `ImportConfig::$report_ttl` or until the report screen reads it.
+	 */
+	public const REPORT_TRANSIENT_PREFIX = 'vl_lms_import_report_';
 
 	public function __construct(
 		private readonly ImportConfig $config,
@@ -50,16 +63,26 @@ final class ImportPage {
 	) {
 	}
 
+	/**
+	 * The transient one import's report lives in.
+	 */
+	public static function report_key( string $token ): string {
+		return self::REPORT_TRANSIENT_PREFIX . $token;
+	}
+
 	public function render(): void {
 		if ( ! current_user_can( self::CAPABILITY ) ) {
 			wp_die( esc_html__( 'Доступ заборонено.', 'vl-lms' ), '', [ 'response' => 403 ] );
 		}
 
 		$token       = $this->query( self::TOKEN_QUERY );
+		$done        = '' !== $this->query( self::DONE_QUERY );
 		$handle      = null;
 		$token_error = null;
 
-		if ( '' !== $token ) {
+		// A confirmed import deleted its folder, so the report is read without
+		// opening the token: opening it would call a finished import unknown.
+		if ( ! $done && '' !== $token ) {
 			try {
 				$handle = $this->store->open( $token, get_current_user_id() );
 			} catch ( TempStoreException $exception ) {
@@ -73,7 +96,9 @@ final class ImportPage {
 		echo '<h1>' . esc_html__( 'Імпорт курсу', 'vl-lms' ) . '</h1>';
 		echo '<hr class="wp-header-end" />';
 
-		if ( null === $handle ) {
+		if ( $done ) {
+			$this->render_report( $token );
+		} elseif ( null === $handle ) {
 			$this->render_upload( $token_error );
 		} else {
 			$this->render_preview( $handle );
@@ -134,6 +159,13 @@ final class ImportPage {
 	 * Import — Preview: the errors that block the import, or what it would create.
 	 */
 	private function render_preview( Handle $handle ): void {
+		// Where a refused confirmation lands: its reason, above the plan it
+		// still offers to import.
+		$error = $this->query( self::ERROR_QUERY );
+		if ( '' !== $error ) {
+			$this->notice( 'error', $this->error_message( $error ) );
+		}
+
 		$analysis = $this->service->analyse( $handle->dir . '/' . UploadIntake::COURSE_FILE );
 
 		if ( null === $analysis->plan ) {
@@ -293,6 +325,155 @@ final class ImportPage {
 		echo '</form>';
 	}
 
+	/**
+	 * Import — Report: what the import created, once.
+	 */
+	private function render_report( string $token ): void {
+		$report = $this->take_report( $token );
+
+		if ( null === $report ) {
+			$this->notice( 'warning', __( 'Звіт більше недоступний.', 'vl-lms' ) );
+			$this->render_report_links( $this->query_course_id() );
+			return;
+		}
+
+		$this->notice( 'success', __( 'Курс створено як чернетку.', 'vl-lms' ) );
+		$this->render_entities( $report['entities'] );
+		$this->render_warnings( $this->issues_from( $report['issues'] ) );
+		$this->render_report_links( $report['course_id'] );
+	}
+
+	/**
+	 * The report of this token, deleted as it is read. The token is matched
+	 * against the store's own pattern first, so no option name is ever built
+	 * from text in the URL.
+	 *
+	 * @return array{course_id: int, entities: list<array{type: string, id: int, title: string}>, issues: list<array{level: string, code: string, line: int|null, message: string}>}|null
+	 */
+	private function take_report( string $token ): ?array {
+		if ( 1 !== preg_match( TempStore::TOKEN_PATTERN, $token ) ) {
+			return null;
+		}
+
+		$key    = self::report_key( $token );
+		$report = get_transient( $key );
+
+		if ( ! is_array( $report ) ) {
+			return null;
+		}
+
+		delete_transient( $key );
+
+		if ( ! isset( $report['course_id'] ) ) {
+			return null;
+		}
+
+		$entities = [];
+		foreach ( is_array( $report['entities'] ?? null ) ? $report['entities'] : [] as $entity ) {
+			if ( is_array( $entity ) && isset( $entity['type'], $entity['id'], $entity['title'] ) ) {
+				$entities[] = [
+					'type'  => (string) $entity['type'],
+					'id'    => (int) $entity['id'],
+					'title' => (string) $entity['title'],
+				];
+			}
+		}
+
+		$issues = [];
+		foreach ( is_array( $report['issues'] ?? null ) ? $report['issues'] : [] as $issue ) {
+			if ( is_array( $issue ) && isset( $issue['level'], $issue['message'] ) ) {
+				$issues[] = [
+					'level'   => (string) $issue['level'],
+					'code'    => (string) ( $issue['code'] ?? '' ),
+					'line'    => isset( $issue['line'] ) ? (int) $issue['line'] : null,
+					'message' => (string) $issue['message'],
+				];
+			}
+		}
+
+		return [
+			'course_id' => (int) $report['course_id'],
+			'entities'  => $entities,
+			'issues'    => $issues,
+		];
+	}
+
+	/**
+	 * @param list<array{type: string, id: int, title: string}> $entities In creation order, the course first.
+	 */
+	private function render_entities( array $entities ): void {
+		echo '<h2>' . esc_html__( 'Створені записи', 'vl-lms' ) . '</h2>';
+
+		echo '<table class="wp-list-table widefat striped">';
+		echo '<thead><tr><th scope="col">' . esc_html__( 'Тип', 'vl-lms' ) . '</th><th scope="col">' . esc_html__( 'Назва', 'vl-lms' ) . '</th><th scope="col">' . esc_html__( 'Дія', 'vl-lms' ) . '</th></tr></thead>';
+		echo '<tbody>';
+		foreach ( $entities as $entity ) {
+			$link = get_edit_post_link( $entity['id'] );
+
+			echo '<tr>';
+			echo '<td>' . esc_html( $this->type_label( $entity['type'] ) ) . '</td>';
+			echo '<td>' . esc_html( $entity['title'] ) . '</td>';
+			echo '<td>';
+			if ( null === $link ) {
+				echo '&mdash;';
+			} else {
+				printf( '<a href="%s">%s</a>', esc_url( $link ), esc_html__( 'Редагувати', 'vl-lms' ) );
+			}
+			echo '</td>';
+			echo '</tr>';
+		}
+		echo '</tbody></table>';
+	}
+
+	/**
+	 * «Відкрити курс» while the course is still there, and the way to the next
+	 * upload.
+	 */
+	private function render_report_links( int $course_id ): void {
+		$link = 0 === $course_id ? null : get_edit_post_link( $course_id );
+
+		echo '<p>';
+		if ( null !== $link ) {
+			printf( '<a class="button button-primary" href="%s">%s</a> ', esc_url( $link ), esc_html__( 'Відкрити курс', 'vl-lms' ) );
+		}
+		printf( '<a class="button" href="%s">%s</a>', esc_url( $this->page_url() ), esc_html__( 'Імпортувати ще один', 'vl-lms' ) );
+		echo '</p>';
+	}
+
+	/**
+	 * The Ukrainian name of a created post's type, from `core`'s own CPT
+	 * labels; a type WordPress does not know prints its slug.
+	 */
+	private function type_label( string $post_type ): string {
+		$object = get_post_type_object( $post_type );
+		if ( null === $object ) {
+			return $post_type;
+		}
+
+		$label = $object->labels->singular_name ?? '';
+
+		return is_string( $label ) && '' !== $label ? $label : $post_type;
+	}
+
+	/**
+	 * The stored report's issues, as the warnings table of the preview wants
+	 * them.
+	 *
+	 * @param list<array{level: string, code: string, line: int|null, message: string}> $issues
+	 */
+	private function issues_from( array $issues ): IssueList {
+		$list = new IssueList();
+
+		foreach ( $issues as $issue ) {
+			$level = IssueLevel::tryFrom( $issue['level'] );
+			if ( null !== $level ) {
+				$list->add( new ImportIssue( $level, $issue['code'], $issue['line'], $issue['message'] ) );
+			}
+		}
+
+		return $list;
+	}
+
 	private function render_card( string $label, int $value ): void {
 		echo '<div class="vl-lms-import-card" style="background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:16px;min-width:160px;">';
 		echo '<div style="font-size:12px;color:#646970;text-transform:uppercase;">' . esc_html( $label ) . '</div>';
@@ -315,22 +496,24 @@ final class ImportPage {
 	private function error_message( string $code ): string {
 		$limit = $this->config->max_upload_bytes;
 
-		$exception = match ( $code ) {
-			IntakeException::TOO_LARGE           => IntakeException::too_large( $limit ),
-			IntakeException::WRONG_TYPE          => IntakeException::wrong_type(),
-			IntakeException::ARCHIVE_UNSUPPORTED => IntakeException::archive_unsupported(),
-			IntakeException::ARCHIVE_UNREADABLE  => IntakeException::archive_unreadable(),
-			IntakeException::ARCHIVE_TOO_LARGE   => IntakeException::archive_too_large( $limit ),
-			IntakeException::NO_COURSE_FILE      => IntakeException::no_course_file(),
-			IntakeException::EXTRACT_FAILED      => IntakeException::extract_failed(),
-			TempStoreException::UNKNOWN_TOKEN    => TempStoreException::unknown_token(),
-			TempStoreException::EXPIRED_TOKEN    => TempStoreException::expired_token(),
-			TempStoreException::FOREIGN_TOKEN    => TempStoreException::foreign_token(),
-			TempStoreException::UNWRITABLE       => TempStoreException::unwritable(),
-			default                              => IntakeException::upload_failed(),
+		return match ( $code ) {
+			IntakeException::TOO_LARGE            => IntakeException::too_large( $limit )->getMessage(),
+			IntakeException::WRONG_TYPE           => IntakeException::wrong_type()->getMessage(),
+			IntakeException::ARCHIVE_UNSUPPORTED  => IntakeException::archive_unsupported()->getMessage(),
+			IntakeException::ARCHIVE_UNREADABLE   => IntakeException::archive_unreadable()->getMessage(),
+			IntakeException::ARCHIVE_TOO_LARGE    => IntakeException::archive_too_large( $limit )->getMessage(),
+			IntakeException::NO_COURSE_FILE       => IntakeException::no_course_file()->getMessage(),
+			IntakeException::EXTRACT_FAILED       => IntakeException::extract_failed()->getMessage(),
+			TempStoreException::UNKNOWN_TOKEN     => TempStoreException::unknown_token()->getMessage(),
+			TempStoreException::EXPIRED_TOKEN     => TempStoreException::expired_token()->getMessage(),
+			TempStoreException::FOREIGN_TOKEN     => TempStoreException::foreign_token()->getMessage(),
+			TempStoreException::UNWRITABLE        => TempStoreException::unwritable()->getMessage(),
+			ImportService::FILE_HAS_ERRORS        => __( 'Файл курсу містить помилки, тому імпорт не виконано. Перегляньте список помилок нижче.', 'vl-lms' ),
+			Importer::WRITE_FAILED                => __( 'Імпорт не виконано через помилку на сервері, тому нічого не створено. Спробуйте ще раз.', 'vl-lms' ),
+			ImportFormHandler::LEFTOVERS          => __( 'Імпорт не виконано, але не всі створені записи вдалося видалити. Перевірте чернетки в розділі «Курси».', 'vl-lms' ),
+			ImportFormHandler::INSTRUCTOR_INVALID => __( 'Виберіть автора зі списку.', 'vl-lms' ),
+			default                               => IntakeException::upload_failed()->getMessage(),
 		};
-
-		return $exception->getMessage();
 	}
 
 	/**
@@ -355,5 +538,16 @@ final class ImportPage {
 		$value = $_GET[ $key ] ?? '';
 
 		return is_string( $value ) ? sanitize_text_field( wp_unslash( $value ) ) : '';
+	}
+
+	/**
+	 * The course the report links to when its own record is gone.
+	 */
+	private function query_course_id(): int {
+		return absint( $this->query( self::COURSE_QUERY ) );
+	}
+
+	private function page_url(): string {
+		return add_query_arg( [ 'page' => self::PAGE_SLUG ], admin_url( 'admin.php' ) );
 	}
 }

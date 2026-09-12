@@ -65,6 +65,16 @@ final class ImportPageTest extends TestCase {
 	 */
 	private array $instructors = [];
 
+	/**
+	 * @var array<string, mixed> The transients this test's WordPress holds.
+	 */
+	private array $transients = [];
+
+	/**
+	 * @var list<int> The posts `get_edit_post_link()` resolves; anything else has no link.
+	 */
+	private array $posts = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
@@ -133,6 +143,27 @@ final class ImportPageTest extends TestCase {
 				$user->user_login   = 'admin';
 
 				return $user;
+			}
+		);
+		Functions\when( 'absint' )->alias( static fn ( mixed $value ): int => abs( (int) $value ) );
+		Functions\when( 'add_query_arg' )->alias( static fn ( array $args, string $url ): string => $url . '?' . http_build_query( $args ) );
+		Functions\when( 'get_edit_post_link' )->alias(
+			fn ( int $id ): ?string => in_array( $id, $this->posts, true ) ? 'https://example.test/wp-admin/post.php?post=' . $id . '&action=edit' : null
+		);
+		Functions\when( 'get_post_type_object' )->alias( static fn ( string $post_type ): ?stdClass => self::post_type_object( $post_type ) );
+		Functions\when( 'set_transient' )->alias(
+			function ( string $key, mixed $value ): bool {
+				$this->transients[ $key ] = $value;
+
+				return true;
+			}
+		);
+		Functions\when( 'get_transient' )->alias( fn ( string $key ): mixed => $this->transients[ $key ] ?? false );
+		Functions\when( 'delete_transient' )->alias(
+			function ( string $key ): bool {
+				unset( $this->transients[ $key ] );
+
+				return true;
 			}
 		);
 	}
@@ -376,6 +407,169 @@ final class ImportPageTest extends TestCase {
 
 		self::assertSame( [ [ 'error', TempStoreException::unknown_token()->getMessage() ] ], $this->notices( $html ) );
 		self::assertStringContainsString( 'value="vl_lms_import_upload"', $html );
+	}
+
+	public function test_the_report_lists_what_the_import_created(): void {
+		$token = '0123456789abcdef0123456789abcdef';
+		$this->put_report( $token );
+
+		$html = $this->render(
+			[
+				'token' => $token,
+				'done'  => '1',
+			]
+		);
+
+		self::assertSame( [ [ 'success', 'Курс створено як чернетку.' ] ], $this->notices( $html ) );
+		self::assertStringContainsString( '<h2>Створені записи</h2>', $html );
+		self::assertStringContainsString( '<td>Курс</td><td>Анестезія</td><td><a href="https://example.test/wp-admin/post.php?post=101&amp;action=edit">Редагувати</a></td>', $html );
+		self::assertStringContainsString( '<td>Урок</td><td>Урок 1</td><td><a href="https://example.test/wp-admin/post.php?post=102&amp;action=edit">Редагувати</a></td>', $html );
+		self::assertStringContainsString( '<td>Тест</td><td>Підсумковий тест</td><td>&mdash;</td>', $html, 'A post the admin cannot open still gets its row.' );
+		self::assertContains( [ '71', 'Попередження', 'Зображення немає.' ], $this->rows( $html, 3 ) );
+		self::assertStringContainsString( '<a class="button button-primary" href="https://example.test/wp-admin/post.php?post=101&amp;action=edit">Відкрити курс</a>', $html );
+		self::assertStringContainsString( '<a class="button" href="https://example.test/wp-admin/admin.php?page=vl-lms-import">Імпортувати ще один</a>', $html );
+		self::assertStringNotContainsString( 'vl_lms_import_confirm', $html );
+		self::assertStringNotContainsString( 'course_file', $html );
+	}
+
+	public function test_the_report_is_shown_once(): void {
+		$token = '0123456789abcdef0123456789abcdef';
+		$this->put_report( $token );
+
+		$this->render(
+			[
+				'token' => $token,
+				'done'  => '1',
+			]
+		);
+		$html = $this->render(
+			[
+				'token'  => $token,
+				'done'   => '1',
+				'course' => '101',
+			]
+		);
+
+		self::assertSame( [], $this->transients, 'The report is deleted as it is read.' );
+		self::assertSame( [ [ 'warning', 'Звіт більше недоступний.' ] ], $this->notices( $html ) );
+		self::assertStringContainsString( '<a class="button button-primary" href="https://example.test/wp-admin/post.php?post=101&amp;action=edit">Відкрити курс</a>', $html );
+		self::assertStringNotContainsString( 'Створені записи', $html );
+	}
+
+	public function test_a_report_that_is_gone_offers_only_a_new_import_without_a_course_in_the_url(): void {
+		$html = $this->render(
+			[
+				'token' => '0123456789abcdef0123456789abcdef',
+				'done'  => '1',
+			]
+		);
+
+		self::assertSame( [ [ 'warning', 'Звіт більше недоступний.' ] ], $this->notices( $html ) );
+		self::assertStringNotContainsString( 'Відкрити курс', $html );
+		self::assertStringContainsString( 'Імпортувати ще один', $html );
+	}
+
+	public function test_the_report_never_opens_its_token_and_still_sweeps(): void {
+		$token = '0123456789abcdef0123456789abcdef';
+		$this->put_report( $token );
+		$this->now = self::NOW - self::TTL - 60;
+		$stale     = $this->store()->create( self::OTHER_ID );
+		$this->now = self::NOW;
+
+		$html = $this->render(
+			[
+				'token' => $token,
+				'done'  => '1',
+			]
+		);
+
+		self::assertSame( [ [ 'success', 'Курс створено як чернетку.' ] ], $this->notices( $html ), 'The folder of a finished import is gone; the report must not call that unknown.' );
+		self::assertDirectoryDoesNotExist( $stale->dir );
+	}
+
+	public function test_a_malformed_token_never_becomes_a_transient_name(): void {
+		$this->transients['vl_lms_import_report_../../evil'] = [ 'course_id' => 101 ];
+
+		$html = $this->render(
+			[
+				'token' => '../../evil',
+				'done'  => '1',
+			]
+		);
+
+		self::assertSame( [ [ 'warning', 'Звіт більше недоступний.' ] ], $this->notices( $html ) );
+		self::assertArrayHasKey( 'vl_lms_import_report_../../evil', $this->transients );
+	}
+
+	public function test_the_preview_shows_the_error_of_a_refused_confirmation(): void {
+		$handle = $this->upload_folder( 'course-with-modules.md' );
+
+		$html = $this->render(
+			[
+				'token' => $handle->token,
+				'error' => 'import.instructor_invalid',
+			]
+		);
+
+		self::assertSame( [ [ 'error', 'Виберіть автора зі списку.' ] ], $this->notices( $html ) );
+		self::assertStringContainsString( 'value="vl_lms_import_confirm"', $html, 'The preview still offers the import.' );
+	}
+
+	/**
+	 * A report as the confirmation handler leaves it: scalars only.
+	 */
+	private function put_report( string $token ): void {
+		$this->posts = [ 101, 102 ];
+
+		$this->transients[ ImportPage::report_key( $token ) ] = [
+			'course_id' => 101,
+			'entities'  => [
+				[
+					'type'  => 'vl_course',
+					'id'    => 101,
+					'title' => 'Анестезія',
+				],
+				[
+					'type'  => 'vl_lesson',
+					'id'    => 102,
+					'title' => 'Урок 1',
+				],
+				[
+					'type'  => 'vl_quiz',
+					'id'    => 103,
+					'title' => 'Підсумковий тест',
+				],
+			],
+			'issues'    => [
+				[
+					'level'   => 'warning',
+					'code'    => 'media.image_missing',
+					'line'    => 71,
+					'message' => 'Зображення немає.',
+				],
+			],
+		];
+	}
+
+	/**
+	 * `core`'s own CPT labels, as `get_post_type_object()` carries them.
+	 */
+	private static function post_type_object( string $post_type ): ?stdClass {
+		$labels = [
+			'vl_course' => 'Курс',
+			'vl_lesson' => 'Урок',
+			'vl_quiz'   => 'Тест',
+		];
+
+		if ( ! isset( $labels[ $post_type ] ) ) {
+			return null;
+		}
+
+		$object                        = new stdClass();
+		$object->labels                = new stdClass();
+		$object->labels->singular_name = $labels[ $post_type ];
+
+		return $object;
 	}
 
 	/**
