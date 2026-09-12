@@ -252,6 +252,22 @@ final class PluginTest extends TestCase {
 		self::assertInstanceOf( \VL\LMS\Admin\Orders\OrderDetailPage::class, $detail_page );
 	}
 
+	public function test_container_resolves_the_course_import_provider_and_boot_hooks_it(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		Plugin::instance()->boot();
+
+		$container = Plugin::instance()->container();
+		self::assertNotNull( $container );
+
+		$provider = $container->get( \VL\LMS\Import\ImportProvider::class );
+		self::assertInstanceOf( \VL\LMS\Import\ImportProvider::class, $provider );
+		self::assertNotFalse(
+			has_action( 'admin_init', [ $provider, 'register_handlers' ] ),
+			'boot() wires the import handlers through admin_init.'
+		);
+	}
+
 	public function test_default_dependency_check_uses_class_exists(): void {
 		// Override cleared in setUp; the default path relies on the real
 		// facade class, which is not loaded in the unit suite.

@@ -11,9 +11,12 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
 use VL\LMS\Admin\Groups\GroupsListPage;
+use VL\LMS\Admin\Import\ImportPage;
 use VL\LMS\Admin\Menu\AdminMenuProvider;
 use VL\LMS\Admin\Orders\OrdersListPage;
+use VL\LMS\Admin\Settings\SettingsPage;
 use VL\LMS\Admin\Students\StudentsListPage;
+use VL\LMS\Import\ImportProvider;
 
 final class AdminMenuProviderTest extends TestCase {
 
@@ -39,6 +42,8 @@ final class AdminMenuProviderTest extends TestCase {
 		$menu    = &$this->menu_calls;
 		$submenu = &$this->submenu_calls;
 		$remove  = &$this->remove_calls;
+
+		Functions\when( '__' )->returnArg( 1 );
 
 		Functions\when( 'add_menu_page' )->alias(
 			static function (
@@ -179,9 +184,52 @@ final class AdminMenuProviderTest extends TestCase {
 		self::assertSame( 'Студенти', $students_submenu['menu_title'] );
 	}
 
+	public function test_register_skips_the_course_import_submenu_when_page_not_injected(): void {
+		$provider = $this->makeProvider();
+
+		$provider->register();
+
+		foreach ( $this->submenu_calls as $call ) {
+			self::assertNotSame( AdminMenuProvider::IMPORT_SLUG, $call['menu_slug'] );
+		}
+	}
+
+	public function test_register_adds_the_course_import_submenu_before_the_settings_page(): void {
+		$dashboard = Mockery::mock( InstructorDashboardPage::class );
+		$orders    = Mockery::mock( OrdersListPage::class );
+		$settings  = Mockery::mock( SettingsPage::class );
+		$import    = $this->importPage();
+
+		$provider = new AdminMenuProvider( $dashboard, $orders, null, null, $settings, null, null, $import );
+
+		$provider->register();
+
+		$slugs = array_column( $this->submenu_calls, 'menu_slug' );
+		$index = array_search( AdminMenuProvider::IMPORT_SLUG, $slugs, true );
+
+		self::assertIsInt( $index, 'Expected an import submenu registration.' );
+		self::assertSame( 'vl-lms', $this->submenu_calls[ $index ]['parent_slug'] );
+		self::assertSame( 'vl-lms-import', $this->submenu_calls[ $index ]['menu_slug'] );
+		self::assertSame( 'manage_vl_lms_settings', $this->submenu_calls[ $index ]['capability'] );
+		self::assertSame( 'Імпорт курсу', $this->submenu_calls[ $index ]['menu_title'] );
+		self::assertSame( 'Імпорт курсу', $this->submenu_calls[ $index ]['page_title'] );
+		self::assertSame( [ $import, 'render' ], $this->submenu_calls[ $index ]['callback'] );
+		self::assertLessThan( array_search( AdminMenuProvider::SETTINGS_SLUG, $slugs, true ), $index );
+	}
+
 	private function makeProvider(): AdminMenuProvider {
 		$dashboard = Mockery::mock( InstructorDashboardPage::class );
 		$orders    = Mockery::mock( OrdersListPage::class );
 		return new AdminMenuProvider( $dashboard, $orders );
+	}
+
+	/**
+	 * The real page: `ImportPage` is `final`, and its provider builds it from
+	 * the importer's filtered configuration.
+	 */
+	private function importPage(): ImportPage {
+		Functions\when( 'wp_max_upload_size' )->justReturn( 1048576 );
+
+		return ( new ImportProvider() )->page();
 	}
 }

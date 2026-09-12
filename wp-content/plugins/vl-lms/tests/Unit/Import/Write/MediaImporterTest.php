@@ -183,6 +183,32 @@ final class MediaImporterTest extends TestCase {
 		);
 	}
 
+	public function test_check_compares_the_images_with_the_folder_and_uploads_nothing(): void {
+		$this->put( 'assets/b.png', 'png-b' );
+		$this->put( 'assets/unused.png', 'png-unused' );
+
+		$found = ( new MediaImporter() )->check(
+			[
+				new ImageRef( 'assets/missing.png', 'assets/missing.png', '', 12 ),
+				new ImageRef( 'assets/b.png', 'assets/b.png', '', 3 ),
+			],
+			$this->source,
+			$this->issues
+		);
+
+		self::assertSame( [ 'assets/b.png' ], $found );
+		self::assertSame(
+			[
+				[ MediaImporter::IMAGE_UNUSED, null, 'assets/unused.png' ],
+				[ MediaImporter::IMAGE_MISSING, 12, 'assets/missing.png' ],
+			],
+			$this->issue_rows()
+		);
+		self::assertSame( 0, $this->tempnams );
+		self::assertSame( [], $this->sideloads );
+		self::assertSame( [], $this->ledger->summary() );
+	}
+
 	public function test_without_an_assets_folder_every_image_is_missing_and_nothing_is_uploaded(): void {
 		$urls = $this->import(
 			[
