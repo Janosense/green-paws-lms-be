@@ -420,7 +420,7 @@ final class ImportPageTest extends TestCase {
 	}
 
 	private function config(): ImportConfig {
-		return new ImportConfig( self::LIMIT, self::TTL, [ 'png', 'jpg', 'jpeg', 'gif', 'webp' ], 70 );
+		return new ImportConfig( self::LIMIT, self::TTL, [ 'png', 'jpg', 'jpeg', 'gif', 'webp' ], 70, 300, 600 );
 	}
 
 	/**
