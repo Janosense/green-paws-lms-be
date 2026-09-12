@@ -47,6 +47,13 @@ use VL\LMS\Import\Plan\QuizPlan;
  */
 final class Importer {
 
+	/**
+	 * The reason code of a run that failed and rolled back. The screens turn it
+	 * into their own notice, so no WordPress message reaches a URL
+	 * (`docs/DECISIONS.md` 2026-09-12).
+	 */
+	public const WRITE_FAILED = 'import.failed';
+
 	public const SLUG_CHANGED       = 'import.slug_changed';
 	public const DIFFICULTY_MISSING = 'import.difficulty_missing';
 
@@ -120,7 +127,7 @@ final class Importer {
 			$this->create_lessons( $plan->lessons, $course_id, $urls, $context, $ledger );
 			$this->create_quiz( $plan->final_quiz, $course_id, $plan->course->pass_percent, $context, $ledger );
 		} catch ( Throwable $error ) {
-			return ImportResult::failed( $error->getMessage(), $ledger->rollback() );
+			return ImportResult::failed( self::WRITE_FAILED, $error->getMessage(), $ledger->rollback() );
 		}
 
 		return ImportResult::created( $course_id, $ledger->summary(), $issues );

@@ -112,17 +112,19 @@ final class ImportLedgerTest extends TestCase {
 	public function test_results_carry_either_the_created_tree_or_the_failure(): void {
 		$issues  = new IssueList();
 		$created = ImportResult::created( 101, $this->ledger()->summary(), $issues );
-		$failed  = ImportResult::failed( 'Database error.', [ 103 ] );
+		$failed  = ImportResult::failed( 'import.failed', 'Database error.', [ 103 ] );
 
 		self::assertTrue( $created->created );
 		self::assertSame( 101, $created->course_id );
 		self::assertCount( 4, $created->entities );
 		self::assertSame( $issues, $created->issues );
+		self::assertNull( $created->code );
 		self::assertNull( $created->reason );
 
 		self::assertFalse( $failed->created );
 		self::assertNull( $failed->course_id );
 		self::assertSame( [], $failed->entities );
+		self::assertSame( 'import.failed', $failed->code, 'The code is what a screen may show.' );
 		self::assertSame( 'Database error.', $failed->reason );
 		self::assertSame( [ 103 ], $failed->leftovers );
 	}
