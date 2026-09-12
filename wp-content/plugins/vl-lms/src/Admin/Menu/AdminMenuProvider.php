@@ -8,6 +8,7 @@ use VL\LMS\Admin\Analytics\AnalyticsPage;
 use VL\LMS\Admin\Assignments\GradingQueuePage;
 use VL\LMS\Admin\Dashboard\InstructorDashboardPage;
 use VL\LMS\Admin\Groups\GroupsListPage;
+use VL\LMS\Admin\Import\ImportPage;
 use VL\LMS\Admin\Orders\OrdersListPage;
 use VL\LMS\Admin\Settings\SettingsPage;
 use VL\LMS\Admin\Students\StudentsListPage;
@@ -34,6 +35,7 @@ class AdminMenuProvider {
 	public const string SETTINGS_SLUG  = 'vl-lms-settings';
 	public const string GROUPS_SLUG    = 'vl-lms-groups';
 	public const string STUDENTS_SLUG  = 'vl-lms-students';
+	public const string IMPORT_SLUG    = ImportPage::PAGE_SLUG;
 	public const string CAP            = 'edit_posts';
 	public const string ORDERS_CAP     = 'vl_refund_orders';
 	public const string SETTINGS_CAP   = 'manage_vl_lms_settings';
@@ -49,7 +51,8 @@ class AdminMenuProvider {
 		private readonly ?GradingQueuePage $grading_page = null,
 		private readonly ?SettingsPage $settings_page = null,
 		private readonly ?GroupsListPage $groups_page = null,
-		private readonly ?StudentsListPage $students_page = null
+		private readonly ?StudentsListPage $students_page = null,
+		private readonly ?ImportPage $import_page = null
 	) {
 	}
 
@@ -129,6 +132,19 @@ class AdminMenuProvider {
 				self::GROUPS_CAP,
 				self::GROUPS_SLUG,
 				[ $this->groups_page, 'render' ]
+			);
+		}
+
+		// `course-import`: the feature's only entry in the `core` menu
+		// (`docs/DECISIONS.md` 2026-09-11 — code location).
+		if ( null !== $this->import_page ) {
+			add_submenu_page(
+				self::PARENT_SLUG,
+				__( 'Імпорт курсу', 'vl-lms' ),
+				__( 'Імпорт курсу', 'vl-lms' ),
+				self::SETTINGS_CAP,
+				self::IMPORT_SLUG,
+				[ $this->import_page, 'render' ]
 			);
 		}
 
