@@ -48,7 +48,8 @@ use VL\LMS\Import\Write\ImportResult;
  */
 final class ImportService {
 
-	public const UNREADABLE = 'document.unreadable';
+	public const UNREADABLE      = 'document.unreadable';
+	public const FILE_HAS_ERRORS = 'import.file_has_errors';
 
 	/**
 	 * @param int $default_pass_percent The pass percent when the file sets no `quiz_pass_percent`; configuration, never a literal here.
@@ -78,7 +79,7 @@ final class ImportService {
 		$plan = $this->analyse( $course_md_path )->plan;
 
 		if ( null === $plan ) {
-			return ImportResult::failed( __( 'Файл курсу містить помилки, тому імпорт не виконано. Перевірте файл і завантажте його знову.', 'vl-lms' ), [] );
+			return ImportResult::failed( self::FILE_HAS_ERRORS, __( 'Файл курсу містить помилки, тому імпорт не виконано. Перевірте файл і завантажте його знову.', 'vl-lms' ), [] );
 		}
 
 		return $this->importer->run( $plan, $context, dirname( $course_md_path ) );

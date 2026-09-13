@@ -612,6 +612,7 @@ final class ImporterTest extends TestCase {
 		$result = $this->run_import( 'course-with-modules.md' );
 
 		self::assertFalse( $result->created );
+		self::assertSame( Importer::WRITE_FAILED, $result->code );
 		self::assertSame( 'Could not insert post into the database.', $result->reason );
 		self::assertSame( $deleted, $this->deleted );
 		self::assertCount( $failing_insert, $this->inserts );
@@ -668,6 +669,7 @@ final class ImporterTest extends TestCase {
 		$result = $this->run_import( 'course-with-modules.md' );
 
 		self::assertFalse( $result->created );
+		self::assertSame( Importer::WRITE_FAILED, $result->code );
 		self::assertSame( [ 102, 101 ], $this->deleted );
 		self::assertSame( [ 101 ], $result->leftovers );
 	}

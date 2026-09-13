@@ -263,6 +263,7 @@ final class ImportServiceTest extends TestCase {
 		$result = $this->service()->import( self::FIXTURES . 'course-template.md', new ImportContext( self::TOKEN, 5, 1 ) );
 
 		self::assertFalse( $result->created );
+		self::assertSame( ImportService::FILE_HAS_ERRORS, $result->code );
 		self::assertNotSame( '', (string) $result->reason );
 		self::assertSame( [], $result->leftovers );
 	}
@@ -284,6 +285,7 @@ final class ImportServiceTest extends TestCase {
 		$result = $this->service()->import( self::FIXTURES . 'course-with-modules.md', new ImportContext( self::TOKEN, 5, 1 ) );
 
 		self::assertTrue( $result->created );
+		self::assertNull( $result->code, 'A created import has nothing to report a failure about.' );
 		self::assertSame( 101, $result->course_id );
 		self::assertCount( 12, $result->entities );
 		self::assertSame( 'vl_course', $result->entities[0]['type'] );

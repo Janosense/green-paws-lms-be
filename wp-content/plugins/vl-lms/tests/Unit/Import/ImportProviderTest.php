@@ -36,13 +36,14 @@ final class ImportProviderTest extends TestCase {
 
 		self::assertNotFalse( has_action( 'admin_init', [ $provider, 'register_handlers' ] ) );
 		self::assertFalse( has_action( 'admin_post_' . ImportFormHandler::UPLOAD_ACTION ) );
+		self::assertFalse( has_action( 'admin_post_' . ImportFormHandler::CONFIRM_ACTION ) );
 		self::assertFalse( has_action( 'admin_post_' . ImportFormHandler::DISCARD_ACTION ) );
 	}
 
-	public function test_register_handlers_wires_the_upload_and_the_discard_to_one_handler(): void {
+	public function test_register_handlers_wires_the_three_actions_to_one_handler(): void {
 		Functions\when( 'wp_max_upload_size' )->justReturn( 1048576 );
 		$hooked = [];
-		foreach ( [ ImportFormHandler::UPLOAD_ACTION, ImportFormHandler::DISCARD_ACTION ] as $action ) {
+		foreach ( [ ImportFormHandler::UPLOAD_ACTION, ImportFormHandler::CONFIRM_ACTION, ImportFormHandler::DISCARD_ACTION ] as $action ) {
 			Actions\expectAdded( 'admin_post_' . $action )->once()->whenHappen(
 				static function ( array $callback ) use ( $action, &$hooked ): void {
 					$hooked[ $action ] = $callback;
@@ -53,8 +54,10 @@ final class ImportProviderTest extends TestCase {
 		( new ImportProvider() )->register_handlers();
 
 		self::assertInstanceOf( ImportFormHandler::class, $hooked[ ImportFormHandler::UPLOAD_ACTION ][0] );
-		self::assertSame( $hooked[ ImportFormHandler::UPLOAD_ACTION ][0], $hooked[ ImportFormHandler::DISCARD_ACTION ][0], 'One handler serves both actions.' );
+		self::assertSame( $hooked[ ImportFormHandler::UPLOAD_ACTION ][0], $hooked[ ImportFormHandler::CONFIRM_ACTION ][0], 'One handler serves every action.' );
+		self::assertSame( $hooked[ ImportFormHandler::UPLOAD_ACTION ][0], $hooked[ ImportFormHandler::DISCARD_ACTION ][0], 'One handler serves every action.' );
 		self::assertSame( 'handle_upload', $hooked[ ImportFormHandler::UPLOAD_ACTION ][1] );
+		self::assertSame( 'handle_confirm', $hooked[ ImportFormHandler::CONFIRM_ACTION ][1] );
 		self::assertSame( 'handle_discard', $hooked[ ImportFormHandler::DISCARD_ACTION ][1] );
 	}
 

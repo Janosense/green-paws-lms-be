@@ -20,6 +20,7 @@ use VL\LMS\Import\Storage\UploadIntake;
 use VL\LMS\Import\Validation\CourseValidator;
 use VL\LMS\Import\Write\Importer;
 use VL\LMS\Import\Write\MediaImporter;
+use VL\LMS\Support\Logger;
 
 /**
  * The bootstrap of the `course-import` feature: one registration in
@@ -40,6 +41,10 @@ final class ImportProvider {
 
 	private ?TempStore $store = null;
 
+	private ?ImportService $service = null;
+
+	private ?MediaImporter $media = null;
+
 	private ?ImportPage $page = null;
 
 	private ?ImportFormHandler $form_handler = null;
@@ -49,13 +54,14 @@ final class ImportProvider {
 	}
 
 	/**
-	 * Wires the upload and discard handlers of the import screens. The
-	 * confirmation handler follows in Sprint 1 Step 8.
+	 * Wires the three `admin-post.php` handlers of the import screens onto one
+	 * handler instance.
 	 */
 	public function register_handlers(): void {
 		$handler = $this->form_handler();
 
 		add_action( 'admin_post_' . ImportFormHandler::UPLOAD_ACTION, [ $handler, 'handle_upload' ] );
+		add_action( 'admin_post_' . ImportFormHandler::CONFIRM_ACTION, [ $handler, 'handle_confirm' ] );
 		add_action( 'admin_post_' . ImportFormHandler::DISCARD_ACTION, [ $handler, 'handle_discard' ] );
 	}
 
@@ -63,31 +69,48 @@ final class ImportProvider {
 	 * The wp-admin «Імпорт курсу» screen, for the LMS menu.
 	 */
 	public function page(): ImportPage {
-		return $this->page ??= $this->build_page();
+		return $this->page ??= new ImportPage( $this->config(), $this->store(), $this->service(), $this->media(), new InstructorCandidates() );
 	}
 
 	private function form_handler(): ImportFormHandler {
 		return $this->form_handler ??= new ImportFormHandler(
 			new UploadIntake( $this->config(), $this->store() ),
-			$this->store()
+			$this->store(),
+			$this->service(),
+			$this->config(),
+			new InstructorCandidates(),
+			new Logger()
 		);
 	}
 
-	private function build_page(): ImportPage {
-		$markdown_to_html = new MarkdownToHtml();
-		$media            = new MediaImporter();
+	/**
+	 * The analysis and import pipeline, shared by the screens and the
+	 * confirmation handler so one request builds it once.
+	 */
+	private function service(): ImportService {
+		if ( null === $this->service ) {
+			$markdown_to_html = new MarkdownToHtml();
 
-		$service = new ImportService(
-			new CourseDocumentParser( new FrontMatterParser(), new QuizBlockParser() ),
-			new CourseValidator( $markdown_to_html ),
-			new CourseHtmlBuilder( $markdown_to_html ),
-			new ModuleHtmlBuilder(),
-			new LessonHtmlBuilder( $markdown_to_html ),
-			new Importer( $media ),
-			$this->config()->default_pass_percent
-		);
+			$this->service = new ImportService(
+				new CourseDocumentParser( new FrontMatterParser(), new QuizBlockParser() ),
+				new CourseValidator( $markdown_to_html ),
+				new CourseHtmlBuilder( $markdown_to_html ),
+				new ModuleHtmlBuilder(),
+				new LessonHtmlBuilder( $markdown_to_html ),
+				new Importer( $this->media() ),
+				$this->config()->default_pass_percent
+			);
+		}
 
-		return new ImportPage( $this->config(), $this->store(), $service, $media, new InstructorCandidates() );
+		return $this->service;
+	}
+
+	/**
+	 * One media importer: the preview compares the folder with it, and the
+	 * import uploads with it.
+	 */
+	private function media(): MediaImporter {
+		return $this->media ??= new MediaImporter();
 	}
 
 	/**

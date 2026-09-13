@@ -247,7 +247,7 @@ final class TempStoreTest extends TestCase {
 	}
 
 	private function store(): TempStore {
-		return new TempStore( new ImportConfig( 1048576, self::TTL, [ 'png' ], 70 ) );
+		return new TempStore( new ImportConfig( 1048576, self::TTL, [ 'png' ], 70, 300, 600 ) );
 	}
 
 	private function assert_reason( string $reason, callable $call ): void {

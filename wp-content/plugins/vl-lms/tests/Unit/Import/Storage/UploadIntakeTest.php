@@ -341,7 +341,7 @@ final class UploadIntakeTest extends TestCase {
 	}
 
 	private function config(): ImportConfig {
-		return new ImportConfig( $this->upload_limit, 3600, [ 'png', 'jpg', 'jpeg', 'gif', 'webp' ], 70 );
+		return new ImportConfig( $this->upload_limit, 3600, [ 'png', 'jpg', 'jpeg', 'gif', 'webp' ], 70, 300, 600 );
 	}
 
 	/**
