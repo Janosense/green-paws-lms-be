@@ -393,8 +393,9 @@ final class CurriculumListColumnsTest extends TestCase {
 		$columns->render_module_course_filter( 'vl_module' );
 		$html = (string) ob_get_clean();
 
+		self::assertStringContainsString( '<label class="screen-reader-text" for="vl_course_id">Фільтр за курсом</label>', $html );
 		self::assertStringContainsString( '<select name="vl_course_id"', $html );
-		self::assertStringContainsString( '<option value="0">All courses</option>', $html );
+		self::assertStringContainsString( '<option value="0">Усі курси</option>', $html );
 		self::assertStringContainsString( '<option value="3"', $html );
 		self::assertStringContainsString( 'Course Beta', $html );
 		self::assertStringContainsString( '<option value="7" selected="selected">', $html );
