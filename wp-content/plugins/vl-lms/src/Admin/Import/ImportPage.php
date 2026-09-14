@@ -337,7 +337,7 @@ final class ImportPage {
 			return;
 		}
 
-		$this->notice( 'success', __( 'Курс створено як чернетку.', 'vl-lms' ) );
+		$this->notice( 'success', __( 'Курс створено й опубліковано приватно.', 'vl-lms' ) );
 		$this->render_entities( $report['entities'] );
 		$this->render_warnings( $this->issues_from( $report['issues'] ) );
 		$this->render_report_links( $report['course_id'] );
@@ -510,7 +510,7 @@ final class ImportPage {
 			TempStoreException::UNWRITABLE        => TempStoreException::unwritable()->getMessage(),
 			ImportService::FILE_HAS_ERRORS        => __( 'Файл курсу містить помилки, тому імпорт не виконано. Перегляньте список помилок нижче.', 'vl-lms' ),
 			Importer::WRITE_FAILED                => __( 'Імпорт не виконано через помилку на сервері, тому нічого не створено. Спробуйте ще раз.', 'vl-lms' ),
-			ImportFormHandler::LEFTOVERS          => __( 'Імпорт не виконано, але не всі створені записи вдалося видалити. Перевірте чернетки в розділі «Курси».', 'vl-lms' ),
+			ImportFormHandler::LEFTOVERS          => __( 'Імпорт не виконано, але не всі створені записи вдалося видалити. Перевірте записи в розділі «Курси».', 'vl-lms' ),
 			ImportFormHandler::INSTRUCTOR_INVALID => __( 'Виберіть автора зі списку.', 'vl-lms' ),
 			default                               => IntakeException::upload_failed()->getMessage(),
 		};

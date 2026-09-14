@@ -420,7 +420,7 @@ final class ImportPageTest extends TestCase {
 			]
 		);
 
-		self::assertSame( [ [ 'success', 'Курс створено як чернетку.' ] ], $this->notices( $html ) );
+		self::assertSame( [ [ 'success', 'Курс створено й опубліковано приватно.' ] ], $this->notices( $html ) );
 		self::assertStringContainsString( '<h2>Створені записи</h2>', $html );
 		self::assertStringContainsString( '<td>Курс</td><td>Анестезія</td><td><a href="https://example.test/wp-admin/post.php?post=101&amp;action=edit">Редагувати</a></td>', $html );
 		self::assertStringContainsString( '<td>Урок</td><td>Урок 1</td><td><a href="https://example.test/wp-admin/post.php?post=102&amp;action=edit">Редагувати</a></td>', $html );
@@ -483,7 +483,7 @@ final class ImportPageTest extends TestCase {
 			]
 		);
 
-		self::assertSame( [ [ 'success', 'Курс створено як чернетку.' ] ], $this->notices( $html ), 'The folder of a finished import is gone; the report must not call that unknown.' );
+		self::assertSame( [ [ 'success', 'Курс створено й опубліковано приватно.' ] ], $this->notices( $html ), 'The folder of a finished import is gone; the report must not call that unknown.' );
 		self::assertDirectoryDoesNotExist( $stale->dir );
 	}
 

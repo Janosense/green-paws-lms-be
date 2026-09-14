@@ -14,7 +14,7 @@ use VL\LMS\Import\Plan\LessonPlan;
 use VL\LMS\Import\Plan\QuizPlan;
 
 /**
- * Writes an {@see ImportPlan} as a new draft course tree: `vl_course` →
+ * Writes an {@see ImportPlan} as a new course tree: `vl_course` →
  * terms → the course's images → each `vl_module` with its `vl_lesson`s and
  * `vl_quiz` → course-direct lessons → the final exam; every quiz followed by
  * its `vl_quiz_question`s. Parents are always created before their children.
@@ -27,16 +27,21 @@ use VL\LMS\Import\Plan\QuizPlan;
  * Writes go through WordPress core functions only, in the shapes
  * `docs/DATA-MODEL.md` documents (course-import FEATURE.md → Data):
  *
- * - Every post is a `draft` authored by the chosen lead instructor — child
- *   posts too, because instructors edit only what they author — and carries
+ * - The course is `private` and every other post is `publish`: the tree is
+ *   ready the moment the course is made public, and until then nothing of it
+ *   reaches the app, which serves content only under a published course
+ *   (`docs/DECISIONS.md` 2026-09-14 — private course, published tree).
+ * - Every post is authored by the chosen lead instructor — child posts too,
+ *   because instructors edit only what they author — and carries
  *   `_vl_import_id` in `meta_input`, so the marker is there before any
  *   `save_post` hook runs.
  * - Post data is slashed: WordPress unslashes post fields and meta values.
  * - Body HTML passes `wp_kses_post()` here, because `wp_insert_post()` skips
  *   kses for administrators.
- * - The course slug is made unique the way WordPress would on publish;
- *   WordPress itself never suffixes a draft slug (`docs/DECISIONS.md`
- *   2026-09-11).
+ * - The course slug is made unique the way WordPress would on publish, before
+ *   the insert, so a changed slug can be reported (`docs/DECISIONS.md`
+ *   2026-09-11). Child slugs are left to WordPress and
+ *   `SlugTransliterationListener`.
  *
  * Every created post is recorded in an {@see ImportLedger}; the first failure
  * — a `WP_Error` or any exception — rolls the ledger back and nothing is
@@ -76,6 +81,13 @@ final class Importer {
 	private const COURSE_TYPE     = 'self_paced';
 	private const COMPLETION_MODE = 'free';
 	private const CURRENCY        = 'UAH';
+
+	/**
+	 * The course is privately published; its modules, lessons, quizzes and
+	 * questions are published (`docs/DECISIONS.md` 2026-09-14 — private course, published tree).
+	 */
+	private const COURSE_STATUS = 'private';
+	private const TREE_STATUS   = 'publish';
 
 	/**
 	 * Every imported question is worth one point.
@@ -179,6 +191,7 @@ final class Importer {
 				'post_title'   => $course->title,
 				'post_name'    => $slug,
 				'post_content' => wp_kses_post( $course->html ),
+				'post_status'  => self::COURSE_STATUS,
 			],
 			$meta
 		);
@@ -353,19 +366,20 @@ final class Importer {
 	}
 
 	/**
-	 * Inserts one draft post by the lead instructor, with the import marker
-	 * first in its meta, and records it in the ledger.
+	 * Inserts one post by the lead instructor — published unless `$post` names
+	 * its own status — with the import marker first in its meta, and records it
+	 * in the ledger.
 	 *
-	 * @param array{post_type: string, post_title: string, post_content: string, post_name?: string, post_parent?: int, menu_order?: int} $post
-	 * @param array<string, mixed>                                                                                                        $meta
+	 * @param array{post_type: string, post_title: string, post_content: string, post_name?: string, post_parent?: int, menu_order?: int, post_status?: string} $post
+	 * @param array<string, mixed>                                                                                                                              $meta
 	 *
 	 * @throws RuntimeException When WordPress does not create the post.
 	 */
 	private function insert( ImportLedger $ledger, ImportContext $context, array $post, array $meta = [] ): int {
 		$postarr = array_merge(
+			[ 'post_status' => self::TREE_STATUS ],
 			$post,
 			[
-				'post_status' => 'draft',
 				'post_author' => $context->instructor_id,
 				'meta_input'  => array_merge( [ self::IMPORT_ID_META => $context->token ], $meta ),
 			]
