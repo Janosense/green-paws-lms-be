@@ -30,11 +30,11 @@ final class TagTaxonomy extends AbstractTaxonomyRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Tag';
+		return 'Тег';
 	}
 
 	protected function plural_label(): string {
-		return 'Tags';
+		return 'Теги';
 	}
 
 	protected function hierarchical(): bool {

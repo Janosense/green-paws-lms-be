@@ -32,6 +32,11 @@ final class TagTaxonomyTest extends TestCase {
 		self::assertNull( $this->invoke_protected( 'capabilities' ) );
 	}
 
+	public function test_labels_are_ukrainian_nouns(): void {
+		self::assertSame( 'Тег', $this->invoke_protected( 'singular_label' ) );
+		self::assertSame( 'Теги', $this->invoke_protected( 'plural_label' ) );
+	}
+
 	private function invoke_protected( string $method ): mixed {
 		$reflection = new ReflectionMethod( TagTaxonomy::class, $method );
 		return $reflection->invoke( new TagTaxonomy() );

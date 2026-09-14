@@ -34,12 +34,12 @@ abstract class AbstractTaxonomyRegistrar {
 	abstract protected function object_types(): array;
 
 	/**
-	 * Human-readable singular label, untranslated (e.g. `Category`).
+	 * Singular label — the Ukrainian nominative noun (e.g. `Категорія`).
 	 */
 	abstract protected function singular_label(): string;
 
 	/**
-	 * Human-readable plural label, untranslated (e.g. `Categories`).
+	 * Plural label — the Ukrainian nominative noun (e.g. `Категорії`).
 	 */
 	abstract protected function plural_label(): string;
 
@@ -108,10 +108,14 @@ abstract class AbstractTaxonomyRegistrar {
 	/**
 	 * Build the standard WP taxonomy labels array for wp-admin.
 	 *
-	 * Each user-visible label is wrapped in `__()` with the `vl-lms` text
+	 * Labels are Ukrainian (the admin language), mirroring
+	 * {@see \VL\LMS\CPT\AbstractCptRegistrar::build_labels()}: the
+	 * singular/plural noun is interpolated after a colon (nominative case)
+	 * so one template stays grammatically correct across genders, and each
+	 * composite template stays wrapped in `__()` with the `vl-lms` text
 	 * domain. Hierarchical-only keys (`parent_item`, `parent_item_colon`)
 	 * are included unconditionally — WP ignores them for non-hierarchical
-	 * taxonomies.
+	 * taxonomies. Keys not set here keep WordPress's own localized defaults.
 	 *
 	 * @return array<string, string>
 	 */
@@ -123,84 +127,80 @@ abstract class AbstractTaxonomyRegistrar {
 			'name'                       => $plural,
 			'singular_name'              => $singular,
 			'menu_name'                  => $plural,
-			'all_items'                  => sprintf(
-				/* translators: %s: plural taxonomy label */
-				__( 'All %s', 'vl-lms' ),
-				$plural
-			),
+			'all_items'                  => $plural,
 			'search_items'               => sprintf(
 				/* translators: %s: plural taxonomy label */
-				__( 'Search %s', 'vl-lms' ),
+				__( 'Пошук: %s', 'vl-lms' ),
 				$plural
 			),
 			'popular_items'              => sprintf(
 				/* translators: %s: plural taxonomy label */
-				__( 'Popular %s', 'vl-lms' ),
+				__( 'Популярні: %s', 'vl-lms' ),
 				$plural
 			),
 			'parent_item'                => sprintf(
 				/* translators: %s: singular taxonomy label */
-				__( 'Parent %s', 'vl-lms' ),
+				__( 'Батьківський елемент: %s', 'vl-lms' ),
 				$singular
 			),
 			'parent_item_colon'          => sprintf(
 				/* translators: %s: singular taxonomy label */
-				__( 'Parent %s:', 'vl-lms' ),
+				__( 'Батьківський елемент (%s):', 'vl-lms' ),
 				$singular
 			),
 			'edit_item'                  => sprintf(
 				/* translators: %s: singular taxonomy label */
-				__( 'Edit %s', 'vl-lms' ),
+				__( 'Редагувати: %s', 'vl-lms' ),
 				$singular
 			),
 			'update_item'                => sprintf(
 				/* translators: %s: singular taxonomy label */
-				__( 'Update %s', 'vl-lms' ),
+				__( 'Оновити: %s', 'vl-lms' ),
 				$singular
 			),
 			'add_new_item'               => sprintf(
 				/* translators: %s: singular taxonomy label */
-				__( 'Add New %s', 'vl-lms' ),
+				__( 'Додати: %s', 'vl-lms' ),
 				$singular
 			),
 			'new_item_name'              => sprintf(
 				/* translators: %s: singular taxonomy label */
-				__( 'New %s Name', 'vl-lms' ),
+				__( 'Назва нового елемента: %s', 'vl-lms' ),
 				$singular
 			),
 			'separate_items_with_commas' => sprintf(
-				/* translators: %s: plural taxonomy label (lowercase) */
-				__( 'Separate %s with commas', 'vl-lms' ),
-				strtolower( $plural )
+				/* translators: %s: plural taxonomy label */
+				__( 'Розділяйте комами: %s', 'vl-lms' ),
+				$plural
 			),
 			'add_or_remove_items'        => sprintf(
-				/* translators: %s: plural taxonomy label (lowercase) */
-				__( 'Add or remove %s', 'vl-lms' ),
-				strtolower( $plural )
+				/* translators: %s: plural taxonomy label */
+				__( 'Додати або вилучити: %s', 'vl-lms' ),
+				$plural
 			),
 			'choose_from_most_used'      => sprintf(
-				/* translators: %s: plural taxonomy label (lowercase) */
-				__( 'Choose from the most used %s', 'vl-lms' ),
-				strtolower( $plural )
+				/* translators: %s: plural taxonomy label */
+				__( 'Вибрати з найуживаніших: %s', 'vl-lms' ),
+				$plural
 			),
 			'not_found'                  => sprintf(
-				/* translators: %s: plural taxonomy label (lowercase) */
-				__( 'No %s found.', 'vl-lms' ),
-				strtolower( $plural )
+				/* translators: %s: plural taxonomy label */
+				__( '%s не знайдено.', 'vl-lms' ),
+				$plural
 			),
 			'items_list'                 => sprintf(
 				/* translators: %s: plural taxonomy label */
-				__( '%s list', 'vl-lms' ),
+				__( 'Список: %s', 'vl-lms' ),
 				$plural
 			),
 			'items_list_navigation'      => sprintf(
 				/* translators: %s: plural taxonomy label */
-				__( '%s list navigation', 'vl-lms' ),
+				__( 'Навігація списком: %s', 'vl-lms' ),
 				$plural
 			),
 			'back_to_items'              => sprintf(
 				/* translators: %s: plural taxonomy label */
-				__( '&larr; Back to %s', 'vl-lms' ),
+				__( '&larr; Назад до списку: %s', 'vl-lms' ),
 				$plural
 			),
 		];

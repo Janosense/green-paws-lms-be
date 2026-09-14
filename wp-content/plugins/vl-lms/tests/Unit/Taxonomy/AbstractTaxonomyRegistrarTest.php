@@ -98,6 +98,29 @@ final class AbstractTaxonomyRegistrarTest extends TestCase {
 		self::assertArrayHasKey( 'edit_item', $captured_args['labels'] );
 	}
 
+	public function test_composite_labels_interpolate_the_noun_after_a_colon(): void {
+		$captured_args = null;
+
+		Functions\when( 'register_taxonomy' )->alias(
+			static function ( string $slug, array $object_types, array $args ) use ( &$captured_args ) {
+				$captured_args = $args;
+				return null;
+			}
+		);
+
+		$this->make_fixture()->register();
+
+		self::assertIsArray( $captured_args );
+		$labels = $captured_args['labels'];
+		self::assertSame( 'Fixtures', $labels['name'] );
+		self::assertSame( 'Fixtures', $labels['all_items'] );
+		self::assertSame( 'Редагувати: Fixture', $labels['edit_item'] );
+		self::assertSame( 'Додати: Fixture', $labels['add_new_item'] );
+		self::assertSame( 'Розділяйте комами: Fixtures', $labels['separate_items_with_commas'] );
+		self::assertSame( 'Fixtures не знайдено.', $labels['not_found'] );
+		self::assertSame( '&larr; Назад до списку: Fixtures', $labels['back_to_items'] );
+	}
+
 	public function test_register_taxonomy_args_omit_capabilities_when_override_is_null(): void {
 		$captured_args = null;
 

@@ -52,6 +52,11 @@ final class DifficultyTaxonomyTest extends TestCase {
 		);
 	}
 
+	public function test_labels_are_ukrainian_nouns(): void {
+		self::assertSame( 'Рівень складності', $this->invoke_protected( 'singular_label' ) );
+		self::assertSame( 'Рівні складності', $this->invoke_protected( 'plural_label' ) );
+	}
+
 	private function invoke_protected( string $method ): mixed {
 		$reflection = new ReflectionMethod( DifficultyTaxonomy::class, $method );
 		return $reflection->invoke( new DifficultyTaxonomy() );

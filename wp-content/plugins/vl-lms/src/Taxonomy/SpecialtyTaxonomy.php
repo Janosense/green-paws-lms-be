@@ -28,11 +28,11 @@ final class SpecialtyTaxonomy extends AbstractTaxonomyRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Specialty';
+		return 'Спеціалізація';
 	}
 
 	protected function plural_label(): string {
-		return 'Specialties';
+		return 'Спеціалізації';
 	}
 
 	protected function hierarchical(): bool {

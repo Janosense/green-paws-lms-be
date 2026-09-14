@@ -29,6 +29,11 @@ final class SpecialtyTaxonomyTest extends TestCase {
 		self::assertNull( $this->invoke_protected( 'capabilities' ) );
 	}
 
+	public function test_labels_are_ukrainian_nouns(): void {
+		self::assertSame( 'Спеціалізація', $this->invoke_protected( 'singular_label' ) );
+		self::assertSame( 'Спеціалізації', $this->invoke_protected( 'plural_label' ) );
+	}
+
 	private function invoke_protected( string $method ): mixed {
 		$reflection = new ReflectionMethod( SpecialtyTaxonomy::class, $method );
 		return $reflection->invoke( new SpecialtyTaxonomy() );
