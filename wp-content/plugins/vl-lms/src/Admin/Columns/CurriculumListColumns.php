@@ -265,12 +265,12 @@ class CurriculumListColumns {
 		$courses  = $this->all_course_options();
 
 		echo '<label class="screen-reader-text" for="' . esc_attr( self::COURSE_FILTER_PARAM ) . '">'
-			. esc_html__( 'Filter by course', 'vl-lms' )
+			. esc_html__( 'Фільтр за курсом', 'vl-lms' )
 			. '</label>';
 		echo '<select name="' . esc_attr( self::COURSE_FILTER_PARAM ) . '" id="' . esc_attr( self::COURSE_FILTER_PARAM ) . '">';
-		echo '<option value="0">' . esc_html__( 'All courses', 'vl-lms' ) . '</option>';
+		echo '<option value="0">' . esc_html__( 'Усі курси', 'vl-lms' ) . '</option>';
 		foreach ( $courses as $course_id => $title ) {
-			$label = '' === $title ? __( '(no title)', 'vl-lms' ) : $title;
+			$label = '' === $title ? __( '(без назви)', 'vl-lms' ) : $title;
 			echo '<option value="' . esc_attr( (string) $course_id ) . '"' . selected( $selected, $course_id, false ) . '>'
 				. esc_html( $label )
 				. '</option>';
