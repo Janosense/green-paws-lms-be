@@ -56,8 +56,8 @@ final class CurriculumListColumnsTest extends TestCase {
 		Actions\expectAdded( 'manage_vl_topic_posts_custom_column' )->once();
 		Filters\expectAdded( 'manage_vl_session_posts_columns' )->once();
 		Actions\expectAdded( 'manage_vl_session_posts_custom_column' )->once();
-		Actions\expectAdded( 'restrict_manage_posts' )->once();
-		Actions\expectAdded( 'parse_query' )->once();
+		Actions\expectAdded( 'restrict_manage_posts' )->twice();
+		Actions\expectAdded( 'parse_query' )->twice();
 
 		( new CurriculumListColumns() )->boot();
 	}
@@ -464,5 +464,232 @@ final class CurriculumListColumnsTest extends TestCase {
 
 		assert( $query instanceof WP_Query );
 		( new CurriculumListColumns() )->apply_module_course_filter( $query );
+	}
+
+	public function test_render_lesson_filters_does_nothing_on_other_post_types(): void {
+		ob_start();
+		( new CurriculumListColumns() )->render_lesson_filters( 'vl_module' );
+		self::assertSame( '', ob_get_clean() );
+	}
+
+	public function test_render_lesson_filters_emits_course_and_scoped_module_dropdowns(): void {
+		$_GET = [
+			'vl_course_id' => '7',
+			'vl_module_id' => '12',
+		];
+
+		ob_start();
+		$this->lesson_filter_columns()->render_lesson_filters( 'vl_lesson' );
+		$html = (string) ob_get_clean();
+
+		self::assertStringContainsString( '<select name="vl_course_id" id="vl_course_id">', $html );
+		self::assertStringContainsString( '<option value="0">Усі курси</option>', $html );
+		self::assertStringContainsString( '<option value="3">Course Beta</option>', $html );
+		self::assertStringContainsString( '<option value="7" selected="selected">Course Alpha</option>', $html );
+
+		self::assertStringContainsString( '<select name="vl_module_id" id="vl_module_id">', $html );
+		self::assertStringContainsString( '<option value="0">Усі модулі</option>', $html );
+		self::assertStringContainsString( '<option value="11" data-course="7">Module A1</option>', $html );
+		self::assertStringContainsString( '<option value="12" data-course="7" selected="selected">Module A2</option>', $html );
+		self::assertStringContainsString( '<option value="13" data-course="3" hidden>Module B1</option>', $html );
+
+		self::assertStringContainsString( "document.getElementById('vl_module_id')", $html );
+		self::assertStringContainsString( "courseSelect.addEventListener('change', sync);", $html );
+	}
+
+	public function test_render_lesson_filters_hides_module_dropdown_without_a_course(): void {
+		$_GET = [ 'vl_module_id' => '12' ];
+
+		ob_start();
+		$this->lesson_filter_columns()->render_lesson_filters( 'vl_lesson' );
+		$html = (string) ob_get_clean();
+
+		self::assertStringContainsString( '<select name="vl_module_id" id="vl_module_id" style="display:none">', $html );
+		self::assertStringContainsString( '<option value="12" data-course="7" hidden>Module A2</option>', $html );
+		self::assertStringNotContainsString( 'selected="selected"', $html );
+	}
+
+	public function test_render_lesson_filters_hides_module_dropdown_for_a_module_less_course(): void {
+		$_GET = [ 'vl_course_id' => '9' ];
+
+		ob_start();
+		$this->lesson_filter_columns()->render_lesson_filters( 'vl_lesson' );
+		$html = (string) ob_get_clean();
+
+		self::assertStringContainsString( '<option value="9" selected="selected">Course Gamma</option>', $html );
+		self::assertStringContainsString( '<select name="vl_module_id" id="vl_module_id" style="display:none">', $html );
+	}
+
+	public function test_render_lesson_filters_never_selects_another_courses_module(): void {
+		$_GET = [
+			'vl_course_id' => '3',
+			'vl_module_id' => '12',
+		];
+
+		ob_start();
+		$this->lesson_filter_columns()->render_lesson_filters( 'vl_lesson' );
+		$html = (string) ob_get_clean();
+
+		self::assertStringContainsString( '<select name="vl_module_id" id="vl_module_id">', $html );
+		self::assertStringContainsString( '<option value="12" data-course="7" hidden>Module A2</option>', $html );
+		self::assertStringContainsString( '<option value="13" data-course="3">Module B1</option>', $html );
+	}
+
+	public function test_apply_lesson_filters_matches_course_direct_and_module_lessons(): void {
+		$_GET = [ 'vl_course_id' => '42' ];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = $this->lesson_main_query();
+		$query->shouldReceive( 'set' )->once()->with( 'post_parent__in', [ 42, 51, 52 ] );
+
+		assert( $query instanceof WP_Query );
+		$this->lesson_query_columns()->apply_lesson_filters( $query );
+	}
+
+	public function test_apply_lesson_filters_narrows_to_a_module_of_the_course(): void {
+		$_GET = [
+			'vl_course_id' => '42',
+			'vl_module_id' => '52',
+		];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = $this->lesson_main_query();
+		$query->shouldReceive( 'set' )->once()->with( 'post_parent', 52 );
+
+		assert( $query instanceof WP_Query );
+		$this->lesson_query_columns()->apply_lesson_filters( $query );
+	}
+
+	public function test_apply_lesson_filters_ignores_a_module_of_another_course(): void {
+		$_GET = [
+			'vl_course_id' => '42',
+			'vl_module_id' => '99',
+		];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = $this->lesson_main_query();
+		$query->shouldReceive( 'set' )->once()->with( 'post_parent__in', [ 42, 51, 52 ] );
+
+		assert( $query instanceof WP_Query );
+		$this->lesson_query_columns()->apply_lesson_filters( $query );
+	}
+
+	public function test_apply_lesson_filters_ignores_a_module_without_a_course(): void {
+		$_GET = [ 'vl_module_id' => '52' ];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = $this->lesson_main_query();
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		$this->lesson_query_columns()->apply_lesson_filters( $query );
+	}
+
+	public function test_apply_lesson_filters_noop_when_params_absent(): void {
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = $this->lesson_main_query();
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		$this->lesson_query_columns()->apply_lesson_filters( $query );
+	}
+
+	public function test_apply_lesson_filters_noop_for_other_post_types(): void {
+		$_GET = [ 'vl_course_id' => '42' ];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldReceive( 'is_main_query' )->andReturn( true );
+		$query->shouldReceive( 'get' )->with( 'post_type' )->andReturn( 'vl_module' );
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		$this->lesson_query_columns()->apply_lesson_filters( $query );
+	}
+
+	public function test_apply_lesson_filters_noop_when_not_main_query(): void {
+		$_GET = [ 'vl_course_id' => '42' ];
+
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldReceive( 'is_main_query' )->andReturn( false );
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		$this->lesson_query_columns()->apply_lesson_filters( $query );
+	}
+
+	public function test_apply_lesson_filters_noop_outside_admin(): void {
+		$_GET = [ 'vl_course_id' => '42' ];
+
+		Functions\when( 'is_admin' )->justReturn( false );
+
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldNotReceive( 'set' );
+
+		assert( $query instanceof WP_Query );
+		$this->lesson_query_columns()->apply_lesson_filters( $query );
+	}
+
+	/**
+	 * Columns whose dropdown data sources are fixed: courses 3 / 7 / 9 (9
+	 * has no modules), modules 11 + 12 under course 7 and 13 under course 3.
+	 */
+	private function lesson_filter_columns(): CurriculumListColumns {
+		return new class() extends CurriculumListColumns {
+			/** @return array<int, string> */
+			protected function all_course_options(): array {
+				return [
+					3 => 'Course Beta',
+					7 => 'Course Alpha',
+					9 => 'Course Gamma',
+				];
+			}
+
+			/** @return array<int, array{title: string, course_id: int}> */
+			protected function all_module_options(): array {
+				return [
+					11 => [
+						'title'     => 'Module A1',
+						'course_id' => 7,
+					],
+					12 => [
+						'title'     => 'Module A2',
+						'course_id' => 7,
+					],
+					13 => [
+						'title'     => 'Module B1',
+						'course_id' => 3,
+					],
+				];
+			}
+		};
+	}
+
+	/**
+	 * Columns whose course 42 has modules 51 and 52; any other course has none.
+	 */
+	private function lesson_query_columns(): CurriculumListColumns {
+		return new class() extends CurriculumListColumns {
+			/** @return list<int> */
+			protected function module_ids_for_course( int $course_id ): array {
+				return 42 === $course_id ? [ 51, 52 ] : [];
+			}
+		};
+	}
+
+	private function lesson_main_query(): Mockery\MockInterface {
+		$query = Mockery::mock( 'WP_Query' );
+		$query->shouldReceive( 'is_main_query' )->andReturn( true );
+		$query->shouldReceive( 'get' )->with( 'post_type' )->andReturn( 'vl_lesson' );
+
+		return $query;
 	}
 }

@@ -30,13 +30,18 @@ use WP_Query;
  *
  * Also renders a "Course" parent filter above the `vl_module` list table
  * via `restrict_manage_posts`, and narrows the main query through
- * `parse_query` when the dropdown is set.
+ * `parse_query` when the dropdown is set. The `vl_lesson` list table gets
+ * the same "Course" filter plus a "Module" filter scoped to the chosen
+ * course (options pre-rendered with `data-course`, narrowed by an inline
+ * script — the `LessonMetaBox` cascade pattern).
  *
  * @author Tymofii Synianskyi
  */
 class CurriculumListColumns {
 
-	private const string MODULE_COURSE_FILTER_PARAM = 'vl_course_id';
+	private const string COURSE_FILTER_PARAM = 'vl_course_id';
+
+	private const string MODULE_FILTER_PARAM = 'vl_module_id';
 
 	public function boot(): void {
 		add_filter( 'manage_vl_course_posts_columns', [ $this, 'course_columns' ] );
@@ -56,6 +61,9 @@ class CurriculumListColumns {
 
 		add_action( 'restrict_manage_posts', [ $this, 'render_module_course_filter' ] );
 		add_action( 'parse_query', [ $this, 'apply_module_course_filter' ] );
+
+		add_action( 'restrict_manage_posts', [ $this, 'render_lesson_filters' ] );
+		add_action( 'parse_query', [ $this, 'apply_lesson_filters' ] );
 	}
 
 	/**
@@ -253,13 +261,13 @@ class CurriculumListColumns {
 			return;
 		}
 
-		$selected = $this->read_course_filter_param();
+		$selected = $this->read_filter_param( self::COURSE_FILTER_PARAM );
 		$courses  = $this->all_course_options();
 
-		echo '<label class="screen-reader-text" for="' . esc_attr( self::MODULE_COURSE_FILTER_PARAM ) . '">'
+		echo '<label class="screen-reader-text" for="' . esc_attr( self::COURSE_FILTER_PARAM ) . '">'
 			. esc_html__( 'Filter by course', 'vl-lms' )
 			. '</label>';
-		echo '<select name="' . esc_attr( self::MODULE_COURSE_FILTER_PARAM ) . '" id="' . esc_attr( self::MODULE_COURSE_FILTER_PARAM ) . '">';
+		echo '<select name="' . esc_attr( self::COURSE_FILTER_PARAM ) . '" id="' . esc_attr( self::COURSE_FILTER_PARAM ) . '">';
 		echo '<option value="0">' . esc_html__( 'All courses', 'vl-lms' ) . '</option>';
 		foreach ( $courses as $course_id => $title ) {
 			$label = '' === $title ? __( '(no title)', 'vl-lms' ) : $title;
@@ -289,7 +297,7 @@ class CurriculumListColumns {
 			return;
 		}
 
-		$course_id = $this->read_course_filter_param();
+		$course_id = $this->read_filter_param( self::COURSE_FILTER_PARAM );
 		if ( $course_id <= 0 ) {
 			return;
 		}
@@ -298,14 +306,138 @@ class CurriculumListColumns {
 	}
 
 	/**
-	 * Read the `vl_course_id` GET param. Nonces are skipped intentionally —
-	 * this is a read-only narrowing of an already-permission-gated admin
-	 * list query (the screen capability gates access; bookmarking a URL
-	 * does not bypass anything).
+	 * Render the "Course" and "Module" dropdowns above the `vl_lesson` list
+	 * table.
+	 *
+	 * The course dropdown mirrors the modules-list filter and shares its
+	 * `vl_course_id` query var. The module dropdown pre-renders every
+	 * course-attached module with a `data-course` attribute; the inline
+	 * script (the `LessonMetaBox` cascade pattern) shows only the chosen
+	 * course's modules, resets a selection that no longer fits, and hides
+	 * the dropdown when no course is chosen or the course has no modules.
+	 * The server renders the same initial state, so a module that does not
+	 * belong to the selected course is never shown as selected.
 	 */
-	private function read_course_filter_param(): int {
+	public function render_lesson_filters( string $post_type ): void {
+		if ( 'vl_lesson' !== $post_type ) {
+			return;
+		}
+
+		$selected_course = $this->read_filter_param( self::COURSE_FILTER_PARAM );
+		$selected_module = $this->read_filter_param( self::MODULE_FILTER_PARAM );
+		$courses         = $this->all_course_options();
+		$modules         = $this->all_module_options();
+
+		echo '<label class="screen-reader-text" for="' . esc_attr( self::COURSE_FILTER_PARAM ) . '">'
+			. esc_html__( 'Фільтр за курсом', 'vl-lms' )
+			. '</label>';
+		echo '<select name="' . esc_attr( self::COURSE_FILTER_PARAM ) . '" id="' . esc_attr( self::COURSE_FILTER_PARAM ) . '">';
+		echo '<option value="0">' . esc_html__( 'Усі курси', 'vl-lms' ) . '</option>';
+		foreach ( $courses as $course_id => $title ) {
+			$label = '' === $title ? __( '(без назви)', 'vl-lms' ) : $title;
+			echo '<option value="' . esc_attr( (string) $course_id ) . '"' . selected( $selected_course, $course_id, false ) . '>'
+				. esc_html( $label )
+				. '</option>';
+		}
+		echo '</select>';
+
+		$has_modules = false;
+		foreach ( $modules as $module ) {
+			if ( $selected_course > 0 && $module['course_id'] === $selected_course ) {
+				$has_modules = true;
+				break;
+			}
+		}
+
+		echo '<label class="screen-reader-text" for="' . esc_attr( self::MODULE_FILTER_PARAM ) . '">'
+			. esc_html__( 'Фільтр за модулем', 'vl-lms' )
+			. '</label>';
+		echo '<select name="' . esc_attr( self::MODULE_FILTER_PARAM ) . '" id="' . esc_attr( self::MODULE_FILTER_PARAM ) . '"'
+			. ( $has_modules ? '' : ' style="display:none"' )
+			. '>';
+		echo '<option value="0">' . esc_html__( 'Усі модулі', 'vl-lms' ) . '</option>';
+		foreach ( $modules as $module_id => $module ) {
+			$belongs = $selected_course > 0 && $module['course_id'] === $selected_course;
+			$label   = '' === $module['title'] ? __( '(без назви)', 'vl-lms' ) : $module['title'];
+			echo '<option value="' . esc_attr( (string) $module_id ) . '" data-course="' . esc_attr( (string) $module['course_id'] ) . '"'
+				. ( $belongs ? selected( $selected_module, $module_id, false ) : ' hidden' )
+				. '>'
+				. esc_html( $label )
+				. '</option>';
+		}
+		echo '</select>';
+
+		echo "<script>\n"
+			. "(function(){\n"
+			. "  var courseSelect = document.getElementById('vl_course_id');\n"
+			. "  var moduleSelect = document.getElementById('vl_module_id');\n"
+			. "  if (!courseSelect || !moduleSelect) { return; }\n"
+			. "  function sync(){\n"
+			. "    var courseId = courseSelect.value;\n"
+			. "    var visible  = 0;\n"
+			. "    Array.prototype.forEach.call(moduleSelect.options, function(opt){\n"
+			. "      if (opt.value === '0') { return; }\n"
+			. "      var match = String(opt.getAttribute('data-course')) === String(courseId);\n"
+			. "      opt.hidden = !match;\n"
+			. "      if (!match && opt.selected) { moduleSelect.value = '0'; }\n"
+			. "      if (match) { visible++; }\n"
+			. "    });\n"
+			. "    moduleSelect.style.display = (courseId !== '0' && visible > 0) ? '' : 'none';\n"
+			. "  }\n"
+			. "  courseSelect.addEventListener('change', sync);\n"
+			. "  sync();\n"
+			. "})();\n"
+			. "</script>\n";
+	}
+
+	/**
+	 * Narrow the lessons list query to the chosen course, or to one of its
+	 * modules.
+	 *
+	 * A course matches lessons parented to the course itself (course-direct)
+	 * or to any of its modules — the same walk the Course column does. A
+	 * module narrows further only when it belongs to the chosen course; a
+	 * stale or crafted `vl_module_id` (no course, or another course's
+	 * module) is ignored so the result always matches the dropdowns.
+	 *
+	 * Guards mirror {@see self::apply_module_course_filter()}: only the
+	 * wp-admin main query for the `vl_lesson` list table is touched.
+	 */
+	public function apply_lesson_filters( WP_Query $query ): void {
+		if ( ! is_admin() ) {
+			return;
+		}
+		if ( ! $query->is_main_query() ) {
+			return;
+		}
+		if ( 'vl_lesson' !== $query->get( 'post_type' ) ) {
+			return;
+		}
+
+		$course_id = $this->read_filter_param( self::COURSE_FILTER_PARAM );
+		if ( $course_id <= 0 ) {
+			return;
+		}
+
+		$module_ids = $this->module_ids_for_course( $course_id );
+		$module_id  = $this->read_filter_param( self::MODULE_FILTER_PARAM );
+		if ( $module_id > 0 && in_array( $module_id, $module_ids, true ) ) {
+			$query->set( 'post_parent', $module_id );
+			return;
+		}
+
+		$query->set( 'post_parent__in', array_merge( [ $course_id ], $module_ids ) );
+	}
+
+	/**
+	 * Read an integer filter GET param (`vl_course_id`, `vl_module_id`).
+	 * Nonces are skipped intentionally — this is a read-only narrowing of
+	 * an already-permission-gated admin list query (the screen capability
+	 * gates access; bookmarking a URL does not bypass anything).
+	 */
+	private function read_filter_param( string $param ): int {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filter; see method docblock.
-		$raw = $_GET[ self::MODULE_COURSE_FILTER_PARAM ] ?? null;
+		$raw = $_GET[ $param ] ?? null;
 		if ( null === $raw ) {
 			return 0;
 		}
@@ -346,6 +478,80 @@ class CurriculumListColumns {
 			$out[ (int) $post->ID ] = (string) $post->post_title;
 		}
 		return $out;
+	}
+
+	/**
+	 * Fetch every course-attached `vl_module` post keyed by id, with its
+	 * title and parent course id, in curriculum order (`menu_order`, then
+	 * title). Unattached modules (`post_parent = 0`) are skipped — the
+	 * lesson filter only offers modules under a chosen course. Statuses
+	 * match {@see self::all_course_options()}.
+	 *
+	 * @return array<int, array{title: string, course_id: int}>
+	 */
+	protected function all_module_options(): array {
+		$query = new WP_Query(
+			[
+				'post_type'              => 'vl_module',
+				'post_status'            => [ 'publish', 'draft', 'pending', 'future', 'private' ],
+				'posts_per_page'         => -1,
+				'orderby'                => [
+					'menu_order' => 'ASC',
+					'title'      => 'ASC',
+				],
+				'no_found_rows'          => true,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'suppress_filters'       => true,
+			]
+		);
+
+		$out = [];
+		if ( ! is_array( $query->posts ) ) {
+			return $out;
+		}
+		foreach ( $query->posts as $post ) {
+			if ( ! $post instanceof \WP_Post || (int) $post->post_parent <= 0 ) {
+				continue;
+			}
+			$out[ (int) $post->ID ] = [
+				'title'     => (string) $post->post_title,
+				'course_id' => (int) $post->post_parent,
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * Ids of every `vl_module` parented to `$course_id`, trashed ones
+	 * included: a lesson under a trashed module still shows that course in
+	 * the Course column, so the course filter must still match it.
+	 *
+	 * @return list<int>
+	 */
+	protected function module_ids_for_course( int $course_id ): array {
+		$query = new WP_Query(
+			[
+				'post_type'              => 'vl_module',
+				'post_parent'            => $course_id,
+				'post_status'            => [ 'publish', 'draft', 'pending', 'future', 'private', 'trash' ],
+				'fields'                 => 'ids',
+				'posts_per_page'         => -1,
+				'no_found_rows'          => true,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'suppress_filters'       => true,
+			]
+		);
+
+		$ids = [];
+		if ( ! is_array( $query->posts ) ) {
+			return $ids;
+		}
+		foreach ( $query->posts as $post ) {
+			$ids[] = $post instanceof \WP_Post ? (int) $post->ID : (int) $post;
+		}
+		return $ids;
 	}
 
 	private function resolve_lesson_course_label( int $lesson_id ): string {
