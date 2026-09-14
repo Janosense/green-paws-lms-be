@@ -143,6 +143,7 @@ use VL\LMS\Catalog\Transformers\LeadInstructorTransformer;
 use VL\LMS\Catalog\Transformers\WebinarCardTransformer;
 use VL\LMS\CPT\CptRegistrar;
 use VL\LMS\Database\SchemaManager;
+use VL\LMS\Import\ImportProvider;
 use VL\LMS\Learn\Access\LessonAccessGate;
 use VL\LMS\Learn\Content\BlockParser;
 use VL\LMS\Learn\Content\BlockTransformerRegistry;
@@ -609,6 +610,15 @@ final class Plugin {
 			},
 			15
 		);
+
+		// course-import — the feature's own bootstrap, its one boot call
+		// (`docs/DECISIONS.md` 2026-09-11 — code location). It hooks
+		// `admin_init` and builds nothing here: the importer's configuration
+		// comes from filters a theme can still add.
+		$import_provider = $this->container->get( ImportProvider::class );
+		if ( $import_provider instanceof ImportProvider ) {
+			$import_provider->boot();
+		}
 
 		/**
 		 * Fires once the plugin has finished booting.
@@ -3142,6 +3152,15 @@ final class Plugin {
 			}
 		);
 
+		// --- course-import — the feature's one container registration
+		// (`docs/DECISIONS.md` 2026-09-11 — code location). Its services are
+		// built when the menu or a handler first asks for them. ---
+
+		$container->set(
+			ImportProvider::class,
+			static fn (): ImportProvider => new ImportProvider()
+		);
+
 		$container->set(
 			AdminMenuProvider::class,
 			static function ( Container $c ): AdminMenuProvider {
@@ -3159,6 +3178,8 @@ final class Plugin {
 				assert( $groups_page instanceof GroupsListPage );
 				$students_page = $c->get( StudentsListPage::class );
 				assert( $students_page instanceof StudentsListPage );
+				$import = $c->get( ImportProvider::class );
+				assert( $import instanceof ImportProvider );
 				return new AdminMenuProvider(
 					$dashboard,
 					$orders_page,
@@ -3166,7 +3187,8 @@ final class Plugin {
 					$grading_page,
 					$settings_page,
 					$groups_page,
-					$students_page
+					$students_page,
+					$import->page()
 				);
 			}
 		);
