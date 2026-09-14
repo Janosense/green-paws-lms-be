@@ -596,7 +596,7 @@ class CurriculumListColumns {
 		// texturizes, so a plain `'` arrives here as `&#8217;` and would render
 		// as the literal entity once escaped again.
 		$title = PlainText::from_html( (string) get_the_title( $post_id ) );
-		return '' === $title ? __( '(no title)', 'vl-lms' ) : $title;
+		return '' === $title ? __( '(без назви)', 'vl-lms' ) : $title;
 	}
 
 	private function count_children( int $parent_id, string $child_post_type ): int {

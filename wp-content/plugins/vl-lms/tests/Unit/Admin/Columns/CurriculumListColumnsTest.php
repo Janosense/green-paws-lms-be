@@ -187,6 +187,22 @@ final class CurriculumListColumnsTest extends TestCase {
 		self::assertSame( 'PHP Basics', ob_get_clean() );
 	}
 
+	public function test_render_module_column_course_outputs_no_title_fallback_for_untitled_parent(): void {
+		Functions\when( 'get_post_field' )->alias(
+			static function ( string $field, int $id ): int {
+				return ( 'post_parent' === $field && 10 === $id ) ? 99 : 0;
+			}
+		);
+		Functions\when( 'get_post_type' )->alias(
+			static fn ( int $id ): string => 99 === $id ? 'vl_course' : ''
+		);
+		Functions\when( 'get_the_title' )->justReturn( '' );
+
+		ob_start();
+		( new CurriculumListColumns() )->render_module_column( 'vl_course', 10 );
+		self::assertSame( '(без назви)', ob_get_clean() );
+	}
+
 	public function test_render_module_column_course_outputs_dash_when_parent_missing(): void {
 		Functions\when( 'get_post_field' )->justReturn( 0 );
 		Functions\when( 'get_post_type' )->justReturn( '' );
