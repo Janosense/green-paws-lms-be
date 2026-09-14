@@ -117,8 +117,8 @@ final class CurriculumListColumnsTest extends TestCase {
 			[ 'cb', 'title', 'author', 'vl_course', 'vl_lesson_count', 'date' ],
 			array_keys( $result )
 		);
-		self::assertSame( 'Course', $result['vl_course'] );
-		self::assertSame( 'Lessons', $result['vl_lesson_count'] );
+		self::assertSame( 'Курс', $result['vl_course'] );
+		self::assertSame( 'Уроки', $result['vl_lesson_count'] );
 	}
 
 	public function test_lesson_columns_inserts_course_module_and_topic_count(): void {
@@ -134,8 +134,8 @@ final class CurriculumListColumnsTest extends TestCase {
 			[ 'cb', 'title', 'vl_course', 'vl_module', 'vl_topic_count', 'date' ],
 			array_keys( $result )
 		);
-		self::assertSame( 'Module', $result['vl_module'] );
-		self::assertSame( 'Topics', $result['vl_topic_count'] );
+		self::assertSame( 'Модуль', $result['vl_module'] );
+		self::assertSame( 'Теми', $result['vl_topic_count'] );
 	}
 
 	public function test_topic_columns_inserts_course_and_lesson(): void {
@@ -151,6 +151,8 @@ final class CurriculumListColumnsTest extends TestCase {
 			[ 'cb', 'title', 'vl_course', 'vl_lesson', 'date' ],
 			array_keys( $result )
 		);
+		self::assertSame( 'Курс', $result['vl_course'] );
+		self::assertSame( 'Урок', $result['vl_lesson'] );
 	}
 
 	public function test_columns_append_when_date_column_absent(): void {
@@ -306,8 +308,8 @@ final class CurriculumListColumnsTest extends TestCase {
 			[ 'cb', 'title', 'vl_course', 'vl_session_delivery', 'date' ],
 			array_keys( $result )
 		);
-		self::assertSame( 'Course', $result['vl_course'] );
-		self::assertSame( 'Date of delivery', $result['vl_session_delivery'] );
+		self::assertSame( 'Курс', $result['vl_course'] );
+		self::assertSame( 'Дата проведення', $result['vl_session_delivery'] );
 	}
 
 	public function test_render_session_column_course_outputs_parent_course_title(): void {

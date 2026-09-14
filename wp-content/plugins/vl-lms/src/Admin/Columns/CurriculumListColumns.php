@@ -93,8 +93,8 @@ class CurriculumListColumns {
 			$columns,
 			'date',
 			[
-				'vl_course'       => __( 'Course', 'vl-lms' ),
-				'vl_lesson_count' => __( 'Lessons', 'vl-lms' ),
+				'vl_course'       => __( 'Курс', 'vl-lms' ),
+				'vl_lesson_count' => __( 'Уроки', 'vl-lms' ),
 			]
 		);
 	}
@@ -108,9 +108,9 @@ class CurriculumListColumns {
 			$columns,
 			'date',
 			[
-				'vl_course'      => __( 'Course', 'vl-lms' ),
-				'vl_module'      => __( 'Module', 'vl-lms' ),
-				'vl_topic_count' => __( 'Topics', 'vl-lms' ),
+				'vl_course'      => __( 'Курс', 'vl-lms' ),
+				'vl_module'      => __( 'Модуль', 'vl-lms' ),
+				'vl_topic_count' => __( 'Теми', 'vl-lms' ),
 			]
 		);
 	}
@@ -124,8 +124,8 @@ class CurriculumListColumns {
 			$columns,
 			'date',
 			[
-				'vl_course' => __( 'Course', 'vl-lms' ),
-				'vl_lesson' => __( 'Lesson', 'vl-lms' ),
+				'vl_course' => __( 'Курс', 'vl-lms' ),
+				'vl_lesson' => __( 'Урок', 'vl-lms' ),
 			]
 		);
 	}
@@ -139,8 +139,8 @@ class CurriculumListColumns {
 			$columns,
 			'date',
 			[
-				'vl_course'           => __( 'Course', 'vl-lms' ),
-				'vl_session_delivery' => __( 'Date of delivery', 'vl-lms' ),
+				'vl_course'           => __( 'Курс', 'vl-lms' ),
+				'vl_session_delivery' => __( 'Дата проведення', 'vl-lms' ),
 			]
 		);
 	}
