@@ -29,6 +29,11 @@ final class CategoryTaxonomyTest extends TestCase {
 		self::assertNull( $this->invoke_protected( 'capabilities' ) );
 	}
 
+	public function test_labels_are_ukrainian_nouns(): void {
+		self::assertSame( 'Категорія', $this->invoke_protected( 'singular_label' ) );
+		self::assertSame( 'Категорії', $this->invoke_protected( 'plural_label' ) );
+	}
+
 	private function invoke_protected( string $method ): mixed {
 		$reflection = new ReflectionMethod( CategoryTaxonomy::class, $method );
 		return $reflection->invoke( new CategoryTaxonomy() );

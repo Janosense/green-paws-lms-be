@@ -30,11 +30,11 @@ final class CategoryTaxonomy extends AbstractTaxonomyRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Category';
+		return 'Категорія';
 	}
 
 	protected function plural_label(): string {
-		return 'Categories';
+		return 'Категорії';
 	}
 
 	protected function hierarchical(): bool {

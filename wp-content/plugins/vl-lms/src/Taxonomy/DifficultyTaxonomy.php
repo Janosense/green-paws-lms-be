@@ -46,11 +46,11 @@ final class DifficultyTaxonomy extends AbstractTaxonomyRegistrar {
 	}
 
 	protected function singular_label(): string {
-		return 'Difficulty';
+		return 'Рівень складності';
 	}
 
 	protected function plural_label(): string {
-		return 'Difficulties';
+		return 'Рівні складності';
 	}
 
 	protected function hierarchical(): bool {
