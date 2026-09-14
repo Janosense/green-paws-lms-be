@@ -278,7 +278,7 @@ class ImportFormHandler {
 		}
 
 		$this->logger->info(
-			'course-import: created a draft course from an uploaded file',
+			'course-import: created a private course from an uploaded file',
 			[
 				'token'         => $token,
 				'course_id'     => $result->course_id,

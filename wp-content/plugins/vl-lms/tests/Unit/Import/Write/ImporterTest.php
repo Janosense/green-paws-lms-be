@@ -289,11 +289,26 @@ final class ImporterTest extends TestCase {
 		);
 	}
 
-	public function test_every_post_is_a_draft_by_the_lead_instructor_marked_with_the_token(): void {
+	public function test_the_course_is_private_and_its_tree_published(): void {
+		$this->run_import( 'course-with-modules.md' );
+
+		$statuses = [];
+		foreach ( $this->inserts as $insert ) {
+			$statuses[ $insert['post_type'] ][] = $insert['post_status'];
+		}
+
+		self::assertSame( [ 'private' ], $statuses['vl_course'] );
+		unset( $statuses['vl_course'] );
+		self::assertSame( [ 'vl_module', 'vl_lesson', 'vl_quiz', 'vl_quiz_question' ], array_keys( $statuses ) );
+		foreach ( $statuses as $post_type => $list ) {
+			self::assertSame( [ 'publish' ], array_values( array_unique( $list ) ), $post_type );
+		}
+	}
+
+	public function test_every_post_is_by_the_lead_instructor_marked_with_the_token(): void {
 		$this->run_import( 'course-with-modules.md' );
 
 		foreach ( $this->inserts as $insert ) {
-			self::assertSame( 'draft', $insert['post_status'] );
 			self::assertSame( self::INSTRUCTOR_ID, $insert['post_author'] );
 			self::assertSame( '_vl_import_id', array_key_first( $insert['meta_input'] ) );
 			self::assertSame( self::TOKEN, $insert['meta_input']['_vl_import_id'] );
