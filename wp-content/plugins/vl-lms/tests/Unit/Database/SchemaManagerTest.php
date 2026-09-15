@@ -29,7 +29,9 @@ final class SchemaManagerTest extends TestCase {
 		// landed" so the happy-path install tests stamp the version; the
 		// failure-path test overrides get_var to null.
 		$wpdb->shouldReceive( 'prepare' )->andReturnUsing( static fn ( string $sql ): string => $sql )->byDefault();
-		$wpdb->shouldReceive( 'get_var' )->andReturn( 'progress_reset_at' )->byDefault();
+		// Same escaping as wpdb::esc_like().
+		$wpdb->shouldReceive( 'esc_like' )->andReturnUsing( static fn ( string $text ): string => addcslashes( $text, '_%\\' ) )->byDefault();
+		$wpdb->shouldReceive( 'get_var' )->andReturn( 'wp_vl_study_time' )->byDefault();
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test double for $wpdb.
 		$GLOBALS['wpdb'] = $wpdb;
 	}
@@ -104,8 +106,12 @@ final class SchemaManagerTest extends TestCase {
 		self::assertSame( 'wp_vl_payments', SchemaManager::payments_table() );
 	}
 
-	public function test_current_db_version_is_ten(): void {
-		self::assertSame( '10', SchemaManager::CURRENT_DB_VERSION );
+	public function test_study_time_table_matches_table_name_helper(): void {
+		self::assertSame( 'wp_vl_study_time', SchemaManager::study_time_table() );
+	}
+
+	public function test_current_db_version_is_eleven(): void {
+		self::assertSame( '11', SchemaManager::CURRENT_DB_VERSION );
 	}
 
 	public function test_install_short_circuits_when_version_matches(): void {
@@ -121,7 +127,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 17 )
+			->times( 18 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -148,8 +154,14 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_zoom_webhook_events', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_user_activity_daily', $combined );
 		self::assertStringContainsString( 'CREATE TABLE wp_vl_assignment_submissions', $combined );
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_study_time', $combined );
 
 		self::assertStringContainsString( 'progress_reset_at DATETIME NULL DEFAULT NULL', $combined );
+		self::assertStringContainsString( 'active_seconds INT UNSIGNED NOT NULL DEFAULT 0', $combined );
+		self::assertStringContainsString( 'first_signal_at DATETIME NOT NULL', $combined );
+		self::assertStringContainsString( 'last_signal_at DATETIME NOT NULL', $combined );
+		self::assertStringContainsString( 'UNIQUE KEY uk_user_course_entity_kind (user_id, course_id, entity_type, entity_id, kind)', $combined );
+		self::assertStringContainsString( 'KEY idx_course_user (course_id, user_id)', $combined );
 
 		self::assertStringContainsString( 'UNIQUE KEY uk_user_course (user_id, course_id)', $combined );
 		self::assertStringContainsString( 'UNIQUE KEY uk_slug (slug)', $combined );
@@ -202,7 +214,7 @@ final class SchemaManagerTest extends TestCase {
 	public function test_install_runs_migration_path_when_stored_version_is_behind(): void {
 		Functions\when( 'get_option' )->justReturn( '2' );
 		Functions\when( 'update_option' )->justReturn( true );
-		Functions\expect( 'dbDelta' )->times( 17 )->andReturn( [] );
+		Functions\expect( 'dbDelta' )->times( 18 )->andReturn( [] );
 
 		SchemaManager::install();
 	}
@@ -213,17 +225,67 @@ final class SchemaManagerTest extends TestCase {
 		Functions\expect( 'delete_option' )->once()->with( SchemaManager::DB_VERSION_OPTION );
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
-		Functions\expect( 'dbDelta' )->times( 17 )->andReturn( [] );
+		Functions\expect( 'dbDelta' )->times( 18 )->andReturn( [] );
 
 		SchemaManager::reinstall();
 	}
 
-	public function test_install_does_not_stamp_version_when_sentinel_column_missing(): void {
-		// dbDelta swallows failed ALTERs silently. Stamping the version over
-		// a failed migration would short-circuit every later install() while
-		// the shipped code queries columns that don't exist — leave the
-		// version stale so the next request retries.
-		Functions\when( 'get_option' )->justReturn( '9' );
+	public function test_install_upgrade_path_from_ten_creates_study_time_table_and_stamps_eleven(): void {
+		$captured_sql = [];
+		$saved_value  = null;
+		Functions\when( 'get_option' )->justReturn( '10' );
+		Functions\expect( 'dbDelta' )
+			->times( 18 )
+			->andReturnUsing(
+				static function ( $sql ) use ( &$captured_sql ): array {
+					$captured_sql[] = $sql;
+					return [];
+				}
+			);
+		Functions\expect( 'update_option' )
+			->once()
+			->andReturnUsing(
+				static function ( string $option, $value ) use ( &$saved_value ): bool {
+					if ( SchemaManager::DB_VERSION_OPTION === $option ) {
+						$saved_value = $value;
+					}
+					return true;
+				}
+			);
+
+		SchemaManager::install();
+
+		self::assertStringContainsString( 'CREATE TABLE wp_vl_study_time', implode( "\n", $captured_sql ) );
+		self::assertSame( '11', $saved_value );
+	}
+
+	public function test_sentinel_checks_that_the_study_time_table_exists(): void {
+		$captured = [];
+		Functions\when( 'get_option' )->justReturn( '10' );
+		Functions\when( 'dbDelta' )->justReturn( [] );
+		Functions\when( 'update_option' )->justReturn( true );
+
+		$GLOBALS['wpdb']->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				static function ( string $sql, ...$args ) use ( &$captured ): string {
+					$captured = [ $sql, $args ];
+					return 'SENTINEL SQL';
+				}
+			);
+		$GLOBALS['wpdb']->shouldReceive( 'get_var' )->once()->with( 'SENTINEL SQL' )->andReturn( 'wp_vl_study_time' );
+
+		SchemaManager::install();
+
+		self::assertSame( [ 'SHOW TABLES LIKE %s', [ 'wp\_vl\_study\_time' ] ], $captured );
+	}
+
+	public function test_install_does_not_stamp_version_when_sentinel_table_missing(): void {
+		// dbDelta swallows failed CREATEs and ALTERs silently. Stamping the
+		// version over a failed migration would short-circuit every later
+		// install() while the shipped code queries a table that doesn't
+		// exist — leave the version stale so the next request retries.
+		Functions\when( 'get_option' )->justReturn( '10' );
 		Functions\when( 'dbDelta' )->justReturn( [] );
 		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
 		Functions\expect( 'update_option' )->never();
@@ -238,7 +300,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( '5' );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 17 )
+			->times( 18 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -280,7 +342,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 17 )
+			->times( 18 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -313,7 +375,7 @@ final class SchemaManagerTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( false );
 		Functions\when( 'update_option' )->justReturn( true );
 		Functions\expect( 'dbDelta' )
-			->times( 17 )
+			->times( 18 )
 			->andReturnUsing(
 				static function ( $sql ) use ( &$captured_sql ): array {
 					$captured_sql[] = $sql;
@@ -364,5 +426,6 @@ final class SchemaManagerTest extends TestCase {
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_payments', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_user_activity_daily', $combined );
 		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_assignment_submissions', $combined );
+		self::assertStringContainsString( 'DROP TABLE IF EXISTS wp_vl_study_time', $combined );
 	}
 }

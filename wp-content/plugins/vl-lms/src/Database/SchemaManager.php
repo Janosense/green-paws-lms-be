@@ -24,7 +24,7 @@ use VL\LMS\Support\Logger;
 final class SchemaManager {
 
 	public const string DB_VERSION_OPTION  = 'vl_lms_db_version';
-	public const string CURRENT_DB_VERSION = '10';
+	public const string CURRENT_DB_VERSION = '11';
 
 	/**
 	 * Returns the full prefixed table name for a base suffix.
@@ -107,6 +107,10 @@ final class SchemaManager {
 		return self::table_name( 'assignment_submissions' );
 	}
 
+	public static function study_time_table(): string {
+		return self::table_name( 'study_time' );
+	}
+
 	/**
 	 * Installs (or migrates) the schema when the stored DB version is
 	 * behind {@see self::CURRENT_DB_VERSION}. Safe to call on every
@@ -147,6 +151,7 @@ final class SchemaManager {
 		self::create_payments_table();
 		self::create_user_activity_daily_table();
 		self::create_assignment_submissions_table();
+		self::create_study_time_table();
 
 		if ( ! self::schema_landed() ) {
 			return;
@@ -178,19 +183,22 @@ final class SchemaManager {
 	 * bump. **Update the sentinel when bumping
 	 * {@see self::CURRENT_DB_VERSION}** to something that version adds.
 	 *
-	 * v10 sentinel: `progress_reset_at` on `vl_enrollments`.
+	 * v11 sentinel: the `vl_study_time` table. v11 adds no column, so the
+	 * check asks for the table itself — `SHOW COLUMNS FROM` a missing table
+	 * is a database error, `SHOW TABLES LIKE` just returns nothing.
 	 */
 	private static function schema_landed(): bool {
 		global $wpdb;
 
-		$table = self::enrollments_table();
+		$table = self::study_time_table();
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table resolves to a SchemaManager accessor; the sentinel name binds through %s.
-		$sql = $wpdb->prepare( "SHOW COLUMNS FROM {$table} LIKE %s", 'progress_reset_at' );
+		$sql = $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
-		$column = $wpdb->get_var( $sql );
+		$found = $wpdb->get_var( $sql );
 
-		if ( 'progress_reset_at' === $column ) {
+		// Case-insensitive: with `lower_case_table_names = 1` MySQL reports
+		// the name lower-cased, whatever the case of `$wpdb->prefix`.
+		if ( is_string( $found ) && 0 === strcasecmp( $found, $table ) ) {
 			return true;
 		}
 
@@ -198,8 +206,8 @@ final class SchemaManager {
 			'Schema migration did not land; version not stamped, will retry next request.',
 			[
 				'expected_version' => self::CURRENT_DB_VERSION,
-				'missing_sentinel' => $table . '.progress_reset_at',
-				'hint'             => 'Check the DB user\'s ALTER privilege and the MySQL error log.',
+				'missing_sentinel' => $table,
+				'hint'             => 'Check the DB user\'s CREATE and ALTER privileges and the MySQL error log.',
 			]
 		);
 
@@ -216,6 +224,7 @@ final class SchemaManager {
 		global $wpdb;
 
 		$tables = [
+			self::study_time_table(),
 			self::assignment_submissions_table(),
 			self::user_activity_daily_table(),
 			self::payments_table(),
@@ -901,6 +910,44 @@ final class SchemaManager {
 			PRIMARY KEY  (id),
 			UNIQUE KEY assignment_user (assignment_id, user_id),
 			KEY status_submitted (status, submitted_at)
+		) {$charset};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Schema v11 — the active study-time ledger, owned by feature
+	 * `study-time` (`docs/features/study-time/FEATURE.md` → Data) and
+	 * written only through `StudyTime\Repositories\StudyTimeRepository`.
+	 *
+	 * One row per `(user_id, course_id, entity_type, entity_id, kind)`
+	 * enforced by the UNIQUE key, so a heartbeat is one
+	 * `INSERT … ON DUPLICATE KEY UPDATE`. The key's `(user_id, course_id)`
+	 * prefix serves the learner's course-wide `MAX(last_signal_at)`;
+	 * `idx_course_user` serves the per-course reports. No reset, revoke or
+	 * completion deletes a row — only uninstall drops the table.
+	 */
+	private static function create_study_time_table(): void {
+		global $wpdb;
+
+		self::require_db_delta();
+
+		$table   = self::study_time_table();
+		$charset = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			user_id BIGINT UNSIGNED NOT NULL,
+			course_id BIGINT UNSIGNED NOT NULL,
+			entity_type VARCHAR(20) NOT NULL,
+			entity_id BIGINT UNSIGNED NOT NULL,
+			kind VARCHAR(20) NOT NULL,
+			active_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+			first_signal_at DATETIME NOT NULL,
+			last_signal_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uk_user_course_entity_kind (user_id, course_id, entity_type, entity_id, kind),
+			KEY idx_course_user (course_id, user_id)
 		) {$charset};";
 
 		dbDelta( $sql );
