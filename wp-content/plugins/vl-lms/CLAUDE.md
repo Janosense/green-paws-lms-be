@@ -1,12 +1,13 @@
 # vl-lms — code-area conventions
 
-The `vl-lms` plugin, a multi-feature code area: `core` (the LMS domain: CPTs, custom tables, the `vl/v1` REST API, the wp-admin LMS surface) and `course-import` (the wp-admin Markdown course importer). Feature docs live in the root repo, `docs/features/{core,course-import}/`.
+The `vl-lms` plugin, a multi-feature code area: `core` (the LMS domain: CPTs, custom tables, the `vl/v1` REST API, the wp-admin LMS surface), `course-import` (the wp-admin Markdown course importer) and `study-time` (the active study-time ledger, its `vl/v1/study-time/*` endpoints and its wp-admin report sections). Feature docs live in the root repo, `docs/features/{core,course-import,study-time}/`.
 
 ## Feature isolation
-- `core` owns everything under `src/` outside the `course-import` directories. Its entry is `Plugin` (`build_container()` + `boot()`).
+- `core` owns everything under `src/` outside the `course-import` and `study-time` directories. Its entry is `Plugin` (`build_container()` + `boot()`).
 - `course-import` lives in `src/Import/` (domain, bootstrap `Import\ImportProvider::boot()`) and `src/Admin/Import/` (wp-admin screens and `admin-post.php` handlers). Its tests go in `tests/Unit/Import/` and `tests/Unit/Admin/Import/`, its fixtures in `tests/Fixtures/Import/`.
-- `Plugin` carries exactly one registration per non-core feature: one `$container->set()` in `build_container()` and one boot call in `boot()`. The only other wiring `course-import` gets in `core` is its `add_submenu_page` in `Admin\Menu\AdminMenuProvider` (constructor argument + factory) — `docs/DECISIONS.md` 2026-09-11.
-- Shared code (`Plugin`, `Admin\AdminProvider`, `Admin\Menu\AdminMenuProvider`, `Roles\*`, `Support\*`, `Slug\*`, `composer.json` and the tool configs) changes ONLY in an explicit plan task marked **"touches shared code — may affect other features"** that names the consuming features.
+- `study-time` lives in `src/StudyTime/` (domain, bootstrap `StudyTime\StudyTimeProvider::boot()`) and `src/Admin/StudyTime/` (wp-admin report sections). Its tests go in `tests/Unit/StudyTime/` and `tests/Unit/Admin/StudyTime/`.
+- `Plugin` carries exactly one registration per non-core feature: one `$container->set()` in `build_container()` and one boot call in `boot()`. The only other wiring `course-import` gets in `core` is its `add_submenu_page` in `Admin\Menu\AdminMenuProvider` (constructor argument + factory) — `docs/DECISIONS.md` 2026-09-11. The only other wiring `study-time` gets in `core` is its table in `Database\SchemaManager` (version bump + sentinel, root invariant 6) and one `do_action` per wp-admin page it extends — `vl_lms_admin_student_detail_sections`, `vl_lms_admin_analytics_sections`, and the `vl_lms_admin_instructor_dashboard_columns` / `…_cells` pair (`docs/DECISIONS.md` 2026-09-15).
+- Shared code (`Plugin`, `Admin\AdminProvider`, `Admin\Menu\AdminMenuProvider`, `Database\SchemaManager`, `Roles\*`, `Support\*`, `Slug\*`, `composer.json` and the tool configs) changes ONLY in an explicit plan task marked **"touches shared code — may affect other features"** that names the consuming features.
 - `course-import` reaches `core` only through:
   - WordPress core functions
   - `Roles\CapabilitiesMap` caps
@@ -15,9 +16,19 @@ The `vl-lms` plugin, a multi-feature code area: `core` (the LMS domain: CPTs, cu
   - the CPT slugs, meta keys and taxonomy slugs from `docs/DATA-MODEL.md`, read as constants
 
   It never calls `core` services or repositories.
+- `study-time` reaches `core` only through:
+  - WordPress core functions
+  - `Roles\CapabilitiesMap` caps (`vl_view_lesson`, `edit_posts`)
+  - `Support\Logger` and `Auth\RestAuthenticator`
+  - `Services\Enrollment\EnrollmentService::has_active_access()` (read-only gate) and `Learn\EntityHierarchy::resolveCourse()`
+  - `Database\SchemaManager` (its own table) and the four extension actions above
+  - the table names and meta keys from `docs/DATA-MODEL.md`, read as constants — `vl_enrollments`, `vl_quiz_attempts`, `vl_session_attendance` are read, never written
+
+  It never calls any other `core` service or repository.
 - A feature never writes another feature's data (each `FEATURE.md` → Data):
   - `_vl_import_id`, `_vl_import_source` and `uploads/vl-lms-import/` belong to `course-import`.
   - `_vl_demo_seed` belongs to `core`'s seeder.
+  - `vl_study_time` belongs to `study-time`, written only by its heartbeat handler; `vl_enrollments.started_at` stays `core`'s (`ProgressService`).
 
 ## Area conventions
 - PSR-4: `VL\LMS\` → `src/`, `VL\LMS\Tests\` → `tests/`; one class per file; `declare(strict_types=1);` in every PHP file.
