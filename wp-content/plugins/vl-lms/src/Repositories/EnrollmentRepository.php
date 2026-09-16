@@ -382,6 +382,38 @@ class EnrollmentRepository {
 	}
 
 	/**
+	 * Stamps the learner's first activity on one enrollment — write-once.
+	 *
+	 * `started_at IS NULL` sits in the statement rather than in the caller so
+	 * the guarantee survives concurrency: two progress events arriving in the
+	 * same second cannot both stamp, and the second one changes no row. The
+	 * value is never cleared afterwards — the self-service progress reset
+	 * keeps it like `enrolled_at` (`docs/DECISIONS.md` 2026-09-15 —
+	 * `started_at` is written by `core`).
+	 *
+	 * Written by {@see \VL\LMS\Services\Progress\ProgressService::record()},
+	 * which decides whose enrollment may be stamped; read by feature
+	 * `study-time` (`docs/features/study-time/FEATURE.md` → Data), which
+	 * never writes it.
+	 */
+	public function mark_started_if_null( int $enrollment_id, \DateTimeImmutable $now ): void {
+		$wpdb  = $this->wpdb();
+		$table = $this->table();
+		$at    = $now->setTimezone( new \DateTimeZone( 'UTC' ) )->format( 'Y-m-d H:i:s' );
+
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"UPDATE {$table} SET started_at = %s, updated_at = %s WHERE id = %d AND started_at IS NULL",
+			$at,
+			$at,
+			$enrollment_id
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->query( $sql );
+	}
+
+	/**
 	 * @return list<Enrollment>
 	 */
 	private function hydrate_list( string $sql ): array {

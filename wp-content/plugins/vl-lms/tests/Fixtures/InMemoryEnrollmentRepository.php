@@ -25,6 +25,8 @@ final class InMemoryEnrollmentRepository extends EnrollmentRepository {
 
 	private int $update_calls = 0;
 
+	private int $started_stamp_calls = 0;
+
 	public function find_by_id( int $id ): ?Enrollment {
 		if ( ! isset( $this->rows[ $id ] ) ) {
 			return null;
@@ -199,6 +201,36 @@ final class InMemoryEnrollmentRepository extends EnrollmentRepository {
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Write-once, exactly as the real statement's `started_at IS NULL`
+	 * predicate: a row that already carries a value is left alone.
+	 */
+	public function mark_started_if_null( int $enrollment_id, \DateTimeImmutable $now ): void {
+		++$this->started_stamp_calls;
+
+		if ( ! isset( $this->rows[ $enrollment_id ] ) || null !== ( $this->rows[ $enrollment_id ]['started_at'] ?? null ) ) {
+			return;
+		}
+
+		$at = $now->setTimezone( new \DateTimeZone( 'UTC' ) )->format( 'Y-m-d H:i:s' );
+
+		$this->rows[ $enrollment_id ] = array_merge(
+			$this->rows[ $enrollment_id ],
+			[
+				'started_at' => $at,
+				'updated_at' => $at,
+			]
+		);
+	}
+
+	/**
+	 * Test helper: how many times the stamp was attempted, so a test can
+	 * prove a later event does not even try to write.
+	 */
+	public function started_stamp_calls(): int {
+		return $this->started_stamp_calls;
 	}
 
 	/**
