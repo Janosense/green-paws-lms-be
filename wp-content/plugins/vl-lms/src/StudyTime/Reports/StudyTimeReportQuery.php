@@ -45,7 +45,205 @@ class StudyTimeReportQuery {
 	 */
 	private const array COUNTED_ATTEMPT_STATUSES = [ 'submitted', 'expired' ];
 
+	/**
+	 * The enrollment statuses a learner's own report covers — a run in
+	 * progress and a finished one. Spelled here rather than imported from
+	 * `core`'s `EnrollmentStatus`, the way the attempt statuses above are:
+	 * `docs/DATA-MODEL.md` is what this feature is allowed to read, and the
+	 * values are its column contract.
+	 */
+	private const array OWN_REPORT_STATUSES = [ 'active', 'completed' ];
+
 	public function __construct( private readonly CurriculumOrder $order ) {
+	}
+
+	/**
+	 * One learner's totals across every course they are enrolled in.
+	 *
+	 * Four statements however many courses: the learner's course ids, then
+	 * one grouped read per source filtered to that learner and those ids.
+	 * A course with an enrollment and no rows comes back with zeros rather
+	 * than missing, so a caller can map by course without guessing.
+	 *
+	 * @return array<int, array{total: int, video: int, reading: int, quiz: int, session: int}>
+	 */
+	public function for_user( int $user_id ): array {
+		$course_ids = $this->enrolled_course_ids( $user_id );
+		if ( [] === $course_ids ) {
+			return [];
+		}
+
+		$ledger  = $this->ledger_by_course_and_kind_for_user( $user_id, $course_ids );
+		$quiz    = $this->quiz_seconds_by_course_for_user( $user_id, $course_ids );
+		$session = $this->session_seconds_by_course_for_user( $user_id, $course_ids );
+
+		$out = [];
+		foreach ( $course_ids as $course_id ) {
+			$video          = $ledger[ $course_id ]['video'] ?? 0;
+			$reading        = $ledger[ $course_id ]['reading'] ?? 0;
+			$quiz_seconds   = $quiz[ $course_id ] ?? 0;
+			$session_second = $session[ $course_id ] ?? 0;
+
+			$out[ $course_id ] = [
+				'total'   => $video + $reading + $quiz_seconds + $session_second,
+				'video'   => $video,
+				'reading' => $reading,
+				'quiz'    => $quiz_seconds,
+				'session' => $session_second,
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * The courses the learner is currently enrolled in, running or finished.
+	 *
+	 * `vl_enrollments` is `core`'s table, read here and never written — the
+	 * one the area file names for this feature alongside `vl_quiz_attempts`
+	 * and `vl_session_attendance`.
+	 *
+	 * @return list<int>
+	 */
+	private function enrolled_course_ids( int $user_id ): array {
+		$wpdb     = $this->wpdb();
+		$table    = SchemaManager::enrollments_table();
+		$statuses = self::OWN_REPORT_STATUSES;
+
+		$status_placeholders = implode( ', ', array_fill( 0, count( $statuses ), '%s' ) );
+		$args                = [ $user_id, ...$statuses ];
+
+		// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- One array of binds for a run whose length is fixed by OWN_REPORT_STATUSES.
+		$sql = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name from SchemaManager; the placeholder run is built from a counted array.
+			"SELECT DISTINCT course_id FROM {$table} WHERE user_id = %d AND status IN ({$status_placeholders})",
+			$args
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_col( $sql );
+
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $value ) {
+				$course_id = (int) $value;
+				if ( $course_id > 0 ) {
+					$out[] = $course_id;
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param list<int> $course_ids
+	 * @return array<int, array<string, int>> `course => kind => seconds`
+	 */
+	private function ledger_by_course_and_kind_for_user( int $user_id, array $course_ids ): array {
+		$wpdb         = $this->wpdb();
+		$table        = SchemaManager::study_time_table();
+		$placeholders = implode( ', ', array_fill( 0, count( $course_ids ), '%d' ) );
+		$args         = [ $user_id, ...$course_ids ];
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared -- Table name from SchemaManager; the placeholder run is built from a counted array.
+		// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- One array of binds: the learner, then the id run.
+		$sql  = $wpdb->prepare(
+			"SELECT course_id, kind, SUM(active_seconds) AS seconds
+				FROM {$table}
+				WHERE user_id = %d AND course_id IN ({$placeholders})
+				GROUP BY course_id, kind",
+			$args
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$course_id = (int) ( $row['course_id'] ?? 0 );
+				$kind      = (string) ( $row['kind'] ?? '' );
+				if ( $course_id > 0 && '' !== $kind ) {
+					$out[ $course_id ][ $kind ] = (int) ( $row['seconds'] ?? 0 );
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param list<int> $course_ids
+	 * @return array<int, int> `course => seconds`
+	 */
+	private function quiz_seconds_by_course_for_user( int $user_id, array $course_ids ): array {
+		$wpdb     = $this->wpdb();
+		$table    = SchemaManager::quiz_attempts_table();
+		$statuses = self::COUNTED_ATTEMPT_STATUSES;
+
+		$id_placeholders     = implode( ', ', array_fill( 0, count( $course_ids ), '%d' ) );
+		$status_placeholders = implode( ', ', array_fill( 0, count( $statuses ), '%s' ) );
+		$args                = [ $user_id, ...$course_ids, ...$statuses ];
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared -- Table name from SchemaManager; both placeholder runs are built from counted arrays.
+		// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- One array of binds for two counted runs.
+		$sql  = $wpdb->prepare(
+			"SELECT course_id, COALESCE(SUM(time_taken_seconds), 0) AS seconds
+				FROM {$table}
+				WHERE user_id = %d AND course_id IN ({$id_placeholders}) AND status IN ({$status_placeholders})
+				GROUP BY course_id",
+			$args
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+
+		return $this->fold_id_seconds( $rows, 'course_id' );
+	}
+
+	/**
+	 * @param list<int> $course_ids
+	 * @return array<int, int> `course => seconds`
+	 */
+	private function session_seconds_by_course_for_user( int $user_id, array $course_ids ): array {
+		$wpdb         = $this->wpdb();
+		$table        = SchemaManager::session_attendance_table();
+		$posts        = $wpdb->posts;
+		$placeholders = implode( ', ', array_fill( 0, count( $course_ids ), '%d' ) );
+		$args         = [ $user_id, ...$course_ids ];
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared -- Table names from SchemaManager and $wpdb; the placeholder run is built from a counted array.
+		// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- One array of binds: the learner, then the id run.
+		$sql  = $wpdb->prepare(
+			"SELECT p.post_parent AS course_id, COALESCE(SUM(a.duration_seconds), 0) AS seconds
+				FROM {$table} a
+				INNER JOIN {$posts} p ON p.ID = a.session_id
+				WHERE a.user_id = %d AND p.post_type = 'vl_session' AND p.post_parent IN ({$placeholders})
+				GROUP BY p.post_parent",
+			$args
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+
+		return $this->fold_id_seconds( $rows, 'course_id' );
+	}
+
+	/**
+	 * @param mixed $rows
+	 * @return array<int, int>
+	 */
+	private function fold_id_seconds( $rows, string $key ): array {
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$id = (int) ( $row[ $key ] ?? 0 );
+				if ( $id > 0 ) {
+					$out[ $id ] = ( $out[ $id ] ?? 0 ) + (int) ( $row['seconds'] ?? 0 );
+				}
+			}
+		}
+		return $out;
 	}
 
 	/**
