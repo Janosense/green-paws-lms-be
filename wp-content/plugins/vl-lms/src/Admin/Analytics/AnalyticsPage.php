@@ -48,6 +48,7 @@ class AnalyticsPage {
 
 		if ( [] === $rows ) {
 			echo '<p>Ще немає аналітичних даних. Перший звіт з\'явиться наступного ранку.</p>';
+			$this->render_feature_sections();
 			echo '</div>';
 			return;
 		}
@@ -73,7 +74,28 @@ class AnalyticsPage {
 
 		$this->render_table( $rows );
 
+		$this->render_feature_sections();
+
 		echo '</div>';
+	}
+
+	/**
+	 * Offers the page to feature sections, inside `.wrap` and after
+	 * everything this page draws itself.
+	 *
+	 * Called from both branches of {@see self::render()} on purpose. The
+	 * early return above fires when `vl_user_activity_daily` is still empty,
+	 * and that table only fills from the nightly rollup cron — but a feature
+	 * section reads its own data, which has no such delay. Hooking only the
+	 * populated branch would hide every section for a day after a deploy.
+	 *
+	 * A render-time extension point, not a lifecycle event: a listener echoes
+	 * markup and returns nothing, and the page is unchanged when nobody
+	 * listens. First consumer: feature `study-time` («Аналітика — Час
+	 * навчання»), `docs/DECISIONS.md` 2026-09-15.
+	 */
+	private function render_feature_sections(): void {
+		do_action( 'vl_lms_admin_analytics_sections' );
 	}
 
 	private function render_card( string $label, int $value ): void {
