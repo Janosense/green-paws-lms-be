@@ -3181,7 +3181,13 @@ final class Plugin {
 			static function ( Container $c ): StudyTimeProvider {
 				$authenticator = $c->get( RestAuthenticator::class );
 				assert( $authenticator instanceof RestAuthenticator );
-				return new StudyTimeProvider( $authenticator );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new StudyTimeProvider( $authenticator, $hierarchy, $enrollments, $logger );
 			}
 		);
 
