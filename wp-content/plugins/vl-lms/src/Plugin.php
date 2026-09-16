@@ -3185,9 +3185,11 @@ final class Plugin {
 				assert( $hierarchy instanceof EntityHierarchy );
 				$enrollments = $c->get( EnrollmentService::class );
 				assert( $enrollments instanceof EnrollmentService );
+				$order = $c->get( CurriculumOrder::class );
+				assert( $order instanceof CurriculumOrder );
 				$logger = $c->get( Logger::class );
 				assert( $logger instanceof Logger );
-				return new StudyTimeProvider( $authenticator, $hierarchy, $enrollments, $logger );
+				return new StudyTimeProvider( $authenticator, $hierarchy, $enrollments, $order, $logger );
 			}
 		);
 
