@@ -35,6 +35,7 @@ final class AnalyticsSectionTest extends TestCase {
 		);
 		Functions\when( 'submit_button' )->alias(
 			static function ( string $text = '', string $type = '', string $name = '', bool $wrap = true ): void {
+				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Test double for a WP function; the label is a fixture string.
 				echo '<button class="button">' . $text . '</button>';
 			}
 		);
