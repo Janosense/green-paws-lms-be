@@ -60,6 +60,20 @@ class InstructorDashboardPage {
 		echo '<th>Записи</th>';
 		echo '<th>Завершення</th>';
 		echo '<th>Дії</th>';
+
+		/**
+		 * Adds header cells to the instructor's course table.
+		 *
+		 * Paired with `vl_lms_admin_instructor_dashboard_cells` below: a
+		 * listener echoes one `<th>` here and exactly one `<td>` there, or
+		 * the table's columns stop lining up. Fired once per render, before
+		 * the header row closes.
+		 *
+		 * First consumer: feature `study-time` («Панель інструктора —
+		 * колонка Час»), `docs/DECISIONS.md` 2026-09-15.
+		 */
+		do_action( 'vl_lms_admin_instructor_dashboard_columns' );
+
 		echo '</tr></thead>';
 		echo '<tbody>';
 		foreach ( $courses as $course ) {
@@ -77,6 +91,18 @@ class InstructorDashboardPage {
 				echo '<span aria-hidden="true">—</span>';
 			}
 			echo '</td>';
+
+			/**
+			 * Adds body cells to the instructor's course table, once per row.
+			 *
+			 * The other half of `vl_lms_admin_instructor_dashboard_columns`:
+			 * a listener echoes exactly as many `<td>`s here as it added
+			 * `<th>`s there.
+			 *
+			 * @param int $course_id The course this row is about.
+			 */
+			do_action( 'vl_lms_admin_instructor_dashboard_cells', $cid );
+
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
