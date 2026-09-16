@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VL\LMS\Services\Progress;
 
+use VL\LMS\Domain\Enrollment\EnrollmentStatus;
 use VL\LMS\Domain\Progress\EntityType;
 use VL\LMS\Domain\Progress\Progress;
 use VL\LMS\Domain\Progress\ProgressStatus;
@@ -66,6 +67,8 @@ class ProgressService {
 		$is_complete               = ViewEventType::COMPLETE === $request->event_type;
 		[ $status, $completed_at ] = $this->resolve_status_and_completion( $current, $is_complete, $now );
 
+		$this->stamp_started_at( $user_id, $course_id, $now );
+
 		$progress_row = $this->progress->upsert(
 			$user_id,
 			$request->entity_type,
@@ -112,6 +115,33 @@ class ProgressService {
 			course_progress_pct: $propagation->course_progress_pct,
 			course_completed: $propagation->course_completed
 		);
+	}
+
+	/**
+	 * Records when the learner first did anything in this course, on their
+	 * own enrollment row (`docs/DECISIONS.md` 2026-09-15 — `started_at` is
+	 * written by `core`). Feature `study-time` reads the column and never
+	 * writes it.
+	 *
+	 * Only an `active` or `completed` enrollment is stamped: a revoked,
+	 * expired or refunded row is not a run in progress. The null check here
+	 * spares an UPDATE on every later event — a learner in the player emits
+	 * one every 30 seconds — while the statement's own `started_at IS NULL`
+	 * predicate is what makes the write once-only. A learner with no
+	 * enrollment row (the demo seeder's paths, an entity reached without
+	 * one) is left alone: this method never throws.
+	 */
+	private function stamp_started_at( int $user_id, int $course_id, \DateTimeImmutable $now ): void {
+		$enrollment = $this->enrollments->find_for_user_and_course( $user_id, $course_id );
+		if ( null === $enrollment || null !== $enrollment->started_at ) {
+			return;
+		}
+
+		if ( EnrollmentStatus::ACTIVE !== $enrollment->status && EnrollmentStatus::COMPLETED !== $enrollment->status ) {
+			return;
+		}
+
+		$this->enrollments->mark_started_if_null( $enrollment->id, $now );
 	}
 
 	private function resolve_entity( ProgressEventRequest $request ): WP_Post {

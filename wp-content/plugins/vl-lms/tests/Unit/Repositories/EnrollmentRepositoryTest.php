@@ -527,4 +527,88 @@ final class EnrollmentRepositoryTest extends TestCase {
 		self::assertSame( 7, $id );
 		self::assertSame( 99, $captured['source_order_id'] );
 	}
+
+	/**
+	 * `prepare()` binds positionally and the double substitutes in source
+	 * order, so the assertion reads the statement MySQL would receive — an
+	 * args-array assertion would pass with the id and the timestamps
+	 * swapped (`docs/TESTING.md`).
+	 */
+	public function test_mark_started_if_null_writes_once_through_a_null_guarded_update(): void {
+		$prepared = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				static function ( string $sql, ...$args ) use ( &$prepared ): string {
+					$prepared = (string) preg_replace_callback(
+						'/%[ds]/',
+						static function () use ( &$args ): string {
+							$next = array_shift( $args );
+							return is_string( $next ) ? "'" . $next . "'" : (string) $next;
+						},
+						$sql
+					);
+					return $prepared;
+				}
+			);
+		$this->wpdb->shouldReceive( 'query' )->once()->andReturn( 1 );
+
+		$this->repo->mark_started_if_null( 4, new \DateTimeImmutable( '2026-09-16 10:00:00', new \DateTimeZone( 'UTC' ) ) );
+
+		self::assertSame(
+			"UPDATE wp_vl_enrollments SET started_at = '2026-09-16 10:00:00', updated_at = '2026-09-16 10:00:00' WHERE id = 4 AND started_at IS NULL",
+			$prepared
+		);
+	}
+
+	public function test_mark_started_if_null_stores_the_instant_in_utc(): void {
+		$prepared = null;
+
+		$this->wpdb->shouldReceive( 'prepare' )
+			->once()
+			->andReturnUsing(
+				static function ( string $sql, ...$args ) use ( &$prepared ): string {
+					$prepared = (string) preg_replace_callback(
+						'/%[ds]/',
+						static function () use ( &$args ): string {
+							$next = array_shift( $args );
+							return is_string( $next ) ? "'" . $next . "'" : (string) $next;
+						},
+						$sql
+					);
+					return $prepared;
+				}
+			);
+		$this->wpdb->shouldReceive( 'query' )->once()->andReturn( 1 );
+
+		$this->repo->mark_started_if_null( 4, new \DateTimeImmutable( '2026-09-16 13:00:00', new \DateTimeZone( 'Europe/Kyiv' ) ) );
+
+		self::assertStringContainsString( "started_at = '2026-09-16 10:00:00'", (string) $prepared );
+		self::assertStringNotContainsString( '13:00:00', (string) $prepared );
+	}
+
+	/**
+	 * Trap guard: the self-service progress reset must never clear the
+	 * stamp. `started_at` is kept like `enrolled_at` (`docs/DECISIONS.md`
+	 * 2026-09-15), and the only way a reset could clear it is by gaining the
+	 * column here.
+	 */
+	public function test_mark_progress_reset_never_touches_started_at(): void {
+		$captured_data = null;
+
+		$this->wpdb->shouldReceive( 'update' )
+			->once()
+			->andReturnUsing(
+				function ( string $table, array $data ) use ( &$captured_data ): int {
+					$captured_data = $data;
+					return 1;
+				}
+			);
+
+		$this->repo->mark_progress_reset( 7, 100, new \DateTimeImmutable( '2026-09-16 10:00:00', new \DateTimeZone( 'UTC' ) ) );
+
+		self::assertIsArray( $captured_data );
+		self::assertArrayNotHasKey( 'started_at', $captured_data );
+	}
 }
