@@ -340,4 +340,132 @@ final class ProgressServiceTest extends TestCase {
 
 		$this->service()->record( 1, $this->request( EntityType::LESSON, 200, ViewEventType::PROGRESS, 10 ) );
 	}
+
+	/**
+	 * `started_at` is `core` data written once, on the learner's first
+	 * recorded event in the course (`docs/DECISIONS.md` 2026-09-15). Feature
+	 * `study-time` reads it and never writes it.
+	 */
+	public function test_first_event_stamps_started_at_with_the_events_timestamp(): void {
+		$this->stage_lesson_in_course();
+		$id = $this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+			]
+		);
+
+		$this->service()->record( 1, $this->request( EntityType::LESSON, 200, ViewEventType::VIEW_START ) );
+
+		$enrollment = $this->enrollments->find_by_id( $id );
+		self::assertNotNull( $enrollment );
+		self::assertSame( $this->now->format( 'Y-m-d H:i:s' ), $enrollment->started_at );
+	}
+
+	public function test_a_later_event_does_not_rewrite_started_at(): void {
+		$this->stage_lesson_in_course();
+		$id = $this->enrollments->seed(
+			[
+				'user_id'    => 1,
+				'course_id'  => 100,
+				'started_at' => '2026-01-01 08:00:00',
+			]
+		);
+
+		$this->service()->record( 1, $this->request( EntityType::LESSON, 200, ViewEventType::PROGRESS, 30 ) );
+
+		$enrollment = $this->enrollments->find_by_id( $id );
+		self::assertNotNull( $enrollment );
+		self::assertSame( '2026-01-01 08:00:00', $enrollment->started_at );
+		// The service does not even attempt the write once the row carries a
+		// value — the player emits an event every 30 seconds.
+		self::assertSame( 0, $this->enrollments->started_stamp_calls() );
+	}
+
+	public function test_a_completed_enrollment_is_still_stamped(): void {
+		// A learner who finished the course before this sprint and re-opens
+		// a lesson has their first recorded activity now.
+		$this->stage_lesson_in_course();
+		$id = $this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => EnrollmentStatus::COMPLETED->value,
+			]
+		);
+
+		$this->service()->record( 1, $this->request( EntityType::LESSON, 200, ViewEventType::VIEW_START ) );
+
+		$enrollment = $this->enrollments->find_by_id( $id );
+		self::assertNotNull( $enrollment );
+		self::assertSame( $this->now->format( 'Y-m-d H:i:s' ), $enrollment->started_at );
+	}
+
+	/**
+	 * @return array<string, array{EnrollmentStatus}>
+	 */
+	public static function inactive_statuses(): array {
+		return [
+			'revoked'  => [ EnrollmentStatus::REVOKED ],
+			'expired'  => [ EnrollmentStatus::EXPIRED ],
+			'refunded' => [ EnrollmentStatus::REFUNDED ],
+		];
+	}
+
+	/**
+	 * @dataProvider inactive_statuses
+	 */
+	public function test_a_lapsed_enrollment_is_not_stamped( EnrollmentStatus $status ): void {
+		$this->stage_lesson_in_course();
+		$id = $this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+				'status'    => $status->value,
+			]
+		);
+
+		$this->service()->record( 1, $this->request( EntityType::LESSON, 200, ViewEventType::VIEW_START ) );
+
+		$enrollment = $this->enrollments->find_by_id( $id );
+		self::assertNotNull( $enrollment );
+		self::assertNull( $enrollment->started_at );
+		self::assertSame( 0, $this->enrollments->started_stamp_calls() );
+	}
+
+	public function test_an_event_without_an_enrollment_row_records_progress_and_does_not_throw(): void {
+		// The demo seeder and any path that reaches the service without an
+		// enrollment must keep working.
+		$this->stage_lesson_in_course();
+
+		$result = $this->service()->record( 1, $this->request( EntityType::LESSON, 200, ViewEventType::VIEW_START ) );
+
+		self::assertSame( 1, $result->view_id );
+		self::assertNotNull( $this->progress->find( 1, EntityType::LESSON, 200 ) );
+		self::assertSame( 0, $this->enrollments->started_stamp_calls() );
+	}
+
+	public function test_the_progress_reset_keeps_started_at(): void {
+		$this->stage_lesson_in_course();
+		$id = $this->enrollments->seed(
+			[
+				'user_id'   => 1,
+				'course_id' => 100,
+			]
+		);
+		$this->service()->record( 1, $this->request( EntityType::LESSON, 200, ViewEventType::VIEW_START ) );
+
+		$this->enrollments->mark_progress_reset( 1, 100, $this->now->modify( '+1 day' ) );
+
+		$enrollment = $this->enrollments->find_by_id( $id );
+		self::assertNotNull( $enrollment );
+		self::assertSame( $this->now->format( 'Y-m-d H:i:s' ), $enrollment->started_at );
+		self::assertSame( 0, $enrollment->progress_pct );
+	}
+
+	private function stage_lesson_in_course(): void {
+		$lesson = $this->post( 200, 'vl_lesson' );
+		$course = $this->post( 100, 'vl_course' );
+		$this->hierarchy->shouldReceive( 'resolveCourse' )->with( $lesson )->andReturn( $course );
+	}
 }

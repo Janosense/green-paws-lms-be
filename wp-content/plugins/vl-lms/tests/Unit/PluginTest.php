@@ -57,7 +57,10 @@ final class PluginTest extends TestCase {
 		// profile user-meta registration, and the Phase 9.0 admin meta-box
 		// provider boot.
 		Actions\expectAdded( 'init' )->times( 6 );
-		Actions\expectAdded( 'rest_api_init' )->once();
+		// Twice on `rest_api_init`: `core`'s 23 controllers, and the
+		// `study-time` provider registering its own routes
+		// (`docs/DECISIONS.md` 2026-09-15 — code location).
+		Actions\expectAdded( 'rest_api_init' )->twice();
 		Actions\expectAdded( 'after_setup_theme' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
 
@@ -72,7 +75,10 @@ final class PluginTest extends TestCase {
 		// profile user-meta registration, and the Phase 9.0 admin meta-box
 		// provider boot.
 		Actions\expectAdded( 'init' )->times( 6 );
-		Actions\expectAdded( 'rest_api_init' )->once();
+		// Twice on `rest_api_init`: `core`'s 23 controllers, and the
+		// `study-time` provider registering its own routes
+		// (`docs/DECISIONS.md` 2026-09-15 — code location).
+		Actions\expectAdded( 'rest_api_init' )->twice();
 		Actions\expectAdded( 'after_setup_theme' )->once();
 		Actions\expectDone( 'vl_lms/booted' )->once();
 
@@ -265,6 +271,22 @@ final class PluginTest extends TestCase {
 		self::assertNotFalse(
 			has_action( 'admin_init', [ $provider, 'register_handlers' ] ),
 			'boot() wires the import handlers through admin_init.'
+		);
+	}
+
+	public function test_container_resolves_the_study_time_provider_and_boot_hooks_it(): void {
+		Plugin::set_dependency_checker( static fn (): bool => true );
+
+		Plugin::instance()->boot();
+
+		$container = Plugin::instance()->container();
+		self::assertNotNull( $container );
+
+		$provider = $container->get( \VL\LMS\StudyTime\StudyTimeProvider::class );
+		self::assertInstanceOf( \VL\LMS\StudyTime\StudyTimeProvider::class, $provider );
+		self::assertNotFalse(
+			has_action( 'rest_api_init', [ $provider, 'register_routes' ] ),
+			'boot() lets study-time register its own REST routes on rest_api_init.'
 		);
 	}
 

@@ -260,6 +260,7 @@ use VL\LMS\Services\Notifications\ReminderDispatcher;
 use VL\LMS\Services\Notifications\ReminderScheduler;
 use VL\LMS\Slug\CyrillicTransliterator;
 use VL\LMS\Slug\SlugTransliterationListener;
+use VL\LMS\StudyTime\StudyTimeProvider;
 use VL\LMS\Support\AppUrlResolver;
 use VL\LMS\Support\HeroImageSize;
 use VL\LMS\Support\Logger;
@@ -618,6 +619,16 @@ final class Plugin {
 		$import_provider = $this->container->get( ImportProvider::class );
 		if ( $import_provider instanceof ImportProvider ) {
 			$import_provider->boot();
+		}
+
+		// study-time — the feature's own bootstrap, its one boot call
+		// (`docs/DECISIONS.md` 2026-09-15 — code location). It hooks
+		// `rest_api_init`, where it registers its own `vl/v1/study-time/*`
+		// routes, and builds nothing here: its configuration comes from
+		// filters a theme can still add.
+		$study_time_provider = $this->container->get( StudyTimeProvider::class );
+		if ( $study_time_provider instanceof StudyTimeProvider ) {
+			$study_time_provider->boot();
 		}
 
 		/**
@@ -3159,6 +3170,25 @@ final class Plugin {
 		$container->set(
 			ImportProvider::class,
 			static fn (): ImportProvider => new ImportProvider()
+		);
+
+		// --- study-time — the feature's one container registration
+		// (`docs/DECISIONS.md` 2026-09-15 — code location). Its services are
+		// built when a REST request first asks for them. ---
+
+		$container->set(
+			StudyTimeProvider::class,
+			static function ( Container $c ): StudyTimeProvider {
+				$authenticator = $c->get( RestAuthenticator::class );
+				assert( $authenticator instanceof RestAuthenticator );
+				$hierarchy = $c->get( EntityHierarchy::class );
+				assert( $hierarchy instanceof EntityHierarchy );
+				$enrollments = $c->get( EnrollmentService::class );
+				assert( $enrollments instanceof EnrollmentService );
+				$logger = $c->get( Logger::class );
+				assert( $logger instanceof Logger );
+				return new StudyTimeProvider( $authenticator, $hierarchy, $enrollments, $logger );
+			}
 		);
 
 		$container->set(
