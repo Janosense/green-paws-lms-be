@@ -223,6 +223,323 @@ class StudyTimeReportQuery {
 	}
 
 	/**
+	 * One course's figures across its learners.
+	 *
+	 * Averages are taken over the learners who have time, never over every
+	 * enrolled learner (`docs/DECISIONS.md` 2026-09-15): a course with many
+	 * never-started enrollments would otherwise read as "short". The course
+	 * denominator is the learners whose combined total is above zero — the
+	 * same denominator for all four kinds, so the parts still add up to the
+	 * whole. A lesson has its own denominator: the learners with time on
+	 * that lesson, reported beside it as `learners`.
+	 *
+	 * @return array{
+	 *     learners_with_time: int, avg_total: int, avg_video: int, avg_reading: int,
+	 *     avg_quiz: int, avg_session: int,
+	 *     lessons: list<array{lesson_id: int, title: string, avg_total: int, learners: int}>
+	 * }
+	 */
+	public function for_course( int $course_id ): array {
+		$by_user  = $this->seconds_by_course_and_user( [ $course_id ] )[ $course_id ] ?? [];
+		$learners = $this->learners_with_time( $by_user );
+		$count    = count( $learners );
+
+		$sums = [
+			'video'   => 0,
+			'reading' => 0,
+			'quiz'    => 0,
+			'session' => 0,
+		];
+		foreach ( $learners as $user_id ) {
+			foreach ( array_keys( $sums ) as $source ) {
+				$sums[ $source ] += $by_user[ $user_id ][ $source ] ?? 0;
+			}
+		}
+
+		return [
+			'learners_with_time' => $count,
+			'avg_total'          => $this->average( array_sum( $sums ), $count ),
+			'avg_video'          => $this->average( $sums['video'], $count ),
+			'avg_reading'        => $this->average( $sums['reading'], $count ),
+			'avg_quiz'           => $this->average( $sums['quiz'], $count ),
+			'avg_session'        => $this->average( $sums['session'], $count ),
+			'lessons'            => $this->lesson_averages( $course_id ),
+		];
+	}
+
+	/**
+	 * Average total seconds per course, for a whole list of courses at once.
+	 *
+	 * Reads exactly the same per-learner figures as {@see self::for_course()}
+	 * — one batched statement per source table, never one round trip per
+	 * course — so «Панель інструктора» and the analytics table can never
+	 * disagree about a course. Courses nobody has studied are absent from
+	 * the map; callers default with `?? 0`.
+	 *
+	 * @param list<int> $course_ids
+	 * @return array<int, int>
+	 */
+	public function avg_total_by_course( array $course_ids ): array {
+		$out = [];
+		foreach ( $this->seconds_by_course_and_user( $course_ids ) as $course_id => $by_user ) {
+			$learners = $this->learners_with_time( $by_user );
+			if ( [] === $learners ) {
+				continue;
+			}
+			$total = 0;
+			foreach ( $learners as $user_id ) {
+				$total += array_sum( $by_user[ $user_id ] );
+			}
+			$out[ $course_id ] = $this->average( $total, count( $learners ) );
+		}
+		return $out;
+	}
+
+	/**
+	 * Every learner's seconds in the given courses, split by source.
+	 *
+	 * Three batched statements — ledger, attempts, attendance — merged in
+	 * PHP. A `UNION ALL` over three differently shaped tables would read
+	 * worse and test worse for the same round trips.
+	 *
+	 * @param list<int> $course_ids
+	 * @return array<int, array<int, array<string, int>>> `course => user => source => seconds`
+	 */
+	private function seconds_by_course_and_user( array $course_ids ): array {
+		$ids = array_values( array_unique( array_filter( $course_ids, static fn ( int $id ): bool => $id > 0 ) ) );
+		if ( [] === $ids ) {
+			return [];
+		}
+
+		$out = [];
+		foreach ( $this->ledger_by_course_user_and_kind( $ids ) as $course_id => $users ) {
+			foreach ( $users as $user_id => $kinds ) {
+				foreach ( $kinds as $kind => $seconds ) {
+					$out[ $course_id ][ $user_id ][ $kind ] = $seconds;
+				}
+			}
+		}
+		foreach ( $this->quiz_seconds_by_course_and_user( $ids ) as $course_id => $users ) {
+			foreach ( $users as $user_id => $seconds ) {
+				$out[ $course_id ][ $user_id ]['quiz'] = $seconds;
+			}
+		}
+		foreach ( $this->session_seconds_by_course_and_user( $ids ) as $course_id => $users ) {
+			foreach ( $users as $user_id => $seconds ) {
+				$out[ $course_id ][ $user_id ]['session'] = $seconds;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * The learners of one course whose combined total is above zero.
+	 *
+	 * @param array<int, array<string, int>> $by_user
+	 * @return list<int>
+	 */
+	private function learners_with_time( array $by_user ): array {
+		$out = [];
+		foreach ( $by_user as $user_id => $sources ) {
+			if ( array_sum( $sources ) > 0 ) {
+				$out[] = (int) $user_id;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Whole seconds, and zero rather than a division when nobody qualifies.
+	 */
+	private function average( int $total, int $learners ): int {
+		if ( $learners <= 0 ) {
+			return 0;
+		}
+		return (int) round( $total / $learners );
+	}
+
+	/**
+	 * Per-lesson averages in curriculum order, each over the learners with
+	 * time on that lesson. Lessons nobody studied are left out, like the
+	 * per-enrollment table.
+	 *
+	 * @return list<array{lesson_id: int, title: string, avg_total: int, learners: int}>
+	 */
+	private function lesson_averages( int $course_id ): array {
+		$by_lesson = $this->ledger_by_lesson_and_user( $course_id );
+
+		$out = [];
+		foreach ( $this->lesson_stops( $course_id ) as $lesson_id => $title ) {
+			$users = array_filter( $by_lesson[ $lesson_id ] ?? [], static fn ( int $seconds ): bool => $seconds > 0 );
+			if ( [] === $users ) {
+				continue;
+			}
+			$out[] = [
+				'lesson_id' => $lesson_id,
+				'title'     => $title,
+				'avg_total' => $this->average( (int) array_sum( $users ), count( $users ) ),
+				'learners'  => count( $users ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * @param list<int> $course_ids
+	 * @return array<int, array<int, array<string, int>>> `course => user => kind => seconds`
+	 */
+	private function ledger_by_course_user_and_kind( array $course_ids ): array {
+		$wpdb         = $this->wpdb();
+		$table        = SchemaManager::study_time_table();
+		$placeholders = implode( ', ', array_fill( 0, count( $course_ids ), '%d' ) );
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared -- Table name from SchemaManager; the placeholder run is built from a counted array.
+		// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- One array of binds for a run whose length is the batch size.
+		$sql  = $wpdb->prepare(
+			"SELECT course_id, user_id, kind, SUM(active_seconds) AS seconds
+				FROM {$table}
+				WHERE course_id IN ({$placeholders})
+				GROUP BY course_id, user_id, kind",
+			$course_ids
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$course_id = (int) ( $row['course_id'] ?? 0 );
+				$user_id   = (int) ( $row['user_id'] ?? 0 );
+				$kind      = (string) ( $row['kind'] ?? '' );
+				if ( $course_id > 0 && $user_id > 0 && '' !== $kind ) {
+					$out[ $course_id ][ $user_id ][ $kind ] = (int) ( $row['seconds'] ?? 0 );
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param list<int> $course_ids
+	 * @return array<int, array<int, int>> `course => user => seconds`
+	 */
+	private function quiz_seconds_by_course_and_user( array $course_ids ): array {
+		$wpdb     = $this->wpdb();
+		$table    = SchemaManager::quiz_attempts_table();
+		$statuses = self::COUNTED_ATTEMPT_STATUSES;
+
+		$id_placeholders     = implode( ', ', array_fill( 0, count( $course_ids ), '%d' ) );
+		$status_placeholders = implode( ', ', array_fill( 0, count( $statuses ), '%s' ) );
+
+		// The course ids bind first, then the status list — placeholder order.
+		$args = [ ...$course_ids, ...$statuses ];
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared -- Table name from SchemaManager; both placeholder runs are built from counted arrays.
+		// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- One array of binds for two counted runs.
+		$sql  = $wpdb->prepare(
+			"SELECT course_id, user_id, COALESCE(SUM(time_taken_seconds), 0) AS seconds
+				FROM {$table}
+				WHERE course_id IN ({$id_placeholders}) AND status IN ({$status_placeholders})
+				GROUP BY course_id, user_id",
+			$args
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+
+		return $this->fold_course_user_seconds( $rows );
+	}
+
+	/**
+	 * @param list<int> $course_ids
+	 * @return array<int, array<int, int>> `course => user => seconds`
+	 */
+	private function session_seconds_by_course_and_user( array $course_ids ): array {
+		$wpdb         = $this->wpdb();
+		$table        = SchemaManager::session_attendance_table();
+		$posts        = $wpdb->posts;
+		$placeholders = implode( ', ', array_fill( 0, count( $course_ids ), '%d' ) );
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared -- Table names come from SchemaManager and $wpdb; the placeholder run is built from a counted array.
+		// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- One array of binds for a run whose length is the batch size.
+		$sql  = $wpdb->prepare(
+			"SELECT p.post_parent AS course_id, a.user_id AS user_id, COALESCE(SUM(a.duration_seconds), 0) AS seconds
+				FROM {$table} a
+				INNER JOIN {$posts} p ON p.ID = a.session_id
+				WHERE p.post_type = 'vl_session' AND p.post_parent IN ({$placeholders})
+				GROUP BY p.post_parent, a.user_id",
+			$course_ids
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+
+		return $this->fold_course_user_seconds( $rows );
+	}
+
+	/**
+	 * The learners' ledger seconds on each lesson of one course.
+	 *
+	 * @return array<int, array<int, int>> `lesson_id => user => seconds`
+	 */
+	private function ledger_by_lesson_and_user( int $course_id ): array {
+		$wpdb  = $this->wpdb();
+		$table = SchemaManager::study_time_table();
+		$posts = $wpdb->posts;
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared -- Table names come from SchemaManager and $wpdb; every value is a placeholder.
+		$sql  = $wpdb->prepare(
+			"SELECT CASE WHEN s.entity_type = 'topic' THEN p.post_parent ELSE s.entity_id END AS lesson_id,
+					s.user_id AS user_id,
+					SUM(s.active_seconds) AS seconds
+				FROM {$table} s
+				LEFT JOIN {$posts} p ON p.ID = s.entity_id
+				WHERE s.course_id = %d
+				GROUP BY lesson_id, s.user_id",
+			$course_id
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared
+
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$lesson_id = (int) ( $row['lesson_id'] ?? 0 );
+				$user_id   = (int) ( $row['user_id'] ?? 0 );
+				if ( $lesson_id > 0 && $user_id > 0 ) {
+					$out[ $lesson_id ][ $user_id ] = ( $out[ $lesson_id ][ $user_id ] ?? 0 ) + (int) ( $row['seconds'] ?? 0 );
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param mixed $rows
+	 * @return array<int, array<int, int>>
+	 */
+	private function fold_course_user_seconds( $rows ): array {
+		$out = [];
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$course_id = (int) ( $row['course_id'] ?? 0 );
+				$user_id   = (int) ( $row['user_id'] ?? 0 );
+				if ( $course_id > 0 && $user_id > 0 ) {
+					$out[ $course_id ][ $user_id ] = ( $out[ $course_id ][ $user_id ] ?? 0 ) + (int) ( $row['seconds'] ?? 0 );
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * @return \wpdb
 	 */
 	protected function wpdb() {

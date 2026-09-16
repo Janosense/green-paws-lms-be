@@ -116,6 +116,29 @@ final class StudyTimeReportQueryTest extends TestCase {
 	}
 
 	/**
+	 * Fixtures for the cross-learner reads. The fragments are ordered
+	 * specific-first, because two of the four statements name the ledger.
+	 *
+	 * @param list<array<string, mixed>> $ledger_by_course_user_kind
+	 * @param list<array<string, mixed>> $ledger_by_lesson_user
+	 * @param list<array<string, mixed>> $attempts
+	 * @param list<array<string, mixed>> $attendance
+	 */
+	private function seed_course(
+		array $ledger_by_course_user_kind = [],
+		array $ledger_by_lesson_user = [],
+		array $attempts = [],
+		array $attendance = []
+	): void {
+		$this->results = [
+			'AS lesson_id'                      => $ledger_by_lesson_user,
+			'GROUP BY course_id, user_id, kind' => $ledger_by_course_user_kind,
+			self::ATTEMPTS                      => $attempts,
+			self::ATTENDANCE                    => $attendance,
+		];
+	}
+
+	/**
 	 * @param array<int, string> $lessons `id => title`, in curriculum order
 	 */
 	private function query_with_lessons( array $lessons ): StudyTimeReportQuery {
@@ -368,6 +391,226 @@ final class StudyTimeReportQueryTest extends TestCase {
 			],
 			$report
 		);
+	}
+
+	public function test_averages_are_taken_over_the_learners_who_have_time(): void {
+		// Three learners hold rows; the third has only zeros, which is what a
+		// never-started enrollment looks like. Averaging over three would
+		// make the course read as shorter than anyone's real run.
+		$this->seed_course(
+			[
+				[
+					'course_id' => 568,
+					'user_id'   => 7,
+					'kind'      => 'video',
+					'seconds'   => 600,
+				],
+				[
+					'course_id' => 568,
+					'user_id'   => 8,
+					'kind'      => 'video',
+					'seconds'   => 200,
+				],
+				[
+					'course_id' => 568,
+					'user_id'   => 9,
+					'kind'      => 'video',
+					'seconds'   => 0,
+				],
+			]
+		);
+
+		$report = $this->query_with_lessons( [] )->for_course( 568 );
+
+		$this->assertSame( 2, $report['learners_with_time'] );
+		$this->assertSame( 400, $report['avg_video'] );
+		$this->assertSame( 400, $report['avg_total'] );
+	}
+
+	public function test_the_four_kind_averages_share_the_course_denominator_and_add_up(): void {
+		$this->seed_course(
+			[
+				[
+					'course_id' => 568,
+					'user_id'   => 7,
+					'kind'      => 'video',
+					'seconds'   => 600,
+				],
+				[
+					'course_id' => 568,
+					'user_id'   => 8,
+					'kind'      => 'reading',
+					'seconds'   => 400,
+				],
+			],
+			attempts: [
+				[
+					'course_id' => 568,
+					'user_id'   => 7,
+					'seconds'   => 100,
+				],
+			],
+			attendance: [
+				[
+					'course_id' => 568,
+					'user_id'   => 8,
+					'seconds'   => 900,
+				],
+			]
+		);
+
+		$report = $this->query_with_lessons( [] )->for_course( 568 );
+
+		$this->assertSame( 2, $report['learners_with_time'] );
+		$this->assertSame( 300, $report['avg_video'] );
+		$this->assertSame( 200, $report['avg_reading'] );
+		$this->assertSame( 50, $report['avg_quiz'] );
+		$this->assertSame( 450, $report['avg_session'] );
+		$this->assertSame(
+			$report['avg_video'] + $report['avg_reading'] + $report['avg_quiz'] + $report['avg_session'],
+			$report['avg_total'],
+			'one denominator for every kind, so the parts add up to the whole'
+		);
+	}
+
+	public function test_a_lesson_average_counts_only_the_learners_who_studied_that_lesson(): void {
+		$this->seed_course(
+			ledger_by_lesson_user: [
+				[
+					'lesson_id' => 10,
+					'user_id'   => 7,
+					'seconds'   => 600,
+				],
+				[
+					'lesson_id' => 10,
+					'user_id'   => 8,
+					'seconds'   => 200,
+				],
+				[
+					'lesson_id' => 20,
+					'user_id'   => 7,
+					'seconds'   => 300,
+				],
+			]
+		);
+
+		$report = $this->query_with_lessons(
+			[
+				10 => 'Перший',
+				20 => 'Другий',
+				30 => 'Ніхто не відкривав',
+			]
+		)->for_course( 568 );
+
+		$this->assertSame(
+			[
+				[
+					'lesson_id' => 10,
+					'title'     => 'Перший',
+					'avg_total' => 400,
+					'learners'  => 2,
+				],
+				[
+					'lesson_id' => 20,
+					'title'     => 'Другий',
+					'avg_total' => 300,
+					'learners'  => 1,
+				],
+			],
+			$report['lessons']
+		);
+	}
+
+	public function test_a_course_nobody_studied_reads_as_zeros_without_dividing(): void {
+		$this->seed_course();
+
+		$report = $this->query_with_lessons( [ 10 => 'Урок' ] )->for_course( 568 );
+
+		$this->assertSame( 0, $report['learners_with_time'] );
+		$this->assertSame( 0, $report['avg_total'] );
+		$this->assertSame( 0, $report['avg_video'] );
+		$this->assertSame( 0, $report['avg_reading'] );
+		$this->assertSame( 0, $report['avg_quiz'] );
+		$this->assertSame( 0, $report['avg_session'] );
+		$this->assertSame( [], $report['lessons'] );
+	}
+
+	public function test_the_instructor_column_and_the_analytics_table_cannot_disagree(): void {
+		$fixtures = [
+			[
+				'course_id' => 568,
+				'user_id'   => 7,
+				'kind'      => 'video',
+				'seconds'   => 600,
+			],
+			[
+				'course_id' => 568,
+				'user_id'   => 8,
+				'kind'      => 'reading',
+				'seconds'   => 300,
+			],
+		];
+
+		$this->seed_course( $fixtures );
+		$from_table = $this->query_with_lessons( [] )->for_course( 568 )['avg_total'];
+
+		$this->seed_course( $fixtures );
+		$from_column = $this->query_with_lessons( [] )->avg_total_by_course( [ 568 ] );
+
+		$this->assertSame( $from_table, $from_column[568] ?? 0 );
+	}
+
+	public function test_the_batched_average_reads_many_courses_without_a_query_per_course(): void {
+		$this->seed_course(
+			[
+				[
+					'course_id' => 568,
+					'user_id'   => 7,
+					'kind'      => 'video',
+					'seconds'   => 600,
+				],
+				[
+					'course_id' => 900,
+					'user_id'   => 7,
+					'kind'      => 'video',
+					'seconds'   => 120,
+				],
+			]
+		);
+
+		$averages = $this->query_with_lessons( [] )->avg_total_by_course( [ 568, 900, 901 ] );
+
+		$this->assertSame(
+			[
+				568 => 600,
+				900 => 120,
+			],
+			$averages,
+			'a course nobody studied is absent, not zero — callers default with ?? 0'
+		);
+		$this->assertCount( 3, $this->prepared, 'one statement per source table, never one per course' );
+		$this->assertStringContainsString( 'course_id IN (568, 900, 901)', $this->prepared[0] );
+	}
+
+	public function test_the_batched_average_filters_its_input_and_short_circuits_on_an_empty_list(): void {
+		$this->seed_course(
+			[
+				[
+					'course_id' => 568,
+					'user_id'   => 7,
+					'kind'      => 'video',
+					'seconds'   => 600,
+				],
+			]
+		);
+
+		$query = $this->query_with_lessons( [] );
+
+		$this->assertSame( [], $query->avg_total_by_course( [] ) );
+		$this->assertSame( [], $this->prepared, 'an empty list must never reach a malformed IN ()' );
+
+		$query->avg_total_by_course( [ 568, 568, 0, -3 ] );
+		$this->assertStringContainsString( 'course_id IN (568)', $this->prepared[0] );
 	}
 
 	private function sql_naming( string $table ): string {
