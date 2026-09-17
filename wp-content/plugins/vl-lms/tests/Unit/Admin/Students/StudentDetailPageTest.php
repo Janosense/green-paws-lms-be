@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VL\LMS\Tests\Unit\Admin\Students;
 
 use Brain\Monkey;
+use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -159,5 +160,67 @@ final class StudentDetailPageTest extends TestCase {
 		self::assertStringContainsString( 'vl-admin-course-search', $output );
 		self::assertStringContainsString( 'Відкликати', $output );
 		self::assertStringContainsString( 'CMS 101', $output );
+	}
+
+	public function test_the_analytics_tab_offers_a_section_hook_with_the_student_and_their_enrollments(): void {
+		$_GET = [ 'id' => '7' ];
+		$this->stub_student();
+		$this->stub_course( 'CMS 101' );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 7,
+				'course_id' => 321,
+				'status'    => EnrollmentStatus::ACTIVE->value,
+			]
+		);
+		$expected = $this->enrollments->list_for_user( 7 );
+
+		Actions\expectDone( 'vl_lms_admin_student_detail_sections' )
+			->once()
+			->with( 7, $expected );
+
+		ob_start();
+		$this->page()->render();
+		ob_end_clean();
+	}
+
+	public function test_the_courses_tab_does_not_offer_the_section_hook(): void {
+		// The hook belongs to one tab: a feature section must not render
+		// twice for the same student.
+		$_GET = [
+			'id'  => '7',
+			'tab' => 'courses',
+		];
+		$this->stub_student();
+		$this->stub_course( 'CMS 101' );
+
+		Actions\expectDone( 'vl_lms_admin_student_detail_sections' )->never();
+
+		ob_start();
+		$this->page()->render();
+		ob_end_clean();
+	}
+
+	public function test_the_section_hook_adds_no_markup_of_its_own(): void {
+		// Nothing listens yet, and the page must render exactly as before:
+		// the hook is an offer, not a change.
+		$_GET = [ 'id' => '7' ];
+		$this->stub_student();
+		$this->stub_course( 'CMS 101' );
+		$this->enrollments->seed(
+			[
+				'user_id'   => 7,
+				'course_id' => 321,
+				'status'    => EnrollmentStatus::COMPLETED->value,
+			]
+		);
+
+		ob_start();
+		$this->page()->render();
+		$output = (string) ob_get_clean();
+
+		// The «Курси студента» card is still the last thing inside the page
+		// wrapper: the hook fires between them and contributes nothing.
+		self::assertStringEndsWith( '</section></div>', trim( $output ) );
 	}
 }

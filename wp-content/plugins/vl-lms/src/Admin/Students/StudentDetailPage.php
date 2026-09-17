@@ -167,6 +167,22 @@ class StudentDetailPage {
 
 		echo '</tbody></table>';
 		echo '</section>';
+
+		/**
+		 * Renders feature sections under the student's analytics tab.
+		 *
+		 * A render-time extension point, not a lifecycle event: a listener
+		 * echoes its own markup here and returns nothing, and the page is
+		 * unchanged when nobody listens. It fires outside the «Курси
+		 * студента» card so a section draws its own `vl-admin-card` sibling.
+		 *
+		 * First consumer: feature `study-time` («Студент — Час навчання»),
+		 * `docs/DECISIONS.md` 2026-09-15.
+		 *
+		 * @param int                                          $user_id     The student being viewed.
+		 * @param list<\VL\LMS\Domain\Enrollment\Enrollment>    $enrollments The same rows the table above rendered.
+		 */
+		do_action( 'vl_lms_admin_student_detail_sections', (int) $user->ID, $enrollments );
 	}
 
 	private function render_courses_tab( WP_User $user ): void {

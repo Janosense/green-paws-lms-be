@@ -288,6 +288,22 @@ final class PluginTest extends TestCase {
 			has_action( 'rest_api_init', [ $provider, 'register_routes' ] ),
 			'boot() lets study-time register its own REST routes on rest_api_init.'
 		);
+		self::assertNotFalse(
+			has_action( 'vl_lms_admin_student_detail_sections', [ $provider, 'render_student_detail_section' ] ),
+			'boot() lets study-time render its section on the wp-admin student card.'
+		);
+		self::assertNotFalse(
+			has_action( 'vl_lms_admin_analytics_sections', [ $provider, 'render_analytics_section' ] ),
+			'boot() lets study-time render its section on the wp-admin analytics page.'
+		);
+		self::assertNotFalse(
+			has_action( 'vl_lms_admin_instructor_dashboard_columns', [ $provider, 'render_instructor_column_header' ] ),
+			'boot() lets study-time add its column header to the instructor dashboard.'
+		);
+		self::assertNotFalse(
+			has_action( 'vl_lms_admin_instructor_dashboard_cells', [ $provider, 'render_instructor_column_cell' ] ),
+			'boot() lets study-time fill that column for each course row.'
+		);
 	}
 
 	public function test_default_dependency_check_uses_class_exists(): void {

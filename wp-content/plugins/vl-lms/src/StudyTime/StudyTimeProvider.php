@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace VL\LMS\StudyTime;
 
+use VL\LMS\Admin\StudyTime\AnalyticsSection;
+use VL\LMS\Admin\StudyTime\InstructorDashboardColumn;
+use VL\LMS\Admin\StudyTime\StudentDetailSection;
 use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\Learn\EntityHierarchy;
+use VL\LMS\Learn\Progression\CurriculumOrder;
 use VL\LMS\Services\Enrollment\EnrollmentService;
 use VL\LMS\StudyTime\Api\StudyTimeController;
+use VL\LMS\StudyTime\Reports\StudyTimeReportQuery;
 use VL\LMS\StudyTime\Repositories\StudyTimeRepository;
 use VL\LMS\StudyTime\Services\HeartbeatService;
 use VL\LMS\Support\Logger;
@@ -38,16 +43,41 @@ final class StudyTimeProvider {
 
 	private ?StudyTimeController $controller = null;
 
+	private ?StudyTimeReportQuery $reports = null;
+
+	private ?StudentDetailSection $student_detail_section = null;
+
+	private ?AnalyticsSection $analytics_section = null;
+
+	private ?InstructorDashboardColumn $instructor_column = null;
+
 	public function __construct(
 		private readonly RestAuthenticator $authenticator,
 		private readonly EntityHierarchy $hierarchy,
 		private readonly EnrollmentService $enrollments,
+		private readonly CurriculumOrder $order,
 		private readonly Logger $logger
 	) {
 	}
 
 	public function boot(): void {
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
+		add_action( 'vl_lms_admin_student_detail_sections', [ $this, 'render_student_detail_section' ], 10, 2 );
+		add_action( 'vl_lms_admin_analytics_sections', [ $this, 'render_analytics_section' ] );
+		add_action( 'vl_lms_admin_instructor_dashboard_columns', [ $this, 'render_instructor_column_header' ] );
+		add_action( 'vl_lms_admin_instructor_dashboard_cells', [ $this, 'render_instructor_column_cell' ], 10, 1 );
+	}
+
+	/**
+	 * Listens to `core`'s student-card extension point (`docs/CONTRACTS.md`
+	 * → wp-admin extension points). Hooked unconditionally: the action only
+	 * ever fires while that page renders, and the section — with its report
+	 * query and the curriculum walk behind it — is built on first use.
+	 *
+	 * @param list<\VL\LMS\Domain\Enrollment\Enrollment> $enrollments
+	 */
+	public function render_student_detail_section( int $user_id, array $enrollments ): void {
+		$this->student_detail_section()->render( $user_id, $enrollments );
 	}
 
 	/**
@@ -64,6 +94,7 @@ final class StudyTimeProvider {
 			$this->authenticator,
 			$this->config(),
 			$this->heartbeats(),
+			$this->reports(),
 			$this->logger
 		);
 	}
@@ -75,6 +106,43 @@ final class StudyTimeProvider {
 			$this->ledger(),
 			$this->config()
 		);
+	}
+
+	/**
+	 * Listens to `core`'s analytics extension point. That action fires on
+	 * the page's empty-data branch too, which is what lets this section show
+	 * before the nightly rollup has ever run.
+	 */
+	public function render_analytics_section(): void {
+		$this->analytics_section()->render();
+	}
+
+	public function render_instructor_column_header(): void {
+		$this->instructor_column()->header();
+	}
+
+	public function render_instructor_column_cell( int $course_id ): void {
+		$this->instructor_column()->cell( $course_id );
+	}
+
+	private function analytics_section(): AnalyticsSection {
+		return $this->analytics_section ??= new AnalyticsSection( $this->reports() );
+	}
+
+	/**
+	 * One instance per request, so the column's per-course memo survives
+	 * across the rows of one table.
+	 */
+	private function instructor_column(): InstructorDashboardColumn {
+		return $this->instructor_column ??= new InstructorDashboardColumn( $this->reports() );
+	}
+
+	private function student_detail_section(): StudentDetailSection {
+		return $this->student_detail_section ??= new StudentDetailSection( $this->reports() );
+	}
+
+	private function reports(): StudyTimeReportQuery {
+		return $this->reports ??= new StudyTimeReportQuery( $this->order );
 	}
 
 	private function ledger(): StudyTimeRepository {

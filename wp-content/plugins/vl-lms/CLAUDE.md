@@ -21,6 +21,7 @@ The `vl-lms` plugin, a multi-feature code area: `core` (the LMS domain: CPTs, cu
   - `Roles\CapabilitiesMap` caps (`vl_view_lesson`, `edit_posts`)
   - `Support\Logger` and `Auth\RestAuthenticator`
   - `Services\Enrollment\EnrollmentService::has_active_access()` (read-only gate) and `Learn\EntityHierarchy::resolveCourse()`
+  - `Learn\Progression\CurriculumOrder::for_course()` (read-only, for the order and titles of a course's lessons in the reports) — root `CLAUDE.md` domain invariant 8 makes the curriculum walk a three-way invariant, so a feature reads it and never re-derives the order
   - `Database\SchemaManager` (its own table) and the four extension actions above
   - the table names and meta keys from `docs/DATA-MODEL.md`, read as constants — `vl_enrollments`, `vl_quiz_attempts`, `vl_session_attendance` are read, never written
 
