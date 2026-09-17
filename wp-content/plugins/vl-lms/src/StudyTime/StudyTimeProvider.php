@@ -94,6 +94,7 @@ final class StudyTimeProvider {
 			$this->authenticator,
 			$this->config(),
 			$this->heartbeats(),
+			$this->reports(),
 			$this->logger
 		);
 	}

@@ -80,6 +80,9 @@ final class StudyTimeReportQueryTest extends TestCase {
 		$this->wpdb->shouldReceive( 'get_var' )
 			->andReturnUsing( fn ( string $sql ) => $this->answer_for( $sql ) );
 
+		$this->wpdb->shouldReceive( 'get_col' )
+			->andReturnUsing( fn ( string $sql ): array => (array) $this->answer_for( $sql ) );
+
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test double for $wpdb.
 		$GLOBALS['wpdb'] = $this->wpdb;
 	}
@@ -611,6 +614,101 @@ final class StudyTimeReportQueryTest extends TestCase {
 
 		$query->avg_total_by_course( [ 568, 568, 0, -3 ] );
 		$this->assertStringContainsString( 'course_id IN (568)', $this->prepared[0] );
+	}
+
+	public function test_for_user_covers_running_and_finished_enrollments_only(): void {
+		$this->results = [
+			'wp_vl_enrollments' => [ 101, 202 ],
+			'AS seconds'        => [],
+		];
+
+		$report = $this->query_with_lessons( [] )->for_user( 7 );
+
+		$enrollment_sql = $this->sql_naming( 'wp_vl_enrollments' );
+		self::assertStringContainsString( "status IN ('active', 'completed')", $enrollment_sql );
+		self::assertStringContainsString( 'user_id = 7', $enrollment_sql );
+		self::assertSame( [ 101, 202 ], array_keys( $report ), 'a revoked or expired course never reaches the report' );
+	}
+
+	public function test_for_user_reports_a_course_with_no_rows_as_zeros_rather_than_missing(): void {
+		$this->results = [
+			'wp_vl_enrollments' => [ 101 ],
+			'AS seconds'        => [],
+		];
+
+		$report = $this->query_with_lessons( [] )->for_user( 7 );
+
+		self::assertSame(
+			[
+				'total'   => 0,
+				'video'   => 0,
+				'reading' => 0,
+				'quiz'    => 0,
+				'session' => 0,
+			],
+			$report[101]
+		);
+	}
+
+	public function test_for_user_adds_the_four_sources_per_course(): void {
+		$this->results = [
+			'wp_vl_enrollments'        => [ 101 ],
+			'wp_vl_study_time'         => [
+				[
+					'course_id' => 101,
+					'kind'      => 'video',
+					'seconds'   => 600,
+				],
+				[
+					'course_id' => 101,
+					'kind'      => 'reading',
+					'seconds'   => 300,
+				],
+			],
+			'wp_vl_quiz_attempts'      => [
+				[
+					'course_id' => 101,
+					'seconds'   => 480,
+				],
+			],
+			'wp_vl_session_attendance' => [
+				[
+					'course_id' => 101,
+					'seconds'   => 3600,
+				],
+			],
+		];
+
+		$report = $this->query_with_lessons( [] )->for_user( 7 );
+
+		self::assertSame( 600, $report[101]['video'] );
+		self::assertSame( 300, $report[101]['reading'] );
+		self::assertSame( 480, $report[101]['quiz'] );
+		self::assertSame( 3600, $report[101]['session'] );
+		self::assertSame( 4980, $report[101]['total'] );
+	}
+
+	public function test_for_user_reads_only_that_learner_and_ignores_the_reset_epoch(): void {
+		$this->results = [
+			'wp_vl_enrollments' => [ 101 ],
+			'AS seconds'        => [],
+		];
+
+		$this->query_with_lessons( [] )->for_user( 7 );
+
+		foreach ( $this->prepared as $sql ) {
+			self::assertStringContainsString( 'user_id = 7', $sql, 'every source is scoped to the caller' );
+			self::assertStringNotContainsString( 'progress_reset_at', $sql );
+		}
+	}
+
+	public function test_for_user_without_enrollments_asks_nothing_further(): void {
+		$this->results = [ 'wp_vl_enrollments' => [] ];
+
+		$report = $this->query_with_lessons( [] )->for_user( 7 );
+
+		self::assertSame( [], $report );
+		self::assertCount( 1, $this->prepared, 'the enrollment read is the only statement' );
 	}
 
 	private function sql_naming( string $table ): string {

@@ -6,6 +6,7 @@ namespace VL\LMS\StudyTime\Api;
 
 use VL\LMS\Auth\RestAuthenticator;
 use VL\LMS\StudyTime\Domain\StudyKind;
+use VL\LMS\StudyTime\Reports\StudyTimeReportQuery;
 use VL\LMS\StudyTime\Services\Exception\HeartbeatFailedException;
 use VL\LMS\StudyTime\Services\HeartbeatService;
 use VL\LMS\StudyTime\StudyTimeConfig;
@@ -47,6 +48,8 @@ class StudyTimeController {
 
 	public const string HEARTBEAT_ROUTE = '/study-time/heartbeat';
 
+	public const string ME_ROUTE = '/study-time/me';
+
 	public const string VIEW_CAPABILITY = 'vl_view_lesson';
 
 	public function __construct(
@@ -54,6 +57,7 @@ class StudyTimeController {
 		private readonly RestAuthenticator $authenticator,
 		private readonly StudyTimeConfig $config,
 		private readonly HeartbeatService $heartbeats,
+		private readonly StudyTimeReportQuery $reports,
 		private readonly Logger $logger
 	) {
 	}
@@ -77,6 +81,17 @@ class StudyTimeController {
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'heartbeat' ],
 				'permission_callback' => [ $this, 'heartbeat_permission_callback' ],
+				'args'                => [],
+			]
+		);
+
+		register_rest_route(
+			$this->rest_namespace,
+			self::ME_ROUTE,
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'me' ],
+				'permission_callback' => [ $this, 'permission_callback' ],
 				'args'                => [],
 			]
 		);
@@ -122,6 +137,49 @@ class StudyTimeController {
 				'cap_seconds'       => $this->config->cap_seconds,
 			]
 		);
+	}
+
+	/**
+	 * The caller's own study time, per course they are enrolled in.
+	 *
+	 * Answers about the caller and nobody else, which is why being signed in
+	 * is the whole gate: there is no other learner's data to protect here.
+	 * A learner with no enrollments gets an empty list and a 200 — "you have
+	 * studied nothing yet" is an answer, not a missing resource.
+	 *
+	 * Bare object, like the feature's other responses
+	 * (`docs/DECISIONS.md` 2026-09-16).
+	 *
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function me( WP_REST_Request $request ) {
+		$user = $this->authenticator->user_from_request( $request );
+		if ( ! $user instanceof WP_User ) {
+			return $this->not_logged_in();
+		}
+
+		$courses = [];
+		foreach ( $this->reports->for_user( (int) $user->ID ) as $course_id => $totals ) {
+			$post = get_post( $course_id );
+			if ( ! $post instanceof \WP_Post ) {
+				// The enrollment outlived its course; there is nothing to
+				// name on the card, so it is left out rather than shipped
+				// with an empty slug.
+				continue;
+			}
+
+			$courses[] = [
+				'course_id'       => $course_id,
+				'course_slug'     => (string) $post->post_name,
+				'total_seconds'   => $totals['total'],
+				'video_seconds'   => $totals['video'],
+				'reading_seconds' => $totals['reading'],
+				'quiz_seconds'    => $totals['quiz'],
+				'session_seconds' => $totals['session'],
+			];
+		}
+
+		return rest_ensure_response( [ 'courses' => $courses ] );
 	}
 
 	/**

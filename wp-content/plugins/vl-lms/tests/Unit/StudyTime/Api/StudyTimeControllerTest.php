@@ -14,6 +14,7 @@ use VL\LMS\StudyTime\Api\StudyTimeController;
 use VL\LMS\StudyTime\Domain\StudyKind;
 use VL\LMS\StudyTime\Services\Exception\HeartbeatFailedException;
 use VL\LMS\StudyTime\Services\HeartbeatResult;
+use VL\LMS\StudyTime\Reports\StudyTimeReportQuery;
 use VL\LMS\StudyTime\Services\HeartbeatService;
 use VL\LMS\StudyTime\StudyTimeConfig;
 use VL\LMS\Support\Logger;
@@ -38,6 +39,11 @@ final class StudyTimeControllerTest extends TestCase {
 	/** @var list<array{string, array<string, mixed>}> */
 	private array $debug_log = [];
 
+	/**
+	 * @var Mockery\MockInterface
+	 */
+	private $reports;
+
 	private StudyTimeController $controller;
 
 	protected function setUp(): void {
@@ -56,6 +62,7 @@ final class StudyTimeControllerTest extends TestCase {
 
 		$this->authenticator = Mockery::mock( RestAuthenticator::class );
 		$this->heartbeats    = Mockery::mock( HeartbeatService::class );
+		$this->reports       = Mockery::mock( StudyTimeReportQuery::class );
 		$this->logger        = Mockery::mock( Logger::class );
 		$this->logger->shouldReceive( 'debug' )->andReturnUsing(
 			function ( string $message, array $context = [] ): void {
@@ -69,6 +76,7 @@ final class StudyTimeControllerTest extends TestCase {
 			$this->authenticator,
 			new StudyTimeConfig( 90, 20, 30 ),
 			$this->heartbeats,
+			$this->reports,
 			$this->logger
 		);
 	}
@@ -114,8 +122,9 @@ final class StudyTimeControllerTest extends TestCase {
 		$captured   = [];
 		$namespaces = [];
 
+		// Three routes since Sprint 2 Step 5: config, heartbeat, me.
 		Functions\expect( 'register_rest_route' )
-			->twice()
+			->times( 3 )
 			->andReturnUsing(
 				static function ( string $rest_namespace, string $route, array $args ) use ( &$captured, &$namespaces ): bool {
 					$captured[ $route ] = $args;
@@ -126,7 +135,7 @@ final class StudyTimeControllerTest extends TestCase {
 
 		$this->controller->register_routes();
 
-		self::assertSame( [ 'vl/v1', 'vl/v1' ], $namespaces );
+		self::assertSame( [ 'vl/v1', 'vl/v1', 'vl/v1' ], $namespaces );
 		$config = $captured['/study-time/config'];
 		self::assertSame( 'GET', $config['methods'] );
 		self::assertSame( [ $this->controller, 'config' ], $config['callback'] );
@@ -170,8 +179,9 @@ final class StudyTimeControllerTest extends TestCase {
 	public function test_register_routes_registers_the_heartbeat_route_too(): void {
 		$captured = [];
 
+		// Three routes since Sprint 2 Step 5: config, heartbeat, me.
 		Functions\expect( 'register_rest_route' )
-			->twice()
+			->times( 3 )
 			->andReturnUsing(
 				static function ( string $rest_namespace, string $route, array $args ) use ( &$captured ): bool {
 					$captured[ $route ] = $args;
@@ -181,7 +191,7 @@ final class StudyTimeControllerTest extends TestCase {
 
 		$this->controller->register_routes();
 
-		self::assertSame( [ '/study-time/config', '/study-time/heartbeat' ], array_keys( $captured ) );
+		self::assertSame( [ '/study-time/config', '/study-time/heartbeat', '/study-time/me' ], array_keys( $captured ) );
 		self::assertSame( 'POST', $captured['/study-time/heartbeat']['methods'] );
 		self::assertSame( [ $this->controller, 'heartbeat' ], $captured['/study-time/heartbeat']['callback'] );
 		self::assertSame( [ $this->controller, 'heartbeat_permission_callback' ], $captured['/study-time/heartbeat']['permission_callback'] );
@@ -218,9 +228,9 @@ final class StudyTimeControllerTest extends TestCase {
 	 */
 	public static function invalid_bodies(): array {
 		return [
-			'empty body'            => [ [], 'invalid_payload', 400 ],
-			'not an object'         => [ null, 'invalid_payload', 400 ],
-			'unknown entity type'   => [
+			'empty body'             => [ [], 'invalid_payload', 400 ],
+			'not an object'          => [ null, 'invalid_payload', 400 ],
+			'unknown entity type'    => [
 				[
 					'entity_type' => 'module',
 					'entity_id'   => 101,
@@ -229,7 +239,7 @@ final class StudyTimeControllerTest extends TestCase {
 				'invalid_entity_type',
 				422,
 			],
-			'missing entity type'   => [
+			'missing entity type'    => [
 				[
 					'entity_id' => 101,
 					'kind'      => 'video',
@@ -237,7 +247,7 @@ final class StudyTimeControllerTest extends TestCase {
 				'invalid_entity_type',
 				422,
 			],
-			'entity id zero'        => [
+			'entity id zero'         => [
 				[
 					'entity_type' => 'lesson',
 					'entity_id'   => 0,
@@ -255,7 +265,7 @@ final class StudyTimeControllerTest extends TestCase {
 				'invalid_payload',
 				400,
 			],
-			'unknown kind'          => [
+			'unknown kind'           => [
 				[
 					'entity_type' => 'lesson',
 					'entity_id'   => 101,
@@ -361,6 +371,141 @@ final class StudyTimeControllerTest extends TestCase {
 				'entity_id'   => 101,
 				'kind'        => 'video',
 			]
+		);
+	}
+
+	public function test_register_routes_registers_the_me_route_too(): void {
+		$routes = [];
+		Functions\when( 'register_rest_route' )->alias(
+			static function ( string $namespace, string $route, array $args ) use ( &$routes ): void {
+				$routes[ $route ] = $args;
+			}
+		);
+
+		$this->controller->register_routes();
+
+		self::assertArrayHasKey( StudyTimeController::ME_ROUTE, $routes );
+		self::assertSame( 'GET', $routes[ StudyTimeController::ME_ROUTE ]['methods'] );
+		self::assertSame(
+			[ $this->controller, 'permission_callback' ],
+			$routes[ StudyTimeController::ME_ROUTE ]['permission_callback'],
+			'being signed in is the whole gate: the route answers about the caller only'
+		);
+	}
+
+	public function test_me_refuses_a_caller_the_authenticator_does_not_resolve(): void {
+		$request = Mockery::mock( WP_REST_Request::class );
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( null );
+
+		$result = $this->controller->me( $request );
+
+		self::assertInstanceOf( WP_Error::class, $result );
+		self::assertSame( 'rest_not_logged_in', $result->get_error_code() );
+	}
+
+	public function test_me_answers_a_bare_object_with_one_entry_per_enrolled_course(): void {
+		$this->authenticate_as( 7 );
+		$this->stub_course_slugs(
+			[
+				101 => 'anesthesia',
+				202 => 'c-section',
+			]
+		);
+		$this->reports->shouldReceive( 'for_user' )->with( 7 )->andReturn(
+			[
+				101 => [
+					'total'   => 4716,
+					'video'   => 600,
+					'reading' => 300,
+					'quiz'    => 480,
+					'session' => 3336,
+				],
+				202 => [
+					'total'   => 0,
+					'video'   => 0,
+					'reading' => 0,
+					'quiz'    => 0,
+					'session' => 0,
+				],
+			]
+		);
+
+		$data = $this->controller->me( Mockery::mock( WP_REST_Request::class ) )->get_data();
+
+		self::assertArrayNotHasKey( 'success', $data, 'bare object, no envelope' );
+		self::assertArrayNotHasKey( 'data', $data );
+		self::assertCount( 2, $data['courses'] );
+		self::assertSame(
+			[
+				'course_id'       => 101,
+				'course_slug'     => 'anesthesia',
+				'total_seconds'   => 4716,
+				'video_seconds'   => 600,
+				'reading_seconds' => 300,
+				'quiz_seconds'    => 480,
+				'session_seconds' => 3336,
+			],
+			$data['courses'][0]
+		);
+		self::assertSame( 0, $data['courses'][1]['total_seconds'], 'an enrolled course with no time is still listed' );
+	}
+
+	public function test_me_answers_an_empty_list_rather_than_a_404_for_a_learner_with_no_enrollments(): void {
+		$this->authenticate_as( 7 );
+		$this->reports->shouldReceive( 'for_user' )->andReturn( [] );
+
+		$response = $this->controller->me( Mockery::mock( WP_REST_Request::class ) );
+
+		self::assertSame( [ 'courses' => [] ], $response->get_data() );
+		self::assertSame( 200, $response->get_status() );
+	}
+
+	public function test_me_skips_a_course_whose_post_is_gone(): void {
+		$this->authenticate_as( 7 );
+		$this->stub_course_slugs( [ 101 => 'anesthesia' ] );
+		$this->reports->shouldReceive( 'for_user' )->andReturn(
+			[
+				101 => [
+					'total'   => 60,
+					'video'   => 60,
+					'reading' => 0,
+					'quiz'    => 0,
+					'session' => 0,
+				],
+				999 => [
+					'total'   => 30,
+					'video'   => 30,
+					'reading' => 0,
+					'quiz'    => 0,
+					'session' => 0,
+				],
+			]
+		);
+
+		$data = $this->controller->me( Mockery::mock( WP_REST_Request::class ) )->get_data();
+
+		self::assertSame( [ 101 ], array_column( $data['courses'], 'course_id' ) );
+	}
+
+	private function authenticate_as( int $user_id ): void {
+		$user     = Mockery::mock( 'WP_User' );
+		$user->ID = $user_id;
+		$this->authenticator->shouldReceive( 'user_from_request' )->andReturn( $user );
+	}
+
+	/**
+	 * @param array<int, string> $slugs
+	 */
+	private function stub_course_slugs( array $slugs ): void {
+		Functions\when( 'get_post' )->alias(
+			static function ( int $id ) use ( $slugs ) {
+				if ( ! isset( $slugs[ $id ] ) ) {
+					return null;
+				}
+				$post            = Mockery::mock( 'WP_Post' );
+				$post->post_name = $slugs[ $id ];
+				return $post;
+			}
 		);
 	}
 }
